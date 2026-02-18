@@ -8,7 +8,7 @@ export function Card({ className, children, ...props }: CardProps) {
   return (
     <div
       className={cn(
-        'rounded-lg border bg-card text-card-foreground shadow-sm',
+        'rounded-xl border border-slate-200/80 bg-[var(--surface)] text-slate-900 shadow-sm',
         className
       )}
       {...props}
@@ -20,7 +20,7 @@ export function Card({ className, children, ...props }: CardProps) {
 
 export function CardHeader({ className, children, ...props }: CardProps) {
   return (
-    <div className={cn('flex flex-col space-y-1.5 p-6', className)} {...props}>
+    <div className={cn('flex flex-col space-y-2 p-6', className)} {...props}>
       {children}
     </div>
   )
@@ -30,7 +30,7 @@ export function CardTitle({ className, children, ...props }: CardProps) {
   return (
     <h3
       className={cn(
-        'text-2xl font-semibold leading-none tracking-tight',
+        'text-xl font-semibold leading-snug tracking-tight',
         className
       )}
       {...props}

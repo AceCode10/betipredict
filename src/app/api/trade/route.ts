@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { TradeRequest } from '@/types'
+import { initializePool, calculateSharesForAmount, getPrices } from '@/lib/cpmm'
 
 export async function POST(request: NextRequest) {
   try {
@@ -112,19 +113,29 @@ export async function POST(request: NextRequest) {
     // Update or create user position
     await updatePosition(session.user.id, marketId, outcome, amount, tradePrice, side)
 
-    // Update market liquidity and volume
+    // Update market prices using CPMM
+    const pool = initializePool(market.liquidity || 1000, market.yesPrice)
+    const { newPool } = calculateSharesForAmount(pool, outcome as 'YES' | 'NO', totalCost)
+    const newPrices = getPrices(newPool)
+
+    // Update market liquidity, volume, and prices
     await prisma.market.update({
       where: { id: marketId },
       data: {
         volume: market.volume + totalCost,
-        liquidity: market.liquidity + (side === 'BUY' ? totalCost : -totalCost)
+        liquidity: market.liquidity + (side === 'BUY' ? totalCost : -totalCost),
+        yesPrice: Math.max(0.01, Math.min(0.99, newPrices.yesPrice)),
+        noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice))
       }
     })
 
     return NextResponse.json({
       success: true,
       order,
-      newBalance: side === 'BUY' ? user.balance - totalCost : user.balance
+      newBalance: side === 'BUY' ? user.balance - totalCost : user.balance,
+      newYesPrice: newPrices.yesPrice,
+      newNoPrice: newPrices.noPrice,
+      shares: amount
     })
 
   } catch (error) {

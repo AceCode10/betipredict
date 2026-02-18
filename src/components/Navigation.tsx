@@ -30,14 +30,16 @@ export function Navigation({ currentView, onViewChange, onDeposit }: NavigationP
   return (
     <>
       {/* Header */}
-      <header className="bg-white shadow-sm border-b sticky top-0 z-50">
+      <header className="bg-[var(--surface)] border-b border-slate-200/80 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo and Navigation */}
             <div className="flex items-center gap-8">
               <div className="flex items-center gap-2">
-                <TrendingUp className="w-8 h-8 text-blue-600" />
-                <h1 className="text-xl font-bold">BetiPredict</h1>
+                <div className="w-9 h-9 rounded-lg bg-teal-500/10 text-teal-700 flex items-center justify-center">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+                <h1 className="text-xl font-semibold">BetiPredict</h1>
               </div>
               
               {/* Desktop Navigation */}
@@ -46,8 +48,8 @@ export function Navigation({ currentView, onViewChange, onDeposit }: NavigationP
                   onClick={() => onViewChange('markets')}
                   className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     currentView === 'markets' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'bg-slate-900 text-white' 
+                      : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   Markets
@@ -57,8 +59,8 @@ export function Navigation({ currentView, onViewChange, onDeposit }: NavigationP
                     onClick={() => onViewChange('dashboard')}
                     className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                       currentView === 'dashboard' 
-                        ? 'bg-blue-100 text-blue-700' 
-                        : 'text-gray-600 hover:text-gray-900'
+                        ? 'bg-slate-900 text-white' 
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     Dashboard
@@ -81,7 +83,7 @@ export function Navigation({ currentView, onViewChange, onDeposit }: NavigationP
                 {session && (
                   <button
                     onClick={() => signOut()}
-                    className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-800"
+                    className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:text-slate-900"
                   >
                     <LogOut className="w-4 h-4" />
                     Sign Out
@@ -106,7 +108,7 @@ export function Navigation({ currentView, onViewChange, onDeposit }: NavigationP
 
         {/* Mobile Navigation */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t bg-white">
+          <div className="md:hidden border-t border-slate-200 bg-white">
             <div className="px-4 py-3 space-y-3">
               <button
                 onClick={() => {
@@ -115,8 +117,8 @@ export function Navigation({ currentView, onViewChange, onDeposit }: NavigationP
                 }}
                 className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${
                   currentView === 'markets' 
-                    ? 'bg-blue-100 text-blue-700' 
-                    : 'text-gray-600'
+                    ? 'bg-slate-900 text-white' 
+                    : 'text-slate-600'
                 }`}
               >
                 Markets
@@ -129,8 +131,8 @@ export function Navigation({ currentView, onViewChange, onDeposit }: NavigationP
                   }}
                   className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${
                     currentView === 'dashboard' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600'
+                      ? 'bg-slate-900 text-white' 
+                      : 'text-slate-600'
                   }`}
                 >
                   Dashboard
@@ -153,7 +155,7 @@ export function Navigation({ currentView, onViewChange, onDeposit }: NavigationP
                     signOut()
                     setMobileMenuOpen(false)
                   }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-600"
+                  className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-600"
                 >
                   Sign Out
                 </button>
@@ -165,19 +167,19 @@ export function Navigation({ currentView, onViewChange, onDeposit }: NavigationP
 
       {/* User Info Bar (when connected) */}
       {isConnected && (
-        <div className="bg-blue-50 border-b">
+        <div className="bg-teal-500/5 border-b border-slate-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-4">
-                <span className="text-blue-800">
+                <span className="text-slate-700">
                   Connected: {formatAddress(account!)}
                 </span>
-                <span className="text-blue-600">
+                <span className="text-teal-700">
                   • Test Network
                 </span>
               </div>
               {session && (
-                <span className="text-blue-600">
+                <span className="text-slate-600">
                   Signed in as {session.user?.username || session.user?.email}
                 </span>
               )}

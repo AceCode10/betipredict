@@ -1,518 +1,869 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState, useEffect, useCallback } from 'react'
+import { useSession, signIn, signOut } from 'next-auth/react'
 import { useWallet, WalletConnectButton } from '@/components/WalletConnect'
 import { useContractService } from '@/lib/contracts'
-import { Navigation } from '@/components/Navigation'
-import { MarketCard } from '@/components/MarketCard'
-import { TradeInterface } from '@/components/TradeInterface'
-import { UserDashboard } from '@/components/UserDashboard'
-import { Button } from '@/components/ui/button'
+import { PriceChart } from '@/components/PriceChart'
+import { BetSlip } from '@/components/BetSlip'
+import { MarketCreation } from '@/components/MarketCreation'
+import { DepositModal } from '@/components/DepositModal'
 import { 
   TrendingUp, 
-  AlertCircle, 
-  Trophy,
-  Star,
   Users,
   BarChart3,
-  Clock,
   Search,
-  ArrowUp,
-  ArrowDown,
-  Zap,
-  CircleDot
+  ShoppingCart,
+  Plus,
+  Trophy,
+  LogIn,
+  LogOut,
+  User,
+  Wallet
 } from 'lucide-react'
+import { 
+  formatZambianCurrency, 
+  formatPriceAsNgwee, 
+  formatVolume, 
+  formatTotalCost 
+} from '@/utils/currency'
 
-// Market types
-interface BlockchainMarket {
+// Bet item interface
+interface BetItem {
   id: string
-  title: string
-  description: string
-  category: string
-  question: string
-  resolveTime: bigint
-  yesPrice: bigint
-  noPrice: bigint
-  totalVolume: bigint
-  status: bigint
-  resolution: bigint
-  creator: string
-  createdAt: bigint
+  marketId: string
+  marketTitle: string
+  outcome: 'YES' | 'NO'
+  price: number
+  amount: number
 }
 
-// Enhanced market data with European leagues
-const MARKET_CATEGORIES = [
-  { value: 'all', label: 'All Sports', icon: CircleDot, color: 'bg-blue-600' },
-  { value: 'premier-league', label: 'Premier League', icon: Star, color: 'bg-purple-600' },
-  { value: 'la-liga', label: 'La Liga', icon: Star, color: 'bg-orange-600' },
-  { value: 'bundesliga', label: 'Bundesliga', icon: Star, color: 'bg-red-600' },
-  { value: 'serie-a', label: 'Serie A', icon: Star, color: 'bg-blue-800' },
-  { value: 'ligue-1', label: 'Ligue 1', icon: Star, color: 'bg-yellow-600' },
-  { value: 'africa-cup-of-nations', label: 'Africa Cup', icon: Trophy, color: 'bg-green-700' },
+// Sports-focused categories with Zambian leagues
+const SPORTS_CATEGORIES = [
+  { value: 'all', label: 'All Sports' },
+  { value: 'premier-league', label: 'Premier League' },
+  { value: 'la-liga', label: 'La Liga' },
+  { value: 'bundesliga', label: 'Bundesliga' },
+  { value: 'serie-a', label: 'Serie A' },
+  { value: 'ligue-1', label: 'Ligue 1' },
+  { value: 'zambia-super-league', label: 'Zambia Super League' },
+  { value: 'champions-league', label: 'Champions League' },
+  { value: 'other-sports', label: 'Other Sports' },
 ]
 
-const TRENDING_MARKETS = [
+// Sports betting markets with Zambian currency (Kwacha K and Ngwee n)
+const SPORTS_MARKETS = [
   {
     id: '1',
-    title: "Manchester United vs Liverpool",
-    description: "Premier League - Old Trafford",
-    category: "premier-league",
-    question: "Will Manchester United win?",
-    resolveTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+    title: 'Will Manchester United beat Liverpool?',
+    description: 'Premier League - Old Trafford',
+    category: 'premier-league',
+    question: 'Manchester United vs Liverpool',
+    resolveTime: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
     yesPrice: 0.45,
     noPrice: 0.55,
-    volume: 125000,
+    volume: 25000000, // K25M volume
+    liquidity: 5000000, // K5M liquidity
     status: 'ACTIVE',
     trend: 'up',
-    change: '+12%',
-    participants: 1847,
+    change: '+2.3%',
+    image: '/images/premier-league.jpg',
+    subtitle: 'Premier League',
+    league: 'Premier League',
+    matchDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+    homeTeam: 'Manchester United',
+    awayTeam: 'Liverpool'
   },
   {
     id: '2',
-    title: "Real Madrid vs Barcelona",
-    description: "La Liga - El Clásico",
-    category: "la-liga",
-    question: "Will Real Madrid win?",
-    resolveTime: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+    title: 'Will Real Madrid beat Barcelona?',
+    description: 'La Liga - El Clásico',
+    category: 'la-liga',
+    question: 'Real Madrid vs Barcelona',
+    resolveTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
     yesPrice: 0.62,
     noPrice: 0.38,
-    volume: 289000,
+    volume: 45000000, // K45M volume
+    liquidity: 8000000, // K8M liquidity
     status: 'ACTIVE',
     trend: 'down',
-    change: '-8%',
-    participants: 3201,
+    change: '-1.8%',
+    image: '/images/laliga.jpg',
+    subtitle: 'La Liga',
+    league: 'La Liga',
+    matchDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+    homeTeam: 'Real Madrid',
+    awayTeam: 'Barcelona'
   },
   {
     id: '3',
-    title: "Zambia vs Nigeria",
-    description: "Africa Cup of Nations Qualifier",
-    category: "africa-cup-of-nations",
-    question: "Will Zambia win?",
-    resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    yesPrice: 0.38,
-    noPrice: 0.62,
-    volume: 67000,
+    title: 'Will ZESCO United win?',
+    description: 'Zambia Super League - Home match',
+    category: 'zambia-super-league',
+    question: 'ZESCO United vs Power Dynamos',
+    resolveTime: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(),
+    yesPrice: 0.68,
+    noPrice: 0.32,
+    volume: 8500000, // K8.5M volume
+    liquidity: 2000000, // K2M liquidity
     status: 'ACTIVE',
     trend: 'up',
-    change: '+24%',
-    participants: 892,
+    change: '+4.2%',
+    image: '/images/zambia-league.jpg',
+    subtitle: 'Zambia Super League',
+    league: 'Zambia Super League',
+    matchDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+    homeTeam: 'ZESCO United',
+    awayTeam: 'Power Dynamos'
   },
   {
     id: '4',
-    title: "Arsenal vs Chelsea",
-    description: "Premier League - Emirates Stadium",
-    category: "premier-league", 
-    question: "Will Arsenal win?",
-    resolveTime: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-    yesPrice: 0.58,
-    noPrice: 0.42,
-    volume: 156000,
-    status: 'ACTIVE',
-    trend: 'up',
-    change: '+5%',
-    participants: 1434,
-  },
-  {
-    id: '5',
-    title: "Bayern Munich vs Borussia Dortmund",
-    description: "Bundesliga - Allianz Arena",
-    category: "bundesliga",
-    question: "Will Bayern Munich win?",
+    title: 'Will Bayern Munich win?',
+    description: 'Bundesliga - Allianz Arena',
+    category: 'bundesliga',
+    question: 'Bayern Munich vs Borussia Dortmund',
     resolveTime: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString(),
     yesPrice: 0.71,
     noPrice: 0.29,
-    volume: 198000,
+    volume: 32000000, // K32M volume
+    liquidity: 6500000, // K6.5M liquidity
+    status: 'ACTIVE',
+    trend: 'up',
+    change: '+1.5%',
+    image: '/images/bundesliga.jpg',
+    subtitle: 'Bundesliga',
+    league: 'Bundesliga',
+    matchDate: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+    homeTeam: 'Bayern Munich',
+    awayTeam: 'Borussia Dortmund'
+  },
+  {
+    id: '5',
+    title: 'Will AC Milan beat Inter?',
+    description: 'Serie A - San Siro Derby',
+    category: 'serie-a',
+    question: 'AC Milan vs Inter Milan',
+    resolveTime: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+    yesPrice: 0.48,
+    noPrice: 0.52,
+    volume: 28000000, // K28M volume
+    liquidity: 4500000, // K4.5M liquidity
     status: 'ACTIVE',
     trend: 'down',
-    change: '-3%',
-    participants: 2103,
+    change: '-2.1%',
+    image: '/images/seriea.jpg',
+    subtitle: 'Serie A',
+    league: 'Serie A',
+    matchDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+    homeTeam: 'AC Milan',
+    awayTeam: 'Inter Milan'
   },
   {
     id: '6',
-    title: "PSG vs Marseille",
-    description: "Ligue 1 - Parc des Princes",
-    category: "ligue-1",
-    question: "Will PSG win?",
-    resolveTime: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString(),
-    yesPrice: 0.81,
-    noPrice: 0.19,
-    volume: 89000,
+    title: 'Will PSG win?',
+    description: 'Ligue 1 - Parc des Princes',
+    category: 'ligue-1',
+    question: 'PSG vs Marseille',
+    resolveTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+    yesPrice: 0.78,
+    noPrice: 0.22,
+    volume: 18000000, // K18M volume
+    liquidity: 3200000, // K3.2M liquidity
     status: 'ACTIVE',
     trend: 'up',
-    change: '+2%',
-    participants: 987,
+    change: '+3.6%',
+    image: '/images/ligue1.jpg',
+    subtitle: 'Ligue 1',
+    league: 'Ligue 1',
+    matchDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+    homeTeam: 'PSG',
+    awayTeam: 'Marseille'
   },
 ]
 
 const STATS = [
-  { label: 'Total Volume', value: '$2.4M', change: '+18%', icon: BarChart3 },
-  { label: 'Active Markets', value: '156', change: '+12', icon: TrendingUp },
-  { label: 'Total Users', value: '12.8K', change: '+892', icon: Users },
-  { label: '24h Trades', value: '8,421', change: '+1,247', icon: Zap },
+  { label: '24h Volume', value: 'K156.8M', change: '+18%', icon: BarChart3 },
+  { label: 'Active Markets', value: '24', change: '+3', icon: TrendingUp },
+  { label: 'Active Traders', value: '2,847', change: '+156', icon: Users },
 ]
 
 export default function PolymarketStyleHomePage() {
-  const { data: session } = useSession()
+  const { data: session, status: sessionStatus } = useSession()
   const { isConnected, account, chainId } = useWallet()
-  const [currentView, setCurrentView] = useState<'markets' | 'dashboard'>('markets')
   const [markets, setMarkets] = useState<any[]>([])
-  const [selectedMarket, setSelectedMarket] = useState<any | null>(null)
   const [loading, setLoading] = useState(false)
   const [category, setCategory] = useState<string>('all')
-  const [userBalance, setUserBalance] = useState<string>('0')
-  const [tokenBalance, setTokenBalance] = useState<string>('0')
-  const [error, setError] = useState<string | null>(null)
+  const [userBalance, setUserBalance] = useState<number>(0)
+  const [sortBy, setSortBy] = useState<string>('volume')
+  const [showChart, setShowChart] = useState<{marketId: string, outcome: 'YES' | 'NO'} | null>(null)
+  const [detailAmount, setDetailAmount] = useState<string>('')
+  const [betSlip, setBetSlip] = useState<BetItem[]>([])
+  const [showBetSlip, setShowBetSlip] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [showMarketCreation, setShowMarketCreation] = useState(false)
+  const [showDeposit, setShowDeposit] = useState(false)
+  const [placingBets, setPlacingBets] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   
   const contractService = useContractService()
+  const isLoggedIn = sessionStatus === 'authenticated' && !!session?.user
 
+  // Load user balance from API
+  const loadBalance = useCallback(async () => {
+    if (!isLoggedIn) { setUserBalance(0); return }
+    try {
+      const res = await fetch('/api/user/balance')
+      if (res.ok) {
+        const data = await res.json()
+        setUserBalance(data.balance || 0)
+      }
+    } catch (err) {
+      console.error('Failed to load balance:', err)
+    }
+  }, [isLoggedIn])
+
+  useEffect(() => { loadBalance() }, [loadBalance])
+
+  // Load markets
   useEffect(() => {
-    // Load mock markets for browsing
-    setMarkets(TRENDING_MARKETS)
+    const loadMarkets = async () => {
+      setLoading(true)
+      try {
+        const response = await fetch('/api/markets')
+        if (!response.ok) throw new Error('Failed to load markets')
+        const data = await response.json()
+        setMarkets(data)
+      } catch (loadError) {
+        console.error('Failed to load markets, using fallback data.', loadError)
+        setMarkets(SPORTS_MARKETS)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadMarkets()
   }, [])
 
-  const filteredMarkets = markets.filter(market => {
+  // Normalize market data from API or fallback to ensure consistent shape
+  const normalizeMarket = (m: any) => {
+    // Try title first, then question for "Team A vs Team B" pattern
+    const titleVs = (m.title || '').match(/^(.+?)\s+vs\.?\s+(.+)$/i)
+    const questionVs = (m.question || '').match(/^(.+?)\s+vs\.?\s+(.+)$/i)
+    const vsMatch = titleVs || questionVs
+    const homeTeam = m.homeTeam || (vsMatch ? vsMatch[1].trim() : m.title || 'Home')
+    const awayTeam = m.awayTeam || (vsMatch ? vsMatch[2].trim() : '')
+    const league = m.league || m.subcategory || m.category || ''
+    const matchDate = m.matchDate || (m.resolveTime ? new Date(m.resolveTime).toLocaleDateString() : '')
+    const trend = m.trend || (m.yesPrice > 0.5 ? 'up' : 'down')
+    const change = m.change || ''
+    const volume = m.volume || 0
+    return { ...m, homeTeam, awayTeam, league, matchDate, trend, change, volume }
+  }
+
+  const normalizedMarkets = markets.map(normalizeMarket)
+
+  const filteredMarkets = normalizedMarkets.filter(market => {
     const matchesCategory = category === 'all' || market.category === category
-    const matchesSearch = market.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         market.question.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesSearch = !searchQuery || 
+      market.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      market.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      market.homeTeam?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      market.awayTeam?.toLowerCase().includes(searchQuery.toLowerCase())
     return matchesCategory && matchesSearch
+  }).sort((a, b) => {
+    if (sortBy === 'volume') return b.volume - a.volume
+    if (sortBy === 'new') return new Date(b.createdAt || Date.now()).getTime() - new Date(a.createdAt || Date.now()).getTime()
+    if (sortBy === 'closing') return new Date(a.resolveTime).getTime() - new Date(b.resolveTime).getTime()
+    if (sortBy === 'match-date') return new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime()
+    return 0
   })
 
-  const formatMarketForUI = (market: BlockchainMarket) => ({
-    id: market.id,
-    title: market.title,
-    description: market.description,
-    category: market.category,
-    question: market.question,
-    resolveTime: new Date(Number(market.resolveTime) * 1000).toISOString(),
-    yesPrice: Number(market.yesPrice) / 1e6,
-    noPrice: Number(market.noPrice) / 1e6,
-    volume: Number(market.totalVolume),
-    status: ['PENDING', 'ACTIVE', 'RESOLVED', 'CANCELED'][Number(market.status)] as any,
-    winningOutcome: Number(market.resolution) === 0 ? 'YES' : Number(market.resolution) === 1 ? 'NO' : undefined,
-    creator: market.creator,
-    createdAt: new Date(Number(market.createdAt) * 1000).toISOString()
-  })
+  // Betting functions
+  const addToBetSlip = (market: any, outcome: 'YES' | 'NO') => {
+    const existingBetIndex = betSlip.findIndex(
+      bet => bet.marketId === market.id && bet.outcome === outcome
+    )
+    
+    if (existingBetIndex >= 0) {
+      // Update existing bet amount
+      const updatedBets = [...betSlip]
+      updatedBets[existingBetIndex].amount += 1
+      setBetSlip(updatedBets)
+    } else {
+      // Add new bet
+      const newBet: BetItem = {
+        id: `${market.id}-${outcome}-${Date.now()}`,
+        marketId: market.id,
+        marketTitle: market.title,
+        outcome,
+        price: outcome === 'YES' ? market.yesPrice : market.noPrice,
+        amount: 1
+      }
+      setBetSlip([...betSlip, newBet])
+    }
+    
+    setShowBetSlip(true)
+  }
 
-  // Polymarket-style homepage for non-authenticated users
-  if (!isConnected && currentView === 'markets') {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        {/* Hero Section */}
-        <header className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-            <div className="text-center">
-              <div className="flex justify-center mb-6">
-                <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center">
-                  <TrendingUp className="w-10 h-10 text-white" />
-                </div>
+  const updateBetAmount = (betId: string, amount: number) => {
+    setBetSlip(betSlip.map(bet => 
+      bet.id === betId ? { ...bet, amount } : bet
+    ))
+  }
+
+  const removeBet = (betId: string) => {
+    setBetSlip(betSlip.filter(bet => bet.id !== betId))
+  }
+
+  const clearBetSlip = () => {
+    setBetSlip([])
+  }
+
+  const placeBets = async () => {
+    if (!isLoggedIn) { signIn(); return }
+    if (betSlip.length === 0) return
+
+    setPlacingBets(true)
+    setError(null)
+
+    try {
+      for (const bet of betSlip) {
+        const res = await fetch('/api/trade', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            marketId: bet.marketId,
+            outcome: bet.outcome,
+            side: 'BUY',
+            type: 'MARKET',
+            amount: bet.amount,
+          })
+        })
+
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Trade failed')
+
+        // Update market prices locally from response
+        if (data.newYesPrice && data.newNoPrice) {
+          setMarkets(prev => prev.map(m =>
+            m.id === bet.marketId
+              ? { ...m, yesPrice: data.newYesPrice, noPrice: data.newNoPrice }
+              : m
+          ))
+        }
+      }
+
+      await loadBalance()
+      setBetSlip([])
+      setShowBetSlip(false)
+    } catch (err: any) {
+      setError(err.message || 'Failed to place bets')
+    } finally {
+      setPlacingBets(false)
+    }
+  }
+
+  const handleBuyFromDetail = async (market: any, outcome: 'YES' | 'NO', amount: number) => {
+    if (!isLoggedIn) { signIn(); return }
+    if (!amount || amount <= 0) return
+
+    setPlacingBets(true)
+    setError(null)
+
+    try {
+      const res = await fetch('/api/trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          marketId: market.id,
+          outcome,
+          side: 'BUY',
+          type: 'MARKET',
+          amount,
+        })
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Trade failed')
+
+      // Update market prices locally
+      if (data.newYesPrice && data.newNoPrice) {
+        setMarkets(prev => prev.map(m =>
+          m.id === market.id
+            ? { ...m, yesPrice: data.newYesPrice, noPrice: data.newNoPrice, volume: (m.volume || 0) + amount * (outcome === 'YES' ? market.yesPrice : market.noPrice) }
+            : m
+        ))
+      }
+
+      await loadBalance()
+      setDetailAmount('')
+      setShowChart(null)
+    } catch (err: any) {
+      setError(err.message || 'Failed to place trade')
+    } finally {
+      setPlacingBets(false)
+    }
+  }
+
+  const handleCreateMarket = async (newMarket: any) => {
+    if (!isLoggedIn) { signIn(); return }
+
+    try {
+      const res = await fetch('/api/markets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newMarket.title,
+          description: newMarket.description,
+          category: newMarket.category,
+          question: newMarket.question,
+          resolveTime: newMarket.resolveTime,
+          creatorId: session?.user?.id,
+        })
+      })
+
+      if (res.ok) {
+        const created = await res.json()
+        setMarkets(prev => [created, ...prev])
+        setShowMarketCreation(false)
+      } else {
+        const data = await res.json()
+        setError(data.error || 'Failed to create market')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to create market')
+    }
+  }
+
+  const handleDeposit = async (amount: number) => {
+    const res = await fetch('/api/deposit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, method: 'direct' })
+    })
+
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Deposit failed')
+
+    setUserBalance(data.newBalance)
+  }
+
+  // Polymarket-style homepage
+  return (
+    <div className="min-h-screen bg-[#131722]">
+      {/* Header */}
+      <header className="sticky top-0 z-40 border-b border-gray-800 bg-[#171924]">
+        <div className="max-w-[1400px] mx-auto px-4">
+          <div className="flex items-center justify-between h-14">
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-green-500 flex items-center justify-center text-white text-xs font-bold">B</div>
+                <span className="text-base font-bold text-white">BetiPredict</span>
               </div>
-              <h1 className="text-5xl font-bold mb-4">
-                Predict on Sports. <br />Win Real Money.
-              </h1>
-              <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
-                The premier prediction market platform for African and European sports. 
-                Trade on your favorite teams with blockchain-powered security.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-                <WalletConnectButton />
-                <button
-                  onClick={() => window.scrollTo({ top: 400, behavior: 'smooth' })}
-                  className="px-8 py-3 bg-white/20 backdrop-blur text-white rounded-lg hover:bg-white/30 transition-colors font-medium"
-                >
-                  Browse Markets
-                </button>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {/* Stats Section */}
-        <section className="bg-white border-b">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              {STATS.map((stat, index) => {
-                const IconComponent = stat.icon
-                return (
-                  <div key={index} className="text-center">
-                    <div className="flex justify-center mb-2">
-                      <IconComponent className="w-6 h-6 text-gray-600" />
-                    </div>
-                    <p className="text-2xl font-bold">{stat.value}</p>
-                    <p className="text-sm text-gray-600">{stat.label}</p>
-                    <p className="text-xs text-green-600">{stat.change}</p>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </section>
-
-        {/* Search and Filter */}
-        <section className="bg-white border-b sticky top-0 z-40">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex flex-col md:flex-row gap-4 items-center">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <div className="hidden md:flex relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                 <input
                   type="text"
                   placeholder="Search markets..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
                 />
               </div>
-              <div className="flex flex-wrap gap-2">
-                {MARKET_CATEGORIES.slice(0, 5).map((cat) => {
-                  const IconComponent = cat.icon
-                  return (
-                    <button
-                      key={cat.value}
-                      onClick={() => setCategory(cat.value)}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
-                        category === cat.value
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      <IconComponent className="w-4 h-4" />
-                      {cat.label}
-                    </button>
-                  )
-                })}
-              </div>
             </div>
-          </div>
-        </section>
-
-        {/* Markets Grid */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold mb-2">🔥 Trending Markets</h2>
-            <p className="text-gray-600">Most popular prediction markets right now</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredMarkets.map((market) => (
-              <div key={market.id} className="bg-white rounded-lg border hover:shadow-lg transition-shadow cursor-pointer">
-                <div className="p-6">
-                  {/* Header */}
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="flex-1">
-                      <span className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full mb-2">
-                        {market.category.replace(/-/g, ' ').toUpperCase()}
-                      </span>
-                      <h3 className="font-semibold text-lg mb-2 line-clamp-2">{market.title}</h3>
-                      <p className="text-gray-600 text-sm mb-3">{market.description}</p>
-                    </div>
-                    {market.trend && (
-                      <div className={`flex items-center gap-1 text-sm ${
-                        market.trend === 'up' ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {market.trend === 'up' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
-                        {market.change}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Question */}
-                  <div className="bg-gray-50 rounded-lg p-3 mb-4">
-                    <p className="text-sm font-medium">{market.question}</p>
-                  </div>
-
-                  {/* Prices */}
-                  <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div className="text-center">
-                      <p className="text-xs text-gray-600 mb-1">YES</p>
-                      <p className="text-lg font-bold text-green-600">{Math.round(market.yesPrice * 100)}%</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-gray-600 mb-1">NO</p>
-                      <p className="text-lg font-bold text-red-600">{Math.round(market.noPrice * 100)}%</p>
-                    </div>
-                  </div>
-
-                  {/* Stats */}
-                  <div className="flex justify-between items-center text-sm text-gray-600 mb-4">
-                    <div className="flex items-center gap-1">
-                      <BarChart3 className="w-4 h-4" />
-                      <span>${(market.volume / 1000).toFixed(0)}K</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Users className="w-4 h-4" />
-                      <span>{market.participants.toLocaleString()}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-4 h-4" />
-                      <span>{Math.ceil((new Date(market.resolveTime).getTime() - Date.now()) / (1000 * 60 * 60 * 24))}d</span>
-                    </div>
-                  </div>
-
-                  {/* Action Button */}
+            <div className="flex items-center gap-2">
+              {isLoggedIn && (
+                <>
                   <button
-                    onClick={() => {
-                      alert('Connect your wallet to start trading!')
-                    }}
-                    className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                    onClick={() => setShowMarketCreation(true)}
+                    className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-300 hover:text-white border border-gray-700 rounded-lg hover:border-gray-500 transition-colors"
                   >
-                    Connect to Trade
+                    <Plus className="w-3.5 h-3.5" />
+                    Create
                   </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {filteredMarkets.length === 0 && (
-            <div className="text-center py-12">
-              <Search className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-              <p className="text-gray-600">No markets found matching your search</p>
+                  <div className="hidden sm:flex items-center gap-3 text-xs">
+                    <div className="text-center">
+                      <div className="text-gray-500">Portfolio</div>
+                      <div className="text-white font-medium">{formatZambianCurrency(userBalance)}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-gray-500">Cash</div>
+                      <div className="text-white font-medium">{formatZambianCurrency(userBalance)}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowDeposit(true)}
+                    className="px-3 py-1.5 bg-green-500 text-white text-sm font-semibold rounded-lg hover:bg-green-600 transition-colors"
+                  >
+                    Deposit
+                  </button>
+                  <button
+                    onClick={() => setShowBetSlip(true)}
+                    className="relative p-2 text-gray-400 hover:text-white"
+                  >
+                    <ShoppingCart className="w-5 h-5" />
+                    {betSlip.length > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 bg-green-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                        {betSlip.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => signOut()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-700 rounded-lg hover:border-gray-500 transition-colors"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span className="hidden md:inline">{session?.user?.name || session?.user?.email?.split('@')[0]}</span>
+                  </button>
+                </>
+              )}
+              {!isLoggedIn && (
+                <button
+                  onClick={() => signIn()}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-green-500 text-white text-sm font-semibold rounded-lg hover:bg-green-600 transition-colors"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Sign In
+                </button>
+              )}
             </div>
-          )}
-        </main>
-
-        {/* Footer */}
-        <footer className="bg-gray-900 text-white mt-16">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-              <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <TrendingUp className="w-8 h-8 text-blue-400" />
-                  <span className="text-xl font-bold">BetiPredict</span>
-                </div>
-                <p className="text-gray-400">
-                  The premier prediction market platform for African and European sports.
-                </p>
-              </div>
-              <div>
-                <h4 className="font-semibold mb-4">Markets</h4>
-                <ul className="space-y-2 text-gray-400">
-                  <li>Premier League</li>
-                  <li>La Liga</li>
-                  <li>Bundesliga</li>
-                  <li>Africa Cup</li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-semibold mb-4">Features</h4>
-                <ul className="space-y-2 text-gray-400">
-                  <li>Blockchain Security</li>
-                  <li>Real-time Trading</li>
-                  <li>Instant Payouts</li>
-                  <li>Mobile App</li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-semibold mb-4">Connect</h4>
-                <div className="space-y-2">
-                  <WalletConnectButton />
-                </div>
-              </div>
-            </div>
-            <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
-              <p>&copy; {new Date().getFullYear()} BetiPredict. All rights reserved.</p>
-            </div>
-          </div>
-        </footer>
-      </div>
-    )
-  }
-
-  // Authenticated/Connected view
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Navigation 
-        currentView={currentView}
-        onViewChange={setCurrentView}
-        onDeposit={() => {/* Handle deposit */}}
-      />
-
-      {/* Error Display */}
-      {error && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-            <p className="text-red-800">{error}</p>
           </div>
         </div>
-      )}
+      </header>
 
-      {/* Dashboard View */}
-      {currentView === 'dashboard' && (
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <UserDashboard />
-        </main>
-      )}
+      {/* Categories Nav */}
+      <nav className="border-b border-gray-800 bg-[#171924]">
+        <div className="max-w-[1400px] mx-auto px-4">
+          <div className="flex items-center gap-1 h-10 overflow-x-auto no-scrollbar">
+            {SPORTS_CATEGORIES.map((cat) => (
+              <button
+                key={cat.value}
+                onClick={() => setCategory(cat.value)}
+                className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors flex items-center gap-1 ${
+                  category === cat.value
+                    ? 'bg-[#2d3148] text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-[#232637]'
+                }`}
+              >
+                {cat.value === 'zambia-super-league' && <Trophy className="w-3 h-3 text-yellow-500" />}
+                {cat.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </nav>
 
-      {/* Markets View */}
-      {currentView === 'markets' && (
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* Featured Markets Banner */}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl p-6 mb-8 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold mb-2">🏆 Featured European Leagues</h2>
-                <p className="text-blue-100">
-                  Trade on Premier League, La Liga, Bundesliga, Serie A & Ligue 1 matches
-                </p>
+      {/* Main Content */}
+      <main className="max-w-[1400px] mx-auto px-4 py-4">
+        {/* Sort Tabs */}
+        <div className="flex items-center gap-2 mb-4">
+          {[
+            { value: 'volume', label: 'Top Volume' },
+            { value: 'match-date', label: 'Match Date' },
+            { value: 'new', label: 'New' },
+            { value: 'closing', label: 'Closing Soon' }
+          ].map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setSortBy(tab.value)}
+              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+                sortBy === tab.value
+                  ? 'bg-[#2d3148] text-white'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Markets Grid — compact 4-column like Polymarket */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {filteredMarkets.map((market) => (
+            <div
+              key={market.id}
+              className="bg-[#1c2030] border border-gray-800 rounded-lg p-3 hover:border-gray-600 transition-colors cursor-pointer group"
+              onClick={() => {
+                if (showChart?.marketId === market.id) {
+                  setShowChart(null)
+                } else {
+                  setShowChart({ marketId: market.id, outcome: 'YES' })
+                }
+              }}
+            >
+              {/* Card Header: icon + title */}
+              <div className="flex items-start gap-2.5 mb-3">
+                <div className="w-8 h-8 rounded-full bg-[#232637] flex items-center justify-center flex-shrink-0 text-xs">
+                  ⚽
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-medium text-white leading-tight line-clamp-2 group-hover:text-green-400 transition-colors">
+                    {market.title}
+                  </h3>
+                </div>
               </div>
-              <div className="hidden md:block">
-                <div className="flex items-center gap-2 text-3xl font-bold">
-                  ⚽ 🏆 🇬🇧 🇪🇸 🇩🇪 🇮🇹 🇫🇷
+
+              {/* Team rows with percentages */}
+              <div className="space-y-1.5 mb-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-300 truncate">{market.homeTeam}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-white">{Math.round(market.yesPrice * 100)}%</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
+                      className="px-2 py-0.5 text-[10px] font-semibold rounded bg-green-500/15 text-green-400 hover:bg-green-500/30 transition-colors"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
+                      className="px-2 py-0.5 text-[10px] font-semibold rounded bg-red-500/15 text-red-400 hover:bg-red-500/30 transition-colors"
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-300 truncate">{market.awayTeam}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-white">{Math.round(market.noPrice * 100)}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Team action buttons (Polymarket sports style) */}
+              <div className="flex gap-1.5 mb-2.5">
+                <button
+                  onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
+                  className="flex-1 py-1.5 text-[11px] font-semibold rounded bg-[#232637] text-green-400 border border-gray-700 hover:border-green-500/50 hover:bg-green-500/10 transition-colors truncate"
+                >
+                  {market.homeTeam}
+                </button>
+                <button
+                  onClick={(e) => e.stopPropagation()}
+                  className="px-3 py-1.5 text-[11px] font-semibold rounded bg-[#232637] text-gray-400 border border-gray-700 hover:border-gray-500 transition-colors"
+                >
+                  DRAW
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
+                  className="flex-1 py-1.5 text-[11px] font-semibold rounded bg-[#232637] text-red-400 border border-gray-700 hover:border-red-500/50 hover:bg-red-500/10 transition-colors truncate"
+                >
+                  {market.awayTeam}
+                </button>
+              </div>
+
+              {/* Footer: volume + league + time */}
+              <div className="flex items-center justify-between text-[10px] text-gray-500 pt-1 border-t border-gray-800">
+                <span>{formatVolume(market.volume)} Vol.</span>
+                <div className="flex items-center gap-2">
+                  <span>{market.league}</span>
+                  <span>{market.matchDate}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Empty State */}
+        {filteredMarkets.length === 0 && !loading && (
+          <div className="text-center py-16">
+            <div className="text-gray-600 text-5xl mb-4">⚽</div>
+            <p className="text-gray-400 text-sm">No markets found in this category</p>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <div key={index} className="bg-[#1c2030] border border-gray-800 rounded-lg p-3">
+                <div className="flex items-start gap-2.5 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-gray-700 animate-pulse" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3 bg-gray-700 rounded animate-pulse" />
+                    <div className="h-3 bg-gray-700 rounded animate-pulse w-2/3" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="h-5 bg-gray-700 rounded animate-pulse" />
+                  <div className="h-5 bg-gray-700 rounded animate-pulse" />
+                  <div className="flex gap-1.5">
+                    <div className="flex-1 h-7 bg-gray-700 rounded animate-pulse" />
+                    <div className="w-14 h-7 bg-gray-700 rounded animate-pulse" />
+                    <div className="flex-1 h-7 bg-gray-700 rounded animate-pulse" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+
+      {/* Market Detail Overlay — shown when a card is clicked */}
+      {showChart && (() => {
+        const market = markets.find(m => m.id === showChart.marketId)
+        if (!market) return null
+        return (
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4">
+            <div className="absolute inset-0 bg-black/60" onClick={() => setShowChart(null)} />
+            <div className="relative bg-[#1c2030] border border-gray-700 rounded-xl w-full max-w-3xl max-h-[80vh] overflow-y-auto shadow-2xl">
+              {/* Detail Header */}
+              <div className="flex items-start gap-3 p-4 border-b border-gray-800">
+                <div className="w-10 h-10 rounded-full bg-[#232637] flex items-center justify-center text-lg flex-shrink-0">⚽</div>
+                <div className="flex-1">
+                  <div className="text-xs text-gray-500 mb-0.5">{market.league}</div>
+                  <h2 className="text-lg font-semibold text-white">{market.title}</h2>
+                </div>
+                <button onClick={() => setShowChart(null)} className="text-gray-500 hover:text-white text-xl p-1">×</button>
+              </div>
+
+              <div className="flex flex-col md:flex-row">
+                {/* Left: Chart */}
+                <div className="flex-1 p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-2xl font-bold text-green-400">{Math.round(market.yesPrice * 100)}%</span>
+                    <span className="text-xs text-gray-500">chance</span>
+                    <span className={`text-xs ${market.trend === 'up' ? 'text-green-400' : 'text-red-400'}`}>
+                      {market.trend === 'up' ? '▲' : '▼'} {market.change}
+                    </span>
+                  </div>
+                  <PriceChart
+                    marketId={market.id}
+                    outcome={showChart.outcome}
+                    currentPrice={showChart.outcome === 'YES' ? market.yesPrice : market.noPrice}
+                    onClose={() => setShowChart(null)}
+                    onBuy={(amount) => handleBuyFromDetail(market, showChart.outcome, amount)}
+                  />
+                  <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+                    <span>{formatVolume(market.volume)} Vol.</span>
+                    <span>⏱ {market.matchDate}</span>
+                  </div>
+                </div>
+
+                {/* Right: Buy/Sell Panel */}
+                <div className="w-full md:w-72 border-t md:border-t-0 md:border-l border-gray-800 p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <button
+                      onClick={() => setShowChart({ ...showChart, outcome: 'YES' })}
+                      className={`flex-1 py-2 rounded-full text-sm font-semibold transition-colors ${
+                        showChart.outcome === 'YES'
+                          ? 'bg-green-500 text-white'
+                          : 'bg-[#232637] text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Yes {formatPriceAsNgwee(market.yesPrice)}
+                    </button>
+                    <button
+                      onClick={() => setShowChart({ ...showChart, outcome: 'NO' })}
+                      className={`flex-1 py-2 rounded-full text-sm font-semibold transition-colors ${
+                        showChart.outcome === 'NO'
+                          ? 'bg-red-500 text-white'
+                          : 'bg-[#232637] text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      No {formatPriceAsNgwee(market.noPrice)}
+                    </button>
+                  </div>
+
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm text-gray-400">Amount</span>
+                      <span className="text-sm text-gray-500">Balance {formatZambianCurrency(userBalance)}</span>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-lg">K</span>
+                      <input
+                        type="number"
+                        value={detailAmount}
+                        onChange={(e) => setDetailAmount(e.target.value)}
+                        placeholder="0"
+                        className="w-full pl-8 pr-3 py-3 text-right text-2xl font-bold bg-[#232637] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-green-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 mb-3">
+                    {[1, 5, 10, 100].map(amt => (
+                      <button key={amt} onClick={() => setDetailAmount(prev => String((parseFloat(prev) || 0) + amt))} className="flex-1 py-1.5 text-xs font-medium bg-[#232637] border border-gray-700 rounded text-gray-300 hover:border-gray-500 hover:text-white transition-colors">
+                        +K{amt}
+                      </button>
+                    ))}
+                    <button onClick={() => setDetailAmount(String(userBalance))} className="px-2 py-1.5 text-xs font-medium bg-[#232637] border border-gray-700 rounded text-gray-300 hover:border-gray-500 hover:text-white transition-colors">
+                      Max
+                    </button>
+                  </div>
+
+                  {/* To Win display */}
+                  {detailAmount && parseFloat(detailAmount) > 0 && (
+                    <div className="flex items-center justify-between mb-3 text-sm">
+                      <span className="text-gray-400">To win</span>
+                      <span className="text-green-400 font-bold text-lg">
+                        {formatZambianCurrency(parseFloat(detailAmount) / (showChart.outcome === 'YES' ? market.yesPrice : market.noPrice))}
+                      </span>
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="mb-3 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
+                      {error}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      if (!isLoggedIn) { signIn(); return }
+                      const amt = parseFloat(detailAmount)
+                      if (amt > 0) {
+                        handleBuyFromDetail(market, showChart.outcome, amt)
+                      } else {
+                        addToBetSlip(market, showChart.outcome)
+                      }
+                    }}
+                    disabled={placingBets}
+                    className={`w-full py-3 text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 ${
+                      showChart.outcome === 'YES'
+                        ? 'bg-green-500 hover:bg-green-600 text-white'
+                        : 'bg-red-500 hover:bg-red-600 text-white'
+                    }`}
+                  >
+                    {placingBets ? 'Processing...' : !isLoggedIn ? 'Sign In to Trade' : detailAmount && parseFloat(detailAmount) > 0 ? `Buy ${showChart.outcome}` : 'Add to Bet Slip'}
+                  </button>
+
+                  <p className="text-[10px] text-gray-600 text-center mt-2">
+                    By trading, you agree to the Terms of Use.
+                  </p>
                 </div>
               </div>
             </div>
           </div>
+        )
+      })()}
 
-          {/* Category Filter */}
-          <div className="flex flex-wrap gap-2 mb-6">
-            {MARKET_CATEGORIES.map((cat) => {
-              const IconComponent = cat.icon
-              return (
-                <button
-                  key={cat.value}
-                  onClick={() => setCategory(cat.value)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
-                    category === cat.value
-                      ? 'bg-blue-600 text-white shadow-lg'
-                      : 'bg-white text-gray-700 hover:bg-gray-50 border'
-                  }`}
-                >
-                  <IconComponent className="w-4 h-4" />
-                  {cat.label}
-                </button>
-              )
-            })}
-          </div>
+      {/* Bet Slip Sidebar */}
+      <BetSlip
+        bets={betSlip}
+        onUpdateBet={updateBetAmount}
+        onRemoveBet={removeBet}
+        onPlaceBets={placeBets}
+        onClearAll={clearBetSlip}
+        isOpen={showBetSlip}
+        onClose={() => setShowBetSlip(false)}
+      />
 
-          {/* Markets Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-            {filteredMarkets.map((market) => (
-              <MarketCard
-                key={market.id}
-                market={market}
-                onTrade={setSelectedMarket}
-              />
-            ))}
-          </div>
+      {/* Market Creation Modal */}
+      <MarketCreation
+        isOpen={showMarketCreation}
+        onClose={() => setShowMarketCreation(false)}
+        onCreateMarket={handleCreateMarket}
+      />
 
-          {filteredMarkets.length === 0 && (
-            <div className="text-center py-12">
-              <Search className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-              <p className="text-gray-600">No markets found in this category</p>
-            </div>
-          )}
-
-          {/* Trade Interface */}
-          {selectedMarket && (
-            <TradeInterface
-              market={selectedMarket}
-              onTrade={(trade) => {/* Handle trade */}}
-              userBalance={parseFloat(userBalance)}
-            />
-          )}
-        </main>
-      )}
+      {/* Deposit Modal */}
+      <DepositModal
+        isOpen={showDeposit}
+        onClose={() => setShowDeposit(false)}
+        onDeposit={handleDeposit}
+        currentBalance={userBalance}
+      />
     </div>
   )
 }

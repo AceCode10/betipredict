@@ -1,11 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { signIn, getSession } from 'next-auth/react'
+import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Button } from '@/components/ui/button'
-import { TrendingUp } from 'lucide-react'
 
 export default function SignIn() {
   const [email, setEmail] = useState('')
@@ -27,12 +24,12 @@ export default function SignIn() {
       })
 
       if (result?.error) {
-        setError('Invalid credentials')
+        setError('Invalid credentials. Try any email and password.')
       } else {
         router.push('/')
         router.refresh()
       }
-    } catch (error) {
+    } catch {
       setError('An error occurred')
     } finally {
       setIsLoading(false)
@@ -40,64 +37,63 @@ export default function SignIn() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <TrendingUp className="w-12 h-12 text-blue-600" />
+    <div className="min-h-screen bg-[#131722] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 mb-2">
+            <div className="w-9 h-9 rounded-lg bg-green-500 flex items-center justify-center text-white text-sm font-bold">B</div>
+            <span className="text-xl font-bold text-white">BetiPredict</span>
           </div>
-          <CardTitle className="text-2xl">Welcome to BetiPredict</CardTitle>
-          <p className="text-gray-600">Sign in to start trading</p>
-        </CardHeader>
-        
-        <CardContent>
+          <p className="text-gray-400 text-sm">Sign in to start trading</p>
+        </div>
+
+        {/* Form */}
+        <div className="bg-[#1c2030] border border-gray-800 rounded-xl p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">
-                Email
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter your email"
+                className="w-full px-3 py-2.5 bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-green-500 text-sm"
+                placeholder="you@example.com"
                 required
               />
             </div>
             
             <div>
-              <label className="block text-sm font-medium mb-2">
-                Password
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter your password"
+                className="w-full px-3 py-2.5 bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-green-500 text-sm"
+                placeholder="Enter any password"
                 required
               />
             </div>
 
             {error && (
-              <div className="text-red-600 text-sm">{error}</div>
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-2.5 text-sm text-red-400">{error}</div>
             )}
 
-            <Button
+            <button
               type="submit"
-              className="w-full"
               disabled={isLoading}
+              className="w-full py-2.5 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors text-sm"
             >
               {isLoading ? 'Signing in...' : 'Sign In'}
-            </Button>
+            </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-gray-600">
-            <p>Demo: Use any email and password to create an account</p>
+          <div className="mt-4 pt-4 border-t border-gray-800 text-center">
+            <p className="text-xs text-gray-500">Use any email and password — accounts are created automatically.</p>
+            <p className="text-xs text-gray-500 mt-1">New accounts start with K1,000 balance.</p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }
