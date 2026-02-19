@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     const [updatedUser, transaction] = await prisma.$transaction([
       prisma.user.update({
         where: { id: session.user.id },
-        data: { balance: user.balance + amount }
+        data: { balance: { increment: amount } }
       }),
       prisma.transaction.create({
         data: {

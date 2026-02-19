@@ -286,23 +286,21 @@ export default function PolymarketStyleHomePage() {
     )
     
     if (existingBetIndex >= 0) {
-      // Update existing bet amount
-      const updatedBets = [...betSlip]
-      updatedBets[existingBetIndex].amount += 1
-      setBetSlip(updatedBets)
-    } else {
-      // Add new bet
-      const newBet: BetItem = {
-        id: `${market.id}-${outcome}-${Date.now()}`,
-        marketId: market.id,
-        marketTitle: market.title,
-        outcome,
-        price: outcome === 'YES' ? market.yesPrice : market.noPrice,
-        amount: 1
-      }
-      setBetSlip([...betSlip, newBet])
+      // Already in bet slip, just open it
+      setShowBetSlip(true)
+      return
     }
-    
+
+    // Add new bet with K10 default stake
+    const newBet: BetItem = {
+      id: `${market.id}-${outcome}-${Date.now()}`,
+      marketId: market.id,
+      marketTitle: market.title,
+      outcome,
+      price: outcome === 'YES' ? market.yesPrice : market.noPrice,
+      amount: 10 // Default K10 stake
+    }
+    setBetSlip([...betSlip, newBet])
     setShowBetSlip(true)
   }
 
@@ -409,31 +407,22 @@ export default function PolymarketStyleHomePage() {
   const handleCreateMarket = async (newMarket: any) => {
     if (!isLoggedIn) { signIn(); return }
 
-    try {
-      const res = await fetch('/api/markets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: newMarket.title,
-          description: newMarket.description,
-          category: newMarket.category,
-          question: newMarket.question,
-          resolveTime: newMarket.resolveTime,
-          creatorId: session?.user?.id,
-        })
+    const res = await fetch('/api/markets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: newMarket.title,
+        description: newMarket.description,
+        category: newMarket.category,
+        question: newMarket.question,
+        resolveTime: newMarket.resolveTime,
       })
+    })
 
-      if (res.ok) {
-        const created = await res.json()
-        setMarkets(prev => [created, ...prev])
-        setShowMarketCreation(false)
-      } else {
-        const data = await res.json()
-        setError(data.error || 'Failed to create market')
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to create market')
-    }
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Failed to create market')
+
+    setMarkets(prev => [data, ...prev])
   }
 
   const handleDeposit = async (amount: number) => {
@@ -823,11 +812,22 @@ export default function PolymarketStyleHomePage() {
 
                   {/* To Win display */}
                   {detailAmount && parseFloat(detailAmount) > 0 && (
-                    <div className="flex items-center justify-between mb-3 text-sm">
-                      <span className="text-gray-400">To win</span>
-                      <span className="text-green-400 font-bold text-lg">
-                        {formatZambianCurrency(parseFloat(detailAmount) / (showChart.outcome === 'YES' ? market.yesPrice : market.noPrice))}
-                      </span>
+                    <div className="space-y-1 mb-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-400">Potential return</span>
+                        <span className="text-green-400 font-bold text-lg">
+                          {formatZambianCurrency(parseFloat(detailAmount) / (showChart.outcome === 'YES' ? market.yesPrice : market.noPrice))}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">Profit if {showChart.outcome} wins</span>
+                        <span className="text-green-400 font-medium">
+                          +{formatZambianCurrency((parseFloat(detailAmount) / (showChart.outcome === 'YES' ? market.yesPrice : market.noPrice)) - parseFloat(detailAmount))}
+                        </span>
+                      </div>
+                      {parseFloat(detailAmount) > userBalance && (
+                        <div className="text-xs text-red-400 mt-1">Insufficient balance ({formatZambianCurrency(userBalance)} available)</div>
+                      )}
                     </div>
                   )}
 
@@ -847,7 +847,7 @@ export default function PolymarketStyleHomePage() {
                         addToBetSlip(market, showChart.outcome)
                       }
                     }}
-                    disabled={placingBets}
+                    disabled={placingBets || (!!detailAmount && parseFloat(detailAmount) > userBalance)}
                     className={`w-full py-3 text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 ${
                       showChart.outcome === 'YES'
                         ? 'bg-green-500 hover:bg-green-600 text-white'
@@ -876,6 +876,9 @@ export default function PolymarketStyleHomePage() {
         onClearAll={clearBetSlip}
         isOpen={showBetSlip}
         onClose={() => setShowBetSlip(false)}
+        isPlacing={placingBets}
+        error={error}
+        userBalance={userBalance}
       />
 
       {/* Market Creation Modal */}
