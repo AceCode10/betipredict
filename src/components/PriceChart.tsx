@@ -1,15 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { TrendingUp, TrendingDown } from 'lucide-react'
-import { formatZambianCurrency, formatPriceAsNgwee, formatTotalCost } from '@/utils/currency'
 
 interface PriceChartProps {
   marketId: string
   outcome: 'YES' | 'NO'
   currentPrice: number
   onClose: () => void
-  onBuy: (amount: number) => void
+  onBuy?: (amount: number) => void
 }
 
 interface PricePoint {
@@ -17,10 +15,8 @@ interface PricePoint {
   price: number
 }
 
-export function PriceChart({ marketId, outcome, currentPrice, onClose, onBuy }: PriceChartProps) {
-  const [amount, setAmount] = useState('')
+export function PriceChart({ marketId, outcome, currentPrice, onClose }: PriceChartProps) {
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([])
-  const [loading, setLoading] = useState(false)
 
   // Generate mock price history data
   useEffect(() => {
@@ -46,25 +42,9 @@ export function PriceChart({ marketId, outcome, currentPrice, onClose, onBuy }: 
     generatePriceHistory()
   }, [currentPrice])
 
-  const handleBuy = () => {
-    const buyAmount = parseFloat(amount)
-    if (!buyAmount || buyAmount <= 0) return
-    
-    setLoading(true)
-    setTimeout(() => {
-      onBuy(buyAmount)
-      setAmount('')
-      setLoading(false)
-      onClose()
-    }, 1000)
-  }
-
   const minPrice = Math.min(...priceHistory.map(p => p.price))
   const maxPrice = Math.max(...priceHistory.map(p => p.price))
   const priceRange = maxPrice - minPrice || 0.01
-
-  const totalCost = (parseFloat(amount) || 0) * currentPrice
-  const potentialReturn = parseFloat(amount) || 0
 
   return (
     <div className="rounded-lg">
