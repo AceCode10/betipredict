@@ -66,18 +66,28 @@ interface MatchesResponse {
 }
 
 async function fetchFromAPI(endpoint: string): Promise<any> {
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
+  if (!FOOTBALL_DATA_API_KEY) {
+    console.error('FOOTBALL_DATA_API_KEY is not set')
+    throw new Error('Football API key not configured')
+  }
+
+  const url = `${BASE_URL}${endpoint}`
+  console.log(`[sports-api] Fetching: ${url}`)
+
+  const response = await fetch(url, {
     headers: {
       'X-Auth-Token': FOOTBALL_DATA_API_KEY,
     },
-    next: { revalidate: 300 }, // Cache for 5 minutes
+    cache: 'no-store', // Always fetch fresh in route handlers
   })
 
   if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    console.error(`[sports-api] Error ${response.status}: ${text}`)
     if (response.status === 429) {
       throw new Error('Rate limit exceeded. Please try again in a minute.')
     }
-    throw new Error(`API error: ${response.status}`)
+    throw new Error(`Football API error: ${response.status} - ${text}`)
   }
 
   return response.json()
@@ -89,27 +99,40 @@ export async function getUpcomingMatches(
   limit: number = 20
 ): Promise<Match[]> {
   try {
+    // Use SCHEDULED,TIMED to get upcoming matches (free tier)
+    const dateFrom = new Date().toISOString().split('T')[0]
+    const dateTo = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     const data: MatchesResponse = await fetchFromAPI(
-      `/competitions/${competitionCode}/matches?status=SCHEDULED&limit=${limit}`
+      `/competitions/${competitionCode}/matches?dateFrom=${dateFrom}&dateTo=${dateTo}&status=SCHEDULED,TIMED`
     )
-    return data.matches || []
+    return (data.matches || []).slice(0, limit)
   } catch (error) {
     console.error('Error fetching upcoming matches:', error)
     return []
   }
 }
 
-// Get all scheduled matches across multiple competitions
+// Free-tier competition codes
+const FREE_TIER_COMPS: CompetitionCode[] = ['PL', 'BL1', 'SA', 'PD', 'FL1', 'CL']
+
+// Get all scheduled matches across multiple competitions (free tier compatible)
 export async function getAllUpcomingMatches(limit: number = 50): Promise<Match[]> {
   try {
-    // Get next 14 days of matches
-    const dateFrom = new Date().toISOString().split('T')[0]
-    const dateTo = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    
-    const data: MatchesResponse = await fetchFromAPI(
-      `/matches?dateFrom=${dateFrom}&dateTo=${dateTo}&status=SCHEDULED`
+    // Fetch from each competition individually (free tier doesn't support global /matches)
+    const results = await Promise.allSettled(
+      FREE_TIER_COMPS.map(code => getUpcomingMatches(code, 10))
     )
-    return (data.matches || []).slice(0, limit)
+    
+    const allMatches: Match[] = []
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        allMatches.push(...result.value)
+      }
+    }
+    
+    // Sort by date and limit
+    allMatches.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime())
+    return allMatches.slice(0, limit)
   } catch (error) {
     console.error('Error fetching all upcoming matches:', error)
     return []

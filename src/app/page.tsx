@@ -14,11 +14,7 @@ import {
   TrendingUp, 
   Users,
   BarChart3,
-  Search,
-  ShoppingCart,
-  Plus,
-  Trophy,
-  X
+  Trophy
 } from 'lucide-react'
 import { 
   formatZambianCurrency, 
@@ -204,7 +200,6 @@ export default function PolymarketStyleHomePage() {
   const [showWithdraw, setShowWithdraw] = useState(false)
   const [placingBets, setPlacingBets] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showMobileSearch, setShowMobileSearch] = useState(false)
   
   const contractService = useContractService()
   const isLoggedIn = sessionStatus === 'authenticated' && !!session?.user
@@ -455,58 +450,17 @@ export default function PolymarketStyleHomePage() {
   // Polymarket-style homepage
   return (
     <div className={`min-h-screen ${bgColor}`}>
-      {/* Header - new component with Portfolio, Cash, Notifications, Account dropdown */}
-      <Header />
-
-      {/* Secondary nav with Create button and Bet Slip */}
-      <div className={`sticky top-14 z-30 border-b ${borderColor} ${surfaceColor}`}>
-        <div className="max-w-[1400px] mx-auto px-4">
-          <div className="flex items-center justify-between h-12">
-            {/* Search */}
-            <div className="flex-1 max-w-md">
-              <div className="relative">
-                <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${textMuted}`} />
-                <input
-                  type="text"
-                  placeholder="Search markets..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className={`w-full pl-9 pr-3 py-1.5 text-sm ${isDarkMode ? 'bg-[#232637]' : 'bg-gray-100'} border ${borderColor} rounded-lg ${textColor} placeholder-gray-500 focus:outline-none focus:border-green-500`}
-                />
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center gap-2">
-              {isLoggedIn && (
-                <>
-                  <button
-                    onClick={() => setShowMarketCreation(true)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${textMuted} hover:${textColor} border ${borderColor} rounded-lg hover:border-green-500 transition-colors`}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Create Market</span>
-                  </button>
-                  <button
-                    onClick={() => setShowBetSlip(true)}
-                    className={`relative p-2 ${textMuted} hover:${textColor}`}
-                  >
-                    <ShoppingCart className="w-5 h-5" />
-                    {betSlip.length > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 bg-green-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
-                        {betSlip.length}
-                      </span>
-                    )}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Header with search, create, bet slip integrated */}
+      <Header
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onCreateMarket={() => setShowMarketCreation(true)}
+        betSlipCount={betSlip.length}
+        onOpenBetSlip={() => setShowBetSlip(true)}
+      />
 
       {/* Categories Nav */}
-      <nav className="border-b border-gray-800 bg-[#171924]">
+      <nav className={`border-b ${borderColor} ${surfaceColor} sticky top-14 z-30`}>
         <div className="max-w-[1400px] mx-auto px-4">
           <div className="flex items-center gap-1 h-10 overflow-x-auto no-scrollbar">
             {SPORTS_CATEGORIES.map((cat) => (
@@ -515,8 +469,8 @@ export default function PolymarketStyleHomePage() {
                 onClick={() => setCategory(cat.value)}
                 className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors flex items-center gap-1 ${
                   category === cat.value
-                    ? 'bg-[#2d3148] text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-[#232637]'
+                    ? isDarkMode ? 'bg-[#2d3148] text-white' : 'bg-green-100 text-green-700'
+                    : isDarkMode ? 'text-gray-400 hover:text-white hover:bg-[#232637]' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'
                 }`}
               >
                 {cat.value === 'zambia-super-league' && <Trophy className="w-3 h-3 text-yellow-500" />}
@@ -528,9 +482,9 @@ export default function PolymarketStyleHomePage() {
       </nav>
 
       {/* Main Content */}
-      <main className="max-w-[1400px] mx-auto px-4 py-4">
+      <main className="max-w-[1400px] mx-auto px-3 sm:px-4 py-4">
         {/* Sort Tabs */}
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar">
           {[
             { value: 'volume', label: 'Top Volume' },
             { value: 'match-date', label: 'Match Date' },
@@ -540,10 +494,10 @@ export default function PolymarketStyleHomePage() {
             <button
               key={tab.value}
               onClick={() => setSortBy(tab.value)}
-              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+              className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors ${
                 sortBy === tab.value
-                  ? 'bg-[#2d3148] text-white'
-                  : 'text-gray-500 hover:text-gray-300'
+                  ? isDarkMode ? 'bg-[#2d3148] text-white' : 'bg-green-100 text-green-700'
+                  : isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-500 hover:text-gray-800'
               }`}
             >
               {tab.label}
@@ -551,12 +505,17 @@ export default function PolymarketStyleHomePage() {
           ))}
         </div>
 
-        {/* Markets Grid — compact 4-column like Polymarket */}
+        {/* Markets Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {filteredMarkets.map((market) => (
+          {filteredMarkets.map((market) => {
+            const cardBg = isDarkMode ? 'bg-[#1e2130]' : 'bg-white'
+            const cardBorder = isDarkMode ? 'border-gray-700/50' : 'border-gray-200'
+            const cardHover = isDarkMode ? 'hover:border-gray-600' : 'hover:border-gray-300 hover:shadow-md'
+            const subtleBg = isDarkMode ? 'bg-[#252840]' : 'bg-gray-100'
+            return (
             <div
               key={market.id}
-              className="bg-[#1c2030] border border-gray-800 rounded-lg p-3 hover:border-gray-600 transition-colors cursor-pointer group"
+              className={`${cardBg} border ${cardBorder} rounded-xl p-4 ${cardHover} transition-all cursor-pointer group`}
               onClick={() => {
                 if (showChart?.marketId === market.id) {
                   setShowChart(null)
@@ -567,109 +526,110 @@ export default function PolymarketStyleHomePage() {
             >
               {/* Card Header: icon + title */}
               <div className="flex items-start gap-2.5 mb-3">
-                <div className="w-8 h-8 rounded-full bg-[#232637] flex items-center justify-center flex-shrink-0 text-xs">
+                <div className={`w-8 h-8 rounded-full ${subtleBg} flex items-center justify-center flex-shrink-0 text-sm`}>
                   ⚽
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-medium text-white leading-tight line-clamp-2 group-hover:text-green-400 transition-colors">
-                    {market.title}
-                  </h3>
-                </div>
+                <h3 className={`text-sm font-semibold ${textColor} leading-tight line-clamp-2 group-hover:text-green-500 transition-colors flex-1`}>
+                  {market.title}
+                </h3>
               </div>
 
-              {/* Team rows with percentages */}
-              <div className="space-y-1.5 mb-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-300 truncate">{market.homeTeam}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-white">{Math.round(market.yesPrice * 100)}%</span>
+              {/* Team rows with percentages — aligned grid */}
+              <div className="space-y-2 mb-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate flex-1`}>{market.homeTeam}</span>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className={`text-xs font-bold ${textColor} w-8 text-right`}>{Math.round(market.yesPrice * 100)}%</span>
                     <button
                       onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
-                      className="px-2 py-0.5 text-[10px] font-semibold rounded bg-green-500/15 text-green-400 hover:bg-green-500/30 transition-colors"
+                      className="px-2 py-0.5 text-[10px] font-bold rounded bg-green-500/15 text-green-500 hover:bg-green-500/30 transition-colors"
                     >
                       Yes
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
-                      className="px-2 py-0.5 text-[10px] font-semibold rounded bg-red-500/15 text-red-400 hover:bg-red-500/30 transition-colors"
+                      className="px-2 py-0.5 text-[10px] font-bold rounded bg-red-500/15 text-red-500 hover:bg-red-500/30 transition-colors"
                     >
                       No
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-300 truncate">{market.awayTeam}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-white">{Math.round(market.noPrice * 100)}%</span>
-                  </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate flex-1`}>{market.awayTeam}</span>
+                  <span className={`text-xs font-bold ${textColor} w-8 text-right flex-shrink-0`}>{Math.round(market.noPrice * 100)}%</span>
                 </div>
               </div>
 
-              {/* Team action buttons (Polymarket sports style) */}
-              <div className="flex gap-1.5 mb-2.5">
+              {/* Team action buttons */}
+              <div className="flex gap-1.5 mb-3">
                 <button
                   onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
-                  className="flex-1 py-1.5 text-[11px] font-semibold rounded bg-[#232637] text-green-400 border border-gray-700 hover:border-green-500/50 hover:bg-green-500/10 transition-colors truncate"
+                  className={`flex-1 py-2 text-[11px] font-semibold rounded-lg ${subtleBg} text-green-500 border ${cardBorder} hover:border-green-500/50 hover:bg-green-500/10 transition-colors truncate`}
                 >
                   {market.homeTeam}
                 </button>
                 <button
                   onClick={(e) => e.stopPropagation()}
-                  className="px-3 py-1.5 text-[11px] font-semibold rounded bg-[#232637] text-gray-400 border border-gray-700 hover:border-gray-500 transition-colors"
+                  className={`px-3 py-2 text-[11px] font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-colors`}
                 >
                   DRAW
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
-                  className="flex-1 py-1.5 text-[11px] font-semibold rounded bg-[#232637] text-red-400 border border-gray-700 hover:border-red-500/50 hover:bg-red-500/10 transition-colors truncate"
+                  className={`flex-1 py-2 text-[11px] font-semibold rounded-lg ${subtleBg} text-red-500 border ${cardBorder} hover:border-red-500/50 hover:bg-red-500/10 transition-colors truncate`}
                 >
                   {market.awayTeam}
                 </button>
               </div>
 
-              {/* Footer: volume + league + time */}
-              <div className="flex items-center justify-between text-[10px] text-gray-500 pt-1 border-t border-gray-800">
+              {/* Footer: volume + league + date */}
+              <div className={`flex items-center justify-between text-[10px] ${textMuted} pt-2 border-t ${cardBorder}`}>
                 <span>{formatVolume(market.volume)} Vol.</span>
-                <div className="flex items-center gap-2">
-                  <span>{market.league}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate max-w-[80px]">{market.league}</span>
                   <span>{market.matchDate}</span>
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Empty State */}
         {filteredMarkets.length === 0 && !loading && (
           <div className="text-center py-16">
-            <div className="text-gray-600 text-5xl mb-4">⚽</div>
-            <p className="text-gray-400 text-sm">No markets found in this category</p>
+            <div className={`${textMuted} text-5xl mb-4`}>⚽</div>
+            <p className={`${textMuted} text-sm`}>No markets found in this category</p>
           </div>
         )}
 
         {/* Loading State */}
         {loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {Array.from({ length: 8 }).map((_, index) => (
-              <div key={index} className="bg-[#1c2030] border border-gray-800 rounded-lg p-3">
+            {Array.from({ length: 8 }).map((_, index) => {
+              const skelBg = isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
+              const skelCard = isDarkMode ? 'bg-[#1e2130] border-gray-700/50' : 'bg-white border-gray-200'
+              return (
+              <div key={index} className={`${skelCard} border rounded-xl p-4`}>
                 <div className="flex items-start gap-2.5 mb-3">
-                  <div className="w-8 h-8 rounded-full bg-gray-700 animate-pulse" />
+                  <div className={`w-8 h-8 rounded-full ${skelBg} animate-pulse`} />
                   <div className="flex-1 space-y-1.5">
-                    <div className="h-3 bg-gray-700 rounded animate-pulse" />
-                    <div className="h-3 bg-gray-700 rounded animate-pulse w-2/3" />
+                    <div className={`h-3 ${skelBg} rounded animate-pulse`} />
+                    <div className={`h-3 ${skelBg} rounded animate-pulse w-2/3`} />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <div className="h-5 bg-gray-700 rounded animate-pulse" />
-                  <div className="h-5 bg-gray-700 rounded animate-pulse" />
+                  <div className={`h-5 ${skelBg} rounded animate-pulse`} />
+                  <div className={`h-5 ${skelBg} rounded animate-pulse`} />
                   <div className="flex gap-1.5">
-                    <div className="flex-1 h-7 bg-gray-700 rounded animate-pulse" />
-                    <div className="w-14 h-7 bg-gray-700 rounded animate-pulse" />
-                    <div className="flex-1 h-7 bg-gray-700 rounded animate-pulse" />
+                    <div className={`flex-1 h-8 ${skelBg} rounded-lg animate-pulse`} />
+                    <div className={`w-14 h-8 ${skelBg} rounded-lg animate-pulse`} />
+                    <div className={`flex-1 h-8 ${skelBg} rounded-lg animate-pulse`} />
                   </div>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </main>
@@ -826,18 +786,17 @@ export default function PolymarketStyleHomePage() {
       })()}
 
       {/* Footer */}
-      <footer className="border-t border-gray-800 bg-[#171924] mt-8">
+      <footer className={`border-t ${borderColor} ${surfaceColor} mt-8`}>
         <div className="max-w-[1400px] mx-auto px-4 py-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-md bg-green-500 flex items-center justify-center text-white text-[10px] font-bold">B</div>
-              <span className="text-sm font-semibold text-gray-400">BetiPredict</span>
+              <span className={`text-sm font-bold ${textColor}`}><span className="text-green-500">B</span>etiPredict</span>
             </div>
-            <div className="flex items-center gap-4 text-xs text-gray-500">
+            <div className={`flex items-center gap-4 text-xs ${textMuted}`}>
               {isLoggedIn && (
                 <>
-                  <button onClick={() => window.location.href = '/account'} className="hover:text-gray-300 transition-colors">My Account</button>
-                  <button onClick={() => window.location.href = '/admin'} className="hover:text-gray-300 transition-colors">Admin</button>
+                  <button onClick={() => window.location.href = '/account'} className={`hover:${textColor} transition-colors`}>My Account</button>
+                  <button onClick={() => window.location.href = '/admin'} className={`hover:${textColor} transition-colors`}>Admin</button>
                 </>
               )}
               <span>&copy; {new Date().getFullYear()} BetiPredict. All rights reserved.</span>

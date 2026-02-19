@@ -9,16 +9,14 @@ import {
   Settings, 
   Moon, 
   Sun, 
-  Trophy, 
-  Gift, 
-  Code, 
   HelpCircle, 
   FileText, 
   LogOut,
-  User,
   Wallet,
   Search,
-  X
+  X,
+  Plus,
+  ShoppingCart
 } from 'lucide-react'
 import { useTheme } from '@/contexts/ThemeContext'
 import { formatZambianCurrency } from '@/utils/currency'
@@ -33,7 +31,15 @@ interface Notification {
   createdAt: string
 }
 
-export function Header() {
+interface HeaderProps {
+  searchQuery?: string
+  onSearchChange?: (query: string) => void
+  onCreateMarket?: () => void
+  betSlipCount?: number
+  onOpenBetSlip?: () => void
+}
+
+export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMarket, betSlipCount = 0, onOpenBetSlip }: HeaderProps = {}) {
   const { data: session, status } = useSession()
   const router = useRouter()
   const { isDarkMode, toggleDarkMode } = useTheme()
@@ -46,7 +52,11 @@ export function Header() {
   const [showAccountMenu, setShowAccountMenu] = useState(false)
   const [showDeposit, setShowDeposit] = useState(false)
   const [showMobileSearch, setShowMobileSearch] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [internalSearch, setInternalSearch] = useState('')
+  
+  // Use external search if provided, otherwise internal
+  const searchQuery = externalSearch !== undefined ? externalSearch : internalSearch
+  const setSearchQuery = onSearchChange || setInternalSearch
   
   const notifRef = useRef<HTMLDivElement>(null)
   const accountRef = useRef<HTMLDivElement>(null)
@@ -142,10 +152,8 @@ export function Header() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    if (searchQuery.trim()) {
-      router.push(`/?search=${encodeURIComponent(searchQuery.trim())}`)
-      setShowMobileSearch(false)
-    }
+    // If using external search, it's already filtering in real-time
+    setShowMobileSearch(false)
   }
 
   const bgColor = isDarkMode ? 'bg-[#131722]' : 'bg-white'
@@ -218,6 +226,32 @@ export function Header() {
                   >
                     Deposit
                   </button>
+
+                  {/* Create Market - Desktop */}
+                  {onCreateMarket && (
+                    <button
+                      onClick={onCreateMarket}
+                      className={`hidden sm:flex items-center gap-1 px-3 py-1.5 text-sm ${textMuted} hover:${textColor} border ${borderColor} rounded-lg hover:border-green-500 transition-colors`}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span className="hidden lg:inline">Create</span>
+                    </button>
+                  )}
+
+                  {/* Bet Slip */}
+                  {onOpenBetSlip && (
+                    <button
+                      onClick={onOpenBetSlip}
+                      className={`relative p-2 rounded-lg ${hoverBg} ${textMuted}`}
+                    >
+                      <ShoppingCart className="w-5 h-5" />
+                      {betSlipCount > 0 && (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
+                          {betSlipCount}
+                        </span>
+                      )}
+                    </button>
+                  )}
 
                   {/* Notifications */}
                   <div ref={notifRef} className="relative">
@@ -315,27 +349,6 @@ export function Header() {
                           >
                             <Wallet className="w-4 h-4" />
                             <span className="text-sm">Account</span>
-                          </button>
-                          <button
-                            onClick={() => { router.push('/account'); setShowAccountMenu(false) }}
-                            className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} ${textColor}`}
-                          >
-                            <Trophy className="w-4 h-4" />
-                            <span className="text-sm">Leaderboard</span>
-                          </button>
-                          <button
-                            onClick={() => { router.push('/account'); setShowAccountMenu(false) }}
-                            className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} ${textColor}`}
-                          >
-                            <Gift className="w-4 h-4" />
-                            <span className="text-sm">Rewards</span>
-                          </button>
-                          <button
-                            onClick={() => { setShowAccountMenu(false) }}
-                            className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} ${textColor}`}
-                          >
-                            <Code className="w-4 h-4" />
-                            <span className="text-sm">APIs</span>
                           </button>
                         </div>
 
