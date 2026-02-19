@@ -36,7 +36,7 @@ interface StreamCallbacks {
  */
 export function useMarketStream(callbacks: StreamCallbacks) {
   const eventSourceRef = useRef<EventSource | null>(null)
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectDelayRef = useRef(1000)
   const mountedRef = useRef(true)
   const [isConnected, setIsConnected] = useState(false)
