@@ -626,12 +626,6 @@ export default function PolymarketStyleHomePage() {
                       >
                         Yes
                       </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-red-500/15 text-red-500 hover:bg-red-500/30 transition-colors"
-                      >
-                        No
-                      </button>
                     </div>
                   </div>
                   <div className={`h-1 rounded-full ${barTrack} overflow-hidden`}>
@@ -642,7 +636,15 @@ export default function PolymarketStyleHomePage() {
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.awayTeam}</span>
-                    <span className={`text-sm font-bold ${textColor} flex-shrink-0`}>{noPercent}%</span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`text-sm font-bold ${textColor}`}>{noPercent}%</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-red-500/15 text-red-500 hover:bg-red-500/30 transition-colors"
+                      >
+                        No
+                      </button>
+                    </div>
                   </div>
                   <div className={`h-1 rounded-full ${barTrack} overflow-hidden`}>
                     <div className="h-full bg-red-400 rounded-full transition-all duration-500" style={{ width: `${noPercent}%` }} />
