@@ -176,16 +176,16 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                 <span className="text-green-500">B</span>etiPredict
               </button>
 
-              {/* Desktop Search */}
-              <form onSubmit={handleSearch} className="hidden md:flex items-center">
-                <div className={`flex items-center ${isDarkMode ? 'bg-[#1e2130]' : 'bg-gray-100'} rounded-lg px-3 py-1.5`}>
-                  <Search className={`w-4 h-4 ${textMuted}`} />
+              {/* Desktop Search - Polymarket style */}
+              <form onSubmit={handleSearch} className="hidden md:flex flex-1 max-w-md mx-6">
+                <div className={`relative flex-1 flex items-center ${isDarkMode ? 'bg-[#1e2130]' : 'bg-gray-100'} rounded-lg px-4 py-2 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} hover:border-green-500/50 transition-colors`}>
+                  <Search className={`w-4 h-4 ${textMuted} mr-3`} />
                   <input
                     type="text"
-                    placeholder="Search markets..."
+                    placeholder="Search polymarkets..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`bg-transparent border-none outline-none text-sm ${textColor} placeholder:${textMuted} ml-2 w-48`}
+                    className={`flex-1 bg-transparent border-none outline-none text-sm ${textColor} placeholder:${textMuted}`}
                   />
                 </div>
               </form>
@@ -222,7 +222,7 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                   {/* Deposit Button */}
                   <button
                     onClick={() => setShowDeposit(true)}
-                    className="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
                   >
                     Deposit
                   </button>
@@ -417,7 +417,7 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                   </button>
                   <button
                     onClick={() => router.push('/auth/signin')}
-                    className="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
                   >
                     Sign Up
                   </button>

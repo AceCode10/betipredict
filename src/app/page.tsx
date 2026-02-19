@@ -9,6 +9,8 @@ import { BetSlip } from '@/components/BetSlip'
 import { Header } from '@/components/Header'
 import { CreateMarketModal } from '@/components/CreateMarketModal'
 import { WithdrawModal } from '@/components/WithdrawModal'
+import { PercentageCircle } from '@/components/ui/PercentageCircle'
+import { BottomNavigation } from '@/components/BottomNavigation'
 import { useTheme } from '@/contexts/ThemeContext'
 import { 
   TrendingUp, 
@@ -463,7 +465,7 @@ export default function PolymarketStyleHomePage() {
 
   // Polymarket-style homepage
   return (
-    <div className={`min-h-screen ${bgColor}`}>
+    <div className={`min-h-screen ${bgColor} pb-16 md:pb-0`}>
       {/* Header with search, create, bet slip integrated */}
       <Header
         searchQuery={searchQuery}
@@ -543,56 +545,32 @@ export default function PolymarketStyleHomePage() {
                 <div className={`w-8 h-8 rounded-full ${subtleBg} flex items-center justify-center flex-shrink-0 text-sm`}>
                   ⚽
                 </div>
-                <h3 className={`text-sm font-semibold ${textColor} leading-tight line-clamp-2 group-hover:text-green-500 transition-colors flex-1`}>
-                  {market.title}
-                </h3>
-              </div>
-
-              {/* Team rows with percentages — aligned grid */}
-              <div className="space-y-2 mb-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate flex-1`}>{market.homeTeam}</span>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <span className={`text-xs font-bold ${textColor} w-8 text-right`}>{Math.round(market.yesPrice * 100)}%</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
-                      className="px-2 py-0.5 text-[10px] font-bold rounded bg-green-500/15 text-green-500 hover:bg-green-500/30 transition-colors"
-                    >
-                      Yes
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
-                      className="px-2 py-0.5 text-[10px] font-bold rounded bg-red-500/15 text-red-500 hover:bg-red-500/30 transition-colors"
-                    >
-                      No
-                    </button>
+                <div className="flex-1">
+                  <h3 className={`text-sm font-semibold ${textColor} leading-tight line-clamp-2 group-hover:text-green-500 transition-colors`}>
+                    {market.title}
+                  </h3>
+                  {/* Market subtitle with teams */}
+                  <div className={`text-xs ${textMuted} mt-1 line-clamp-1`}>
+                    {market.homeTeam} vs {market.awayTeam}
                   </div>
                 </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} truncate flex-1`}>{market.awayTeam}</span>
-                  <span className={`text-xs font-bold ${textColor} w-8 text-right flex-shrink-0`}>{Math.round(market.noPrice * 100)}%</span>
-                </div>
               </div>
 
-              {/* Team action buttons */}
-              <div className="flex gap-1.5 mb-3">
+              {/* Polymarket-style Yes/No buttons with percentages */}
+              <div className="flex gap-2 mb-3">
                 <button
                   onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
-                  className={`flex-1 py-2 text-[11px] font-semibold rounded-lg ${subtleBg} text-green-500 border ${cardBorder} hover:border-green-500/50 hover:bg-green-500/10 transition-colors truncate`}
+                  className="flex-1 py-2.5 px-3 bg-green-500 hover:bg-green-600 text-white text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
                 >
-                  {market.homeTeam}
-                </button>
-                <button
-                  onClick={(e) => e.stopPropagation()}
-                  className={`px-3 py-2 text-[11px] font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-colors`}
-                >
-                  DRAW
+                  <span>YES</span>
+                  <span className="text-xs opacity-90">{Math.round(market.yesPrice * 100)}%</span>
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
-                  className={`flex-1 py-2 text-[11px] font-semibold rounded-lg ${subtleBg} text-red-500 border ${cardBorder} hover:border-red-500/50 hover:bg-red-500/10 transition-colors truncate`}
+                  className="flex-1 py-2.5 px-3 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
                 >
-                  {market.awayTeam}
+                  <span>NO</span>
+                  <span className="text-xs opacity-90">{Math.round(market.noPrice * 100)}%</span>
                 </button>
               </div>
 
@@ -852,6 +830,14 @@ export default function PolymarketStyleHomePage() {
         onClose={() => setShowWithdraw(false)}
         onWithdraw={handleWithdraw}
         currentBalance={userBalance}
+      />
+
+      {/* Bottom Navigation - Mobile Only */}
+      <BottomNavigation
+        onOpenSearch={() => {/* Search is already in header */}}
+        onCreateMarket={() => setShowMarketCreation(true)}
+        betSlipCount={betSlip.length}
+        onOpenBetSlip={() => setShowBetSlip(true)}
       />
     </div>
   )
