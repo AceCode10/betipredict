@@ -206,6 +206,7 @@ export default function PolymarketStyleHomePage() {
   const [showWithdraw, setShowWithdraw] = useState(false)
   const [placingBets, setPlacingBets] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showMobileSearch, setShowMobileSearch] = useState(false)
   
   const contractService = useContractService()
   const isLoggedIn = sessionStatus === 'authenticated' && !!session?.user
@@ -225,6 +226,14 @@ export default function PolymarketStyleHomePage() {
   }, [isLoggedIn])
 
   useEffect(() => { loadBalance() }, [loadBalance])
+
+  // Auto-clear errors after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [error])
 
   // Load markets
   useEffect(() => {
@@ -473,6 +482,12 @@ export default function PolymarketStyleHomePage() {
                   className="w-full pl-9 pr-3 py-2 text-sm bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
                 />
               </div>
+              <button
+                onClick={() => setShowMobileSearch(!showMobileSearch)}
+                className="md:hidden p-2 text-gray-400 hover:text-white"
+              >
+                <Search className="w-5 h-5" />
+              </button>
             </div>
             <div className="flex items-center gap-2">
               {isLoggedIn && (
@@ -546,6 +561,23 @@ export default function PolymarketStyleHomePage() {
           </div>
         </div>
       </header>
+
+      {/* Mobile Search Bar */}
+      {showMobileSearch && (
+        <div className="md:hidden border-b border-gray-800 bg-[#171924] px-4 py-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Search markets..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              autoFocus
+              className="w-full pl-9 pr-3 py-2 text-sm bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Categories Nav */}
       <nav className="border-b border-gray-800 bg-[#171924]">
@@ -866,6 +898,27 @@ export default function PolymarketStyleHomePage() {
           </div>
         )
       })()}
+
+      {/* Footer */}
+      <footer className="border-t border-gray-800 bg-[#171924] mt-8">
+        <div className="max-w-[1400px] mx-auto px-4 py-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-md bg-green-500 flex items-center justify-center text-white text-[10px] font-bold">B</div>
+              <span className="text-sm font-semibold text-gray-400">BetiPredict</span>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-gray-500">
+              {isLoggedIn && (
+                <>
+                  <button onClick={() => window.location.href = '/account'} className="hover:text-gray-300 transition-colors">My Account</button>
+                  <button onClick={() => window.location.href = '/admin'} className="hover:text-gray-300 transition-colors">Admin</button>
+                </>
+              )}
+              <span>&copy; {new Date().getFullYear()} BetiPredict. All rights reserved.</span>
+            </div>
+          </div>
+        </div>
+      </footer>
 
       {/* Bet Slip Sidebar */}
       <BetSlip

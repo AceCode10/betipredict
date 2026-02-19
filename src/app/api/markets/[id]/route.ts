@@ -70,13 +70,16 @@ export async function PUT(
     const body = await request.json()
     const { status, winningOutcome } = body
 
-    // Verify the user is the market creator
+    // Verify the user is the market creator or admin
     const existing = await prisma.market.findUnique({ where: { id } })
     if (!existing) {
       return NextResponse.json({ error: 'Market not found' }, { status: 404 })
     }
-    if (existing.creatorId !== session.user.id) {
-      return NextResponse.json({ error: 'Only the market creator can update this market' }, { status: 403 })
+    const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+    const currentUser = await prisma.user.findUnique({ where: { id: session.user.id }, select: { email: true } })
+    const isAdmin = currentUser?.email ? adminEmails.includes(currentUser.email.toLowerCase()) : false
+    if (!isAdmin && existing.creatorId !== session.user.id) {
+      return NextResponse.json({ error: 'Only admins or the market creator can update this market' }, { status: 403 })
     }
 
     const market = await prisma.market.update({

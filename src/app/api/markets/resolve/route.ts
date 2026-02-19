@@ -29,9 +29,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Market not found' }, { status: 404 })
     }
 
-    // Only creator or admin can resolve
-    if (market.creatorId !== session.user.id) {
-      return NextResponse.json({ error: 'Only the market creator can resolve this market' }, { status: 403 })
+    // Only admins or the market creator can resolve
+    const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+    const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { email: true } })
+    const isAdmin = user?.email ? adminEmails.includes(user.email.toLowerCase()) : false
+
+    if (!isAdmin && market.creatorId !== session.user.id) {
+      return NextResponse.json({ error: 'Only admins or the market creator can resolve this market' }, { status: 403 })
     }
 
     if (market.status === 'RESOLVED') {

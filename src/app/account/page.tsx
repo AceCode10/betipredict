@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowUpRight, ArrowDownRight, TrendingUp, Clock, DollarSign, Filter } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, ArrowDownRight, TrendingUp, Clock, DollarSign, RefreshCw } from 'lucide-react'
 import { formatZambianCurrency } from '@/utils/currency'
+import { DepositModal } from '@/components/DepositModal'
+import { WithdrawModal } from '@/components/WithdrawModal'
 
 type TabType = 'positions' | 'transactions'
 type TxFilter = 'ALL' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRADE'
@@ -18,6 +20,8 @@ export default function AccountPage() {
   const [balance, setBalance] = useState(0)
   const [loading, setLoading] = useState(true)
   const [txFilter, setTxFilter] = useState<TxFilter>('ALL')
+  const [showDeposit, setShowDeposit] = useState(false)
+  const [showWithdraw, setShowWithdraw] = useState(false)
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -25,38 +29,58 @@ export default function AccountPage() {
     }
   }, [status, router])
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     if (status !== 'authenticated') return
+    setLoading(true)
+    try {
+      const [balRes, posRes, txRes] = await Promise.all([
+        fetch('/api/user/balance'),
+        fetch('/api/user/positions'),
+        fetch('/api/user/transactions')
+      ])
 
-    const loadData = async () => {
-      setLoading(true)
-      try {
-        const [balRes, posRes, txRes] = await Promise.all([
-          fetch('/api/user/balance'),
-          fetch('/api/user/positions'),
-          fetch('/api/user/transactions')
-        ])
-
-        if (balRes.ok) {
-          const data = await balRes.json()
-          setBalance(data.balance || 0)
-        }
-        if (posRes.ok) {
-          const data = await posRes.json()
-          setPositions(data.positions || [])
-        }
-        if (txRes.ok) {
-          const data = await txRes.json()
-          setTransactions(data.transactions || [])
-        }
-      } catch (err) {
-        console.error('Failed to load account data:', err)
-      } finally {
-        setLoading(false)
+      if (balRes.ok) {
+        const data = await balRes.json()
+        setBalance(data.balance || 0)
       }
+      if (posRes.ok) {
+        const data = await posRes.json()
+        setPositions(data.positions || [])
+      }
+      if (txRes.ok) {
+        const data = await txRes.json()
+        setTransactions(data.transactions || [])
+      }
+    } catch (err) {
+      console.error('Failed to load account data:', err)
+    } finally {
+      setLoading(false)
     }
-    loadData()
   }, [status])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  const handleDeposit = async (amount: number) => {
+    const res = await fetch('/api/deposit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, method: 'direct' })
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Deposit failed')
+    await loadData()
+  }
+
+  const handleWithdraw = async (amount: number) => {
+    const res = await fetch('/api/withdraw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, method: 'direct' })
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Withdrawal failed')
+    await loadData()
+  }
 
   if (status === 'loading' || loading) {
     return (
@@ -78,11 +102,34 @@ export default function AccountPage() {
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-gray-800 bg-[#171924]">
         <div className="max-w-[1000px] mx-auto px-4">
-          <div className="flex items-center h-14 gap-4">
-            <button onClick={() => router.push('/')} className="text-gray-400 hover:text-white">
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h1 className="text-lg font-bold text-white">My Account</h1>
+          <div className="flex items-center justify-between h-14">
+            <div className="flex items-center gap-4">
+              <button onClick={() => router.push('/')} className="text-gray-400 hover:text-white">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <h1 className="text-lg font-bold text-white">My Account</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => loadData()}
+                className="p-2 text-gray-400 hover:text-white transition-colors"
+                title="Refresh"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setShowDeposit(true)}
+                className="px-3 py-1.5 bg-green-500 text-white text-sm font-semibold rounded-lg hover:bg-green-600 transition-colors"
+              >
+                Deposit
+              </button>
+              <button
+                onClick={() => setShowWithdraw(true)}
+                className="px-3 py-1.5 bg-orange-500/80 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 transition-colors"
+              >
+                Withdraw
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -246,6 +293,22 @@ export default function AccountPage() {
           </div>
         )}
       </main>
+
+      {/* Deposit Modal */}
+      <DepositModal
+        isOpen={showDeposit}
+        onClose={() => setShowDeposit(false)}
+        onDeposit={handleDeposit}
+        currentBalance={balance}
+      />
+
+      {/* Withdraw Modal */}
+      <WithdrawModal
+        isOpen={showWithdraw}
+        onClose={() => setShowWithdraw(false)}
+        onWithdraw={handleWithdraw}
+        currentBalance={balance}
+      />
     </div>
   )
 }

@@ -143,7 +143,16 @@ export default function SignIn() {
             </button>
           </form>
 
-          <div className="mt-4 pt-4 border-t border-gray-800 text-center">
+          <div className="mt-4 pt-4 border-t border-gray-800 text-center space-y-2">
+            {mode === 'signin' && (
+              <button
+                type="button"
+                onClick={() => router.push('/auth/forgot-password')}
+                className="text-xs text-gray-500 hover:text-green-400 transition-colors"
+              >
+                Forgot your password?
+              </button>
+            )}
             {mode === 'signup' ? (
               <p className="text-xs text-gray-500">New accounts start with <span className="text-green-400">K1,000</span> balance to get you started.</p>
             ) : (
