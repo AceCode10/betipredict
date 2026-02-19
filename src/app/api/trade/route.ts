@@ -14,14 +14,24 @@ export async function POST(request: NextRequest) {
     }
 
     const trade: TradeRequest = await request.json()
-    const { marketId, outcome, side, type, amount, price } = trade
+    const { marketId, outcome, side, type, price } = trade
+    const amount = Number(trade.amount)
 
     // Validate trade request
-    if (!marketId || !outcome || !side || !type || !amount || amount <= 0) {
-      return NextResponse.json(
-        { error: 'Invalid trade parameters' },
-        { status: 400 }
-      )
+    if (!marketId || typeof marketId !== 'string') {
+      return NextResponse.json({ error: 'Invalid market ID' }, { status: 400 })
+    }
+    if (!['YES', 'NO'].includes(outcome)) {
+      return NextResponse.json({ error: 'Outcome must be YES or NO' }, { status: 400 })
+    }
+    if (!['BUY', 'SELL'].includes(side)) {
+      return NextResponse.json({ error: 'Side must be BUY or SELL' }, { status: 400 })
+    }
+    if (!['MARKET', 'LIMIT'].includes(type)) {
+      return NextResponse.json({ error: 'Type must be MARKET or LIMIT' }, { status: 400 })
+    }
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000) {
+      return NextResponse.json({ error: 'Amount must be between 0 and 1,000,000' }, { status: 400 })
     }
 
     // Get user

@@ -58,9 +58,26 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { getServerSession } = await import('next-auth')
+    const { authOptions } = await import('@/lib/auth')
+    const session = await getServerSession(authOptions)
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { id } = await params
     const body = await request.json()
     const { status, winningOutcome } = body
+
+    // Verify the user is the market creator
+    const existing = await prisma.market.findUnique({ where: { id } })
+    if (!existing) {
+      return NextResponse.json({ error: 'Market not found' }, { status: 404 })
+    }
+    if (existing.creatorId !== session.user.id) {
+      return NextResponse.json({ error: 'Only the market creator can update this market' }, { status: 403 })
+    }
 
     const market = await prisma.market.update({
       where: { id },

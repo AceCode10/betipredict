@@ -8,6 +8,7 @@ import { PriceChart } from '@/components/PriceChart'
 import { BetSlip } from '@/components/BetSlip'
 import { MarketCreation } from '@/components/MarketCreation'
 import { DepositModal } from '@/components/DepositModal'
+import { WithdrawModal } from '@/components/WithdrawModal'
 import { 
   TrendingUp, 
   Users,
@@ -202,6 +203,7 @@ export default function PolymarketStyleHomePage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [showMarketCreation, setShowMarketCreation] = useState(false)
   const [showDeposit, setShowDeposit] = useState(false)
+  const [showWithdraw, setShowWithdraw] = useState(false)
   const [placingBets, setPlacingBets] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
@@ -447,6 +449,19 @@ export default function PolymarketStyleHomePage() {
     setUserBalance(data.newBalance)
   }
 
+  const handleWithdraw = async (amount: number) => {
+    const res = await fetch('/api/withdraw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, method: 'direct' })
+    })
+
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Withdrawal failed')
+
+    setUserBalance(data.newBalance)
+  }
+
   // Polymarket-style homepage
   return (
     <div className="min-h-screen bg-[#131722]">
@@ -497,6 +512,12 @@ export default function PolymarketStyleHomePage() {
                     Deposit
                   </button>
                   <button
+                    onClick={() => setShowWithdraw(true)}
+                    className="px-3 py-1.5 bg-orange-500/80 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 transition-colors"
+                  >
+                    Withdraw
+                  </button>
+                  <button
                     onClick={() => setShowBetSlip(true)}
                     className="relative p-2 text-gray-400 hover:text-white"
                   >
@@ -508,11 +529,18 @@ export default function PolymarketStyleHomePage() {
                     )}
                   </button>
                   <button
-                    onClick={() => signOut()}
+                    onClick={() => window.location.href = '/account'}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-700 rounded-lg hover:border-gray-500 transition-colors"
                   >
                     <User className="w-3.5 h-3.5" />
                     <span className="hidden md:inline">{session?.user?.name || session?.user?.email?.split('@')[0]}</span>
+                  </button>
+                  <button
+                    onClick={() => signOut()}
+                    className="p-1.5 text-gray-500 hover:text-red-400 transition-colors"
+                    title="Sign Out"
+                  >
+                    <LogOut className="w-4 h-4" />
                   </button>
                 </>
               )}
@@ -862,6 +890,14 @@ export default function PolymarketStyleHomePage() {
         isOpen={showDeposit}
         onClose={() => setShowDeposit(false)}
         onDeposit={handleDeposit}
+        currentBalance={userBalance}
+      />
+
+      {/* Withdraw Modal */}
+      <WithdrawModal
+        isOpen={showWithdraw}
+        onClose={() => setShowWithdraw(false)}
+        onWithdraw={handleWithdraw}
         currentBalance={userBalance}
       />
     </div>

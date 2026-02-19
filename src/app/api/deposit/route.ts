@@ -11,11 +11,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { amount, method } = await request.json()
+    const body = await request.json()
+    const amount = Number(body.amount)
+    const method = typeof body.method === 'string' ? body.method.slice(0, 50) : 'direct'
 
-    if (!amount || amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json(
         { error: 'Invalid deposit amount' },
+        { status: 400 }
+      )
+    }
+
+    if (amount < 1) {
+      return NextResponse.json(
+        { error: 'Minimum deposit is K1' },
         { status: 400 }
       )
     }

@@ -1,0 +1,120 @@
+// PostgreSQL version of the schema - copy this to schema.prisma before deploying to Vercel
+// Then run: npx prisma db push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                      String   @id @default(cuid())
+  email                   String   @unique
+  password                String?
+  phone                   String?  @unique
+  username                String   @unique
+  fullName                String
+  avatar                  String?
+  balance                 Float    @default(0)
+  isVerified              Boolean  @default(false)
+  verificationToken       String?  @unique
+  verificationTokenExpiry DateTime?
+  resetPasswordToken      String?  @unique
+  resetPasswordExpiry     DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  orders                  Order[]
+  positions               Position[]
+  transactions            Transaction[]
+  marketCreations         Market[]
+
+  @@map("users")
+}
+
+model Market {
+  id             String    @id @default(cuid())
+  title          String
+  description    String?
+  category       String
+  subcategory    String?
+  question       String    @unique
+  yesPrice       Float     @default(0.5)
+  noPrice        Float     @default(0.5)
+  volume         Float     @default(0)
+  liquidity      Float     @default(0)
+  status         String    @default("PENDING")
+  resolveTime    DateTime
+  resolvedAt     DateTime?
+  winningOutcome String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  creatorId      String
+  creator        User      @relation(fields: [creatorId], references: [id])
+  orders         Order[]
+  positions      Position[]
+
+  @@map("markets")
+}
+
+model Order {
+  id            String   @id @default(cuid())
+  type          String   @default("LIMIT")
+  side          String
+  outcome       String
+  price         Float
+  amount        Float
+  filled        Float    @default(0)
+  remaining     Float
+  status        String   @default("OPEN")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  marketId      String
+  market        Market   @relation(fields: [marketId], references: [id])
+
+  @@map("orders")
+}
+
+model Position {
+  id            String   @id @default(cuid())
+  outcome       String
+  size          Float
+  averagePrice  Float
+  unrealizedPnl Float    @default(0)
+  realizedPnl   Float    @default(0)
+  isClosed      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  marketId      String
+  market        Market   @relation(fields: [marketId], references: [id])
+
+  @@unique([userId, marketId, outcome])
+  @@map("positions")
+}
+
+model Transaction {
+  id            String   @id @default(cuid())
+  type          String
+  amount        Float
+  description   String
+  status        String   @default("PENDING")
+  metadata      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@map("transactions")
+}

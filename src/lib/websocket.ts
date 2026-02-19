@@ -85,4 +85,5 @@ export class WebSocketManager {
   }
 }
 
-export const wsManager = new WebSocketManager()
+// Only instantiate on client side
+export const wsManager = typeof window !== 'undefined' ? new WebSocketManager() : null

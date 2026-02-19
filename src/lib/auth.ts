@@ -1,6 +1,7 @@
 import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { prisma } from "@/lib/prisma"
+import bcrypt from "bcryptjs"
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -8,30 +9,63 @@ export const authOptions: NextAuthOptions = {
       name: "credentials",
       credentials: {
         email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" }
+        password: { label: "Password", type: "password" },
+        mode: { label: "Mode", type: "text" }
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
           return null
         }
 
+        const email = credentials.email.trim().toLowerCase()
+        const password = credentials.password
+        const mode = credentials.mode || 'signin'
+
+        // Email validation
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          throw new Error('Invalid email format')
+        }
+
+        // Password validation
+        if (password.length < 6) {
+          throw new Error('Password must be at least 6 characters')
+        }
+
         let user = await prisma.user.findUnique({
-          where: {
-            email: credentials.email
-          }
+          where: { email }
         })
 
-        // Create user if doesn't exist (for demo purposes)
-        if (!user) {
+        if (mode === 'signup') {
+          // Sign Up: create new account
+          if (user) {
+            throw new Error('An account with this email already exists')
+          }
+
+          const hashedPassword = await bcrypt.hash(password, 12)
           user = await prisma.user.create({
             data: {
-              email: credentials.email,
-              username: credentials.email.split('@')[0],
-              fullName: "Demo User",
+              email,
+              password: hashedPassword,
+              username: email.split('@')[0] + '_' + Date.now().toString(36),
+              fullName: email.split('@')[0],
               balance: 1000,
               isVerified: true,
             }
           })
+        } else {
+          // Sign In: verify existing account
+          if (!user) {
+            throw new Error('No account found with this email')
+          }
+
+          if (!user.password) {
+            throw new Error('Please reset your password')
+          }
+
+          const isPasswordValid = await bcrypt.compare(password, user.password)
+          if (!isPasswordValid) {
+            throw new Error('Incorrect password')
+          }
         }
 
         return {

@@ -57,6 +57,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const { getServerSession } = await import('next-auth')
+    const { authOptions } = await import('@/lib/auth')
+    const session = await getServerSession(authOptions)
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const {
       title,
@@ -65,26 +73,32 @@ export async function POST(request: NextRequest) {
       subcategory,
       question,
       resolveTime,
-      creatorId
     } = body
 
-    if (!title || !category || !question || !resolveTime || !creatorId) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      )
+    // Validate required fields
+    if (!title || typeof title !== 'string' || title.length < 3 || title.length > 200) {
+      return NextResponse.json({ error: 'Title must be 3-200 characters' }, { status: 400 })
+    }
+    if (!category || typeof category !== 'string') {
+      return NextResponse.json({ error: 'Category is required' }, { status: 400 })
+    }
+    if (!question || typeof question !== 'string' || question.length < 5 || question.length > 300) {
+      return NextResponse.json({ error: 'Question must be 5-300 characters' }, { status: 400 })
+    }
+    if (!resolveTime || new Date(resolveTime) <= new Date()) {
+      return NextResponse.json({ error: 'Resolve time must be in the future' }, { status: 400 })
     }
 
     const market = await prisma.market.create({
       data: {
-        title,
-        description,
-        category,
-        subcategory,
-        question,
+        title: title.trim(),
+        description: description ? String(description).slice(0, 1000) : null,
+        category: category.trim(),
+        subcategory: subcategory ? String(subcategory).slice(0, 100) : null,
+        question: question.trim(),
         resolveTime: new Date(resolveTime),
-        creatorId,
-        status: 'PENDING'
+        creatorId: session.user.id,
+        status: 'ACTIVE'
       },
       include: {
         creator: {
