@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { TradeRequest } from '@/types'
 import { initializePool, calculateSharesForAmount, calculateBuyCost, calculateSellProceeds, getPrices } from '@/lib/cpmm'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
+import { calculateTradeFee, FEES } from '@/lib/fees'
 
 export async function POST(request: NextRequest) {
   try {
@@ -70,18 +71,20 @@ export async function POST(request: NextRequest) {
     const pool = initializePool(market.liquidity || 1000, market.yesPrice)
 
     if (side === 'BUY') {
-      // For BUY: `amount` = Kwacha the user wants to spend
-      const kwachaToSpend = amount
+      // For BUY: `amount` = Kwacha the user wants to spend (gross)
+      const grossAmount = amount
+      const fee = calculateTradeFee(grossAmount)
+      const kwachaToSpend = fee.netAmount // Amount after fee deduction
 
-      // Check balance BEFORE any DB writes
-      if (user.balance < kwachaToSpend) {
+      // Check balance BEFORE any DB writes (user pays gross amount)
+      if (user.balance < grossAmount) {
         return NextResponse.json(
-          { error: `Insufficient balance. You have ${user.balance.toFixed(2)} but need ${kwachaToSpend.toFixed(2)}` },
+          { error: `Insufficient balance. You have ${user.balance.toFixed(2)} but need ${grossAmount.toFixed(2)}` },
           { status: 400 }
         )
       }
 
-      // Calculate shares received via CPMM
+      // Calculate shares received via CPMM (using net amount after fee)
       const { shares, newPool, avgPrice } = calculateSharesForAmount(pool, outcome as 'YES' | 'NO', kwachaToSpend)
       const newPrices = getPrices(newPool)
 
@@ -93,13 +96,13 @@ export async function POST(request: NextRequest) {
       const result = await prisma.$transaction(async (tx) => {
         // 1. Deduct balance (re-check inside transaction for safety)
         const freshUser = await tx.user.findUnique({ where: { id: session.user.id } })
-        if (!freshUser || freshUser.balance < kwachaToSpend) {
+        if (!freshUser || freshUser.balance < grossAmount) {
           throw new Error('Insufficient balance')
         }
 
         const updatedUser = await tx.user.update({
           where: { id: session.user.id },
-          data: { balance: { decrement: kwachaToSpend } }
+          data: { balance: { decrement: grossAmount } }
         })
 
         // 2. Create order record
@@ -118,17 +121,32 @@ export async function POST(request: NextRequest) {
           }
         })
 
-        // 3. Create transaction record
+        // 3. Create transaction record (with fee tracking)
         await tx.transaction.create({
           data: {
             type: 'TRADE',
-            amount: -kwachaToSpend,
-            description: `Bought ${shares.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(avgPrice * 100).toFixed(1)}%`,
+            amount: -grossAmount,
+            feeAmount: fee.feeAmount,
+            description: `Bought ${shares.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(avgPrice * 100).toFixed(1)}% (fee: K${fee.feeAmount.toFixed(2)})`,
             status: 'COMPLETED',
             userId: session.user.id,
-            metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares, avgPrice, spent: kwachaToSpend })
+            metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares, avgPrice, spent: grossAmount, fee: fee.feeAmount, netSpent: kwachaToSpend })
           }
         })
+
+        // 3b. Record platform revenue from trading fee
+        if (fee.feeAmount > 0) {
+          await tx.platformRevenue.create({
+            data: {
+              feeType: 'TRADE_FEE',
+              amount: fee.feeAmount,
+              description: `Trade fee on BUY ${outcome} in "${market.title}"`,
+              sourceType: 'TRADE',
+              sourceId: order.id,
+              userId: session.user.id,
+            }
+          })
+        }
 
         // 4. Update or create position
         const existingPosition = await tx.position.findUnique({
@@ -170,7 +188,9 @@ export async function POST(request: NextRequest) {
         newNoPrice: result.newPrices.noPrice,
         shares: result.shares,
         avgPrice: result.avgPrice,
-        spent: kwachaToSpend
+        spent: grossAmount,
+        fee: fee.feeAmount,
+        feeRate: FEES.TRADE_FEE_RATE,
       })
 
     } else {
@@ -190,19 +210,23 @@ export async function POST(request: NextRequest) {
       }
 
       // Calculate proceeds via CPMM (proper sell-side computation)
-      const { proceeds, newPool: sellPool, avgPrice: sellAvgPrice } = calculateSellProceeds(pool, outcome as 'YES' | 'NO', sharesToSell)
+      const { proceeds: grossProceeds, newPool: sellPool, avgPrice: sellAvgPrice } = calculateSellProceeds(pool, outcome as 'YES' | 'NO', sharesToSell)
       const newPrices = getPrices(sellPool)
 
-      if (proceeds <= 0) {
+      if (grossProceeds <= 0) {
         return NextResponse.json({ error: 'Sell amount too small' }, { status: 400 })
       }
 
+      // Apply trading fee on sell proceeds
+      const sellFee = calculateTradeFee(grossProceeds)
+      const netProceeds = sellFee.netAmount
+
       // Execute atomically
       const result = await prisma.$transaction(async (tx) => {
-        // 1. Credit balance
+        // 1. Credit balance (net of fee)
         const updatedUser = await tx.user.update({
           where: { id: session.user.id },
-          data: { balance: { increment: proceeds } }
+          data: { balance: { increment: netProceeds } }
         })
 
         // 2. Create order
@@ -221,17 +245,32 @@ export async function POST(request: NextRequest) {
           }
         })
 
-        // 3. Create transaction
+        // 3. Create transaction (with fee tracking)
         await tx.transaction.create({
           data: {
             type: 'TRADE',
-            amount: proceeds,
-            description: `Sold ${sharesToSell.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(sellAvgPrice * 100).toFixed(1)}%`,
+            amount: netProceeds,
+            feeAmount: sellFee.feeAmount,
+            description: `Sold ${sharesToSell.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(sellAvgPrice * 100).toFixed(1)}% (fee: K${sellFee.feeAmount.toFixed(2)})`,
             status: 'COMPLETED',
             userId: session.user.id,
-            metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares: sharesToSell, price: sellAvgPrice, proceeds })
+            metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares: sharesToSell, price: sellAvgPrice, grossProceeds, fee: sellFee.feeAmount, netProceeds })
           }
         })
+
+        // 3b. Record platform revenue from trading fee
+        if (sellFee.feeAmount > 0) {
+          await tx.platformRevenue.create({
+            data: {
+              feeType: 'TRADE_FEE',
+              amount: sellFee.feeAmount,
+              description: `Trade fee on SELL ${outcome} in "${market.title}"`,
+              sourceType: 'TRADE',
+              sourceId: order.id,
+              userId: session.user.id,
+            }
+          })
+        }
 
         // 4. Reduce position
         const newSize = position.size - sharesToSell
@@ -244,8 +283,8 @@ export async function POST(request: NextRequest) {
         const updatedMarket = await tx.market.update({
           where: { id: marketId },
           data: {
-            volume: { increment: proceeds },
-            liquidity: Math.max(0, market.liquidity - proceeds),
+            volume: { increment: grossProceeds },
+            liquidity: Math.max(0, market.liquidity - grossProceeds),
             yesPrice: Math.max(0.01, Math.min(0.99, newPrices.yesPrice)),
             noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice)),
           }
@@ -261,7 +300,10 @@ export async function POST(request: NextRequest) {
         newYesPrice: result.newPrices.yesPrice,
         newNoPrice: result.newPrices.noPrice,
         shares: sharesToSell,
-        proceeds
+        proceeds: netProceeds,
+        grossProceeds,
+        fee: sellFee.feeAmount,
+        feeRate: FEES.TRADE_FEE_RATE,
       })
     }
 

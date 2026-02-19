@@ -135,18 +135,13 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
     }
   }
 
-  const handleDeposit = async (amount: number) => {
+  const handleDeposit = async (amount: number, phoneNumber?: string) => {
+    // DepositModal now handles the API call internally.
+    // This callback just refreshes user data after a direct deposit completes.
     try {
-      const res = await fetch('/api/deposit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount })
-      })
-      if (res.ok) {
-        fetchUserData()
-      }
+      fetchUserData()
     } catch (error) {
-      console.error('Error depositing:', error)
+      console.error('Error refreshing after deposit:', error)
     }
   }
 

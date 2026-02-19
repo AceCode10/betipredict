@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { initializeDatabase } from '@/lib/db-init'
 import { checkRateLimit, getClientIp, sanitizeString } from '@/lib/rate-limit'
+import { FEES } from '@/lib/fees'
 
 export async function GET(request: NextRequest) {
   try {
@@ -102,27 +103,89 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Resolve time must be in the future' }, { status: 400 })
     }
 
-    const market = await prisma.market.create({
-      data: {
-        title: title.trim(),
-        description: description ? sanitizeString(String(description), 1000) : null,
-        category: sanitizeString(category, 100).trim(),
-        subcategory: subcategory ? sanitizeString(String(subcategory), 100) : null,
-        question: question.trim(),
-        resolveTime: new Date(resolveTime),
-        creatorId: session.user.id,
-        status: 'ACTIVE'
-      },
-      include: {
-        creator: {
-          select: {
-            id: true,
-            username: true,
-            fullName: true,
-            avatar: true
+    // Charge market creation fee for custom markets (not for scheduled game markets)
+    const isScheduledGame = externalGameId && typeof externalGameId === 'number'
+    const creationFee = isScheduledGame ? 0 : FEES.MARKET_CREATION_FEE
+
+    if (creationFee > 0) {
+      const user = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { balance: true },
+      })
+
+      if (!user || user.balance < creationFee) {
+        return NextResponse.json(
+          { error: `Insufficient balance. Market creation costs K${creationFee}. Your balance: K${(user?.balance || 0).toFixed(2)}` },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Create market and deduct fee atomically
+    const market = await prisma.$transaction(async (tx) => {
+      // Deduct creation fee if applicable
+      if (creationFee > 0) {
+        const freshUser = await tx.user.findUnique({ where: { id: session.user.id } })
+        if (!freshUser || freshUser.balance < creationFee) {
+          throw new Error(`Insufficient balance for market creation fee (K${creationFee})`)
+        }
+
+        await tx.user.update({
+          where: { id: session.user.id },
+          data: { balance: { decrement: creationFee } },
+        })
+
+        await tx.transaction.create({
+          data: {
+            type: 'MARKET_CREATION_FEE',
+            amount: -creationFee,
+            feeAmount: creationFee,
+            description: `Market creation fee for "${title.trim()}"`,
+            status: 'COMPLETED',
+            userId: session.user.id,
+          }
+        })
+      }
+
+      const newMarket = await tx.market.create({
+        data: {
+          title: title.trim(),
+          description: description ? sanitizeString(String(description), 1000) : null,
+          category: sanitizeString(category, 100).trim(),
+          subcategory: subcategory ? sanitizeString(String(subcategory), 100) : null,
+          question: question.trim(),
+          resolveTime: new Date(resolveTime),
+          creatorId: session.user.id,
+          status: 'ACTIVE',
+          liquidity: FEES.DEFAULT_INITIAL_LIQUIDITY,
+        },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              username: true,
+              fullName: true,
+              avatar: true
+            }
           }
         }
+      })
+
+      // Record platform revenue
+      if (creationFee > 0) {
+        await tx.platformRevenue.create({
+          data: {
+            feeType: 'MARKET_CREATION_FEE',
+            amount: creationFee,
+            description: `Market creation fee for "${title.trim()}"`,
+            sourceType: 'MARKET_CREATION',
+            sourceId: newMarket.id,
+            userId: session.user.id,
+          }
+        })
       }
+
+      return newMarket
     })
 
     // Link to ScheduledGame if externalGameId is provided (for auto-resolution)

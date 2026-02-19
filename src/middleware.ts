@@ -60,6 +60,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Skip rate limiting for Airtel Money callback (external webhook)
+  if (pathname === '/api/payments/callback') {
+    return NextResponse.next()
+  }
+
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     || request.headers.get('x-real-ip')
     || 'unknown'

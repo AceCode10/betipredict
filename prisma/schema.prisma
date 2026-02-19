@@ -30,6 +30,7 @@ model User {
   orders                  Order[]
   positions               Position[]
   transactions            Transaction[]
+  mobilePayments          MobilePayment[]
   marketCreations         Market[]
   suggestions             MarketSuggestion[] @relation("UserSuggestions")
   reviewedSuggestions     MarketSuggestion[] @relation("AdminReviews")
@@ -110,6 +111,7 @@ model Transaction {
   id            String   @id @default(cuid())
   type          String
   amount        Float
+  feeAmount     Float    @default(0)
   description   String
   status        String   @default("PENDING")
   metadata      String?
@@ -120,6 +122,51 @@ model Transaction {
   user          User     @relation(fields: [userId], references: [id])
 
   @@map("transactions")
+}
+
+// Mobile money payments (Airtel Money deposits & withdrawals)
+model MobilePayment {
+  id                String   @id @default(cuid())
+  type              String   // DEPOSIT or WITHDRAWAL
+  amount            Float    // Gross amount in Kwacha
+  feeAmount         Float    @default(0) // Platform fee
+  netAmount         Float    // Amount after fees
+  phoneNumber       String   // Masked phone number (097****567)
+  provider          String   @default("AIRTEL_MONEY") // Payment provider
+  externalRef       String   @unique // Our reference sent to Airtel (BP-DEP-xxx)
+  externalId        String?  // Airtel's transaction ID
+  status            String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
+  statusMessage     String?
+  callbackReceived  Boolean  @default(false)
+  callbackData      String?  // Raw callback JSON for audit
+  expiresAt         DateTime // Payment expires after 5 minutes
+  completedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+
+  @@index([externalRef])
+  @@index([userId, type, status])
+  @@index([status, expiresAt])
+  @@map("mobile_payments")
+}
+
+// Platform revenue tracking (all fees collected)
+model PlatformRevenue {
+  id            String   @id @default(cuid())
+  feeType       String   // TRADE_FEE, WITHDRAWAL_FEE, MARKET_CREATION_FEE, RESOLUTION_FEE
+  amount        Float    // Fee amount in Kwacha
+  description   String
+  sourceType    String   // TRADE, WITHDRAWAL, MARKET_CREATION, RESOLUTION
+  sourceId      String?  // Reference to the source record (order ID, payment ID, etc.)
+  userId        String?  // User who paid the fee (null for system-generated)
+  createdAt     DateTime @default(now())
+
+  @@index([feeType])
+  @@index([createdAt])
+  @@map("platform_revenue")
 }
 
 // Scheduled games fetched from sports API (football-data.org)

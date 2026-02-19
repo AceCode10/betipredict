@@ -509,17 +509,10 @@ export default function PolymarketStyleHomePage() {
     setMarkets(prev => [data, ...prev])
   }
 
-  const handleWithdraw = async (amount: number) => {
-    const res = await fetch('/api/withdraw', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, method: 'direct' })
-    })
-
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Withdrawal failed')
-
-    setUserBalance(data.newBalance)
+  const handleWithdraw = async (amount: number, phoneNumber?: string) => {
+    // WithdrawModal now handles the API call internally.
+    // This callback refreshes balance after a direct withdrawal completes.
+    await loadBalance()
   }
 
   // Theme-aware colors
