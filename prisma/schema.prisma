@@ -31,6 +31,10 @@ model User {
   positions               Position[]
   transactions            Transaction[]
   marketCreations         Market[]
+  suggestions             MarketSuggestion[] @relation("UserSuggestions")
+  reviewedSuggestions     MarketSuggestion[] @relation("AdminReviews")
+  notifications           Notification[]
+  settings                UserSettings?
 
   @@map("users")
 }
@@ -116,4 +120,81 @@ model Transaction {
   user          User     @relation(fields: [userId], references: [id])
 
   @@map("transactions")
+}
+
+// Scheduled games fetched from sports API (football-data.org)
+model ScheduledGame {
+  id              String   @id @default(cuid())
+  externalId      Int      @unique // API's match ID
+  competition     String   // e.g. "Premier League", "La Liga"
+  competitionCode String   // e.g. "PL", "PD"
+  homeTeam        String
+  homeTeamCrest   String?
+  awayTeam        String
+  awayTeamCrest   String?
+  matchday        Int?
+  utcDate         DateTime // Scheduled kickoff time
+  status          String   // SCHEDULED, LIVE, FINISHED, POSTPONED
+  homeScore       Int?
+  awayScore       Int?
+  winner          String?  // HOME_TEAM, AWAY_TEAM, DRAW, null
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  marketId        String?  @unique // Link to market if one was created
+  
+  @@map("scheduled_games")
+}
+
+// Market suggestions submitted by users (requires admin approval)
+model MarketSuggestion {
+  id              String   @id @default(cuid())
+  title           String
+  description     String?
+  category        String
+  question        String
+  resolutionSource String? // How to verify the outcome
+  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectionReason String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  suggesterId     String
+  suggester       User     @relation("UserSuggestions", fields: [suggesterId], references: [id])
+  reviewedById    String?
+  reviewedBy      User?    @relation("AdminReviews", fields: [reviewedById], references: [id])
+  reviewedAt      DateTime?
+  marketId        String?  @unique // Link to market if approved and created
+
+  @@map("market_suggestions")
+}
+
+// User notifications
+model Notification {
+  id          String   @id @default(cuid())
+  type        String   // MARKET_RESOLVED, BET_WON, BET_LOST, SUGGESTION_APPROVED, SUGGESTION_REJECTED, DEPOSIT, WITHDRAW
+  title       String
+  message     String
+  isRead      Boolean  @default(false)
+  metadata    String?  // JSON string for additional data
+  createdAt   DateTime @default(now())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+// User settings (dark mode, etc.)
+model UserSettings {
+  id          String   @id @default(cuid())
+  darkMode    Boolean  @default(true)
+  language    String   @default("en")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("user_settings")
 }

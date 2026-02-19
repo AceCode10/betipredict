@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "@/components/providers/SessionProvider";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 
 export const metadata: Metadata = {
   title: "BetiPredict — Sports Prediction Market",
@@ -36,7 +37,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <Providers>
-          {children}
+          <ThemeProvider>
+            {children}
+          </ThemeProvider>
         </Providers>
       </body>
     </html>

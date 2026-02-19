@@ -1,14 +1,15 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useSession, signIn, signOut } from 'next-auth/react'
+import { useSession, signIn } from 'next-auth/react'
 import { useWallet, WalletConnectButton } from '@/components/WalletConnect'
 import { useContractService } from '@/lib/contracts'
 import { PriceChart } from '@/components/PriceChart'
 import { BetSlip } from '@/components/BetSlip'
-import { MarketCreation } from '@/components/MarketCreation'
-import { DepositModal } from '@/components/DepositModal'
+import { Header } from '@/components/Header'
+import { CreateMarketModal } from '@/components/CreateMarketModal'
 import { WithdrawModal } from '@/components/WithdrawModal'
+import { useTheme } from '@/contexts/ThemeContext'
 import { 
   TrendingUp, 
   Users,
@@ -17,10 +18,7 @@ import {
   ShoppingCart,
   Plus,
   Trophy,
-  LogIn,
-  LogOut,
-  User,
-  Wallet
+  X
 } from 'lucide-react'
 import { 
   formatZambianCurrency, 
@@ -191,6 +189,7 @@ const STATS = [
 export default function PolymarketStyleHomePage() {
   const { data: session, status: sessionStatus } = useSession()
   const { isConnected, account, chainId } = useWallet()
+  const { isDarkMode } = useTheme()
   const [markets, setMarkets] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [category, setCategory] = useState<string>('all')
@@ -202,7 +201,6 @@ export default function PolymarketStyleHomePage() {
   const [showBetSlip, setShowBetSlip] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showMarketCreation, setShowMarketCreation] = useState(false)
-  const [showDeposit, setShowDeposit] = useState(false)
   const [showWithdraw, setShowWithdraw] = useState(false)
   const [placingBets, setPlacingBets] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -434,19 +432,6 @@ export default function PolymarketStyleHomePage() {
     setMarkets(prev => [data, ...prev])
   }
 
-  const handleDeposit = async (amount: number) => {
-    const res = await fetch('/api/deposit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, method: 'direct' })
-    })
-
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Deposit failed')
-
-    setUserBalance(data.newBalance)
-  }
-
   const handleWithdraw = async (amount: number) => {
     const res = await fetch('/api/withdraw', {
       method: 'POST',
@@ -460,70 +445,51 @@ export default function PolymarketStyleHomePage() {
     setUserBalance(data.newBalance)
   }
 
+  // Theme-aware colors
+  const bgColor = isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'
+  const surfaceColor = isDarkMode ? 'bg-[#171924]' : 'bg-white'
+  const borderColor = isDarkMode ? 'border-gray-800' : 'border-gray-200'
+  const textColor = isDarkMode ? 'text-white' : 'text-gray-900'
+  const textMuted = isDarkMode ? 'text-gray-400' : 'text-gray-500'
+
   // Polymarket-style homepage
   return (
-    <div className="min-h-screen bg-[#131722]">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-gray-800 bg-[#171924]">
+    <div className={`min-h-screen ${bgColor}`}>
+      {/* Header - new component with Portfolio, Cash, Notifications, Account dropdown */}
+      <Header />
+
+      {/* Secondary nav with Create button and Bet Slip */}
+      <div className={`sticky top-14 z-30 border-b ${borderColor} ${surfaceColor}`}>
         <div className="max-w-[1400px] mx-auto px-4">
-          <div className="flex items-center justify-between h-14">
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-green-500 flex items-center justify-center text-white text-xs font-bold">B</div>
-                <span className="text-base font-bold text-white">BetiPredict</span>
-              </div>
-              <div className="hidden md:flex relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <div className="flex items-center justify-between h-12">
+            {/* Search */}
+            <div className="flex-1 max-w-md">
+              <div className="relative">
+                <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${textMuted}`} />
                 <input
                   type="text"
                   placeholder="Search markets..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
+                  className={`w-full pl-9 pr-3 py-1.5 text-sm ${isDarkMode ? 'bg-[#232637]' : 'bg-gray-100'} border ${borderColor} rounded-lg ${textColor} placeholder-gray-500 focus:outline-none focus:border-green-500`}
                 />
               </div>
-              <button
-                onClick={() => setShowMobileSearch(!showMobileSearch)}
-                className="md:hidden p-2 text-gray-400 hover:text-white"
-              >
-                <Search className="w-5 h-5" />
-              </button>
             </div>
+
+            {/* Actions */}
             <div className="flex items-center gap-2">
               {isLoggedIn && (
                 <>
                   <button
                     onClick={() => setShowMarketCreation(true)}
-                    className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-300 hover:text-white border border-gray-700 rounded-lg hover:border-gray-500 transition-colors"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${textMuted} hover:${textColor} border ${borderColor} rounded-lg hover:border-green-500 transition-colors`}
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    Create
-                  </button>
-                  <div className="hidden sm:flex items-center gap-3 text-xs">
-                    <div className="text-center">
-                      <div className="text-gray-500">Portfolio</div>
-                      <div className="text-white font-medium">{formatZambianCurrency(userBalance)}</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-gray-500">Cash</div>
-                      <div className="text-white font-medium">{formatZambianCurrency(userBalance)}</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setShowDeposit(true)}
-                    className="px-3 py-1.5 bg-green-500 text-white text-sm font-semibold rounded-lg hover:bg-green-600 transition-colors"
-                  >
-                    Deposit
-                  </button>
-                  <button
-                    onClick={() => setShowWithdraw(true)}
-                    className="px-3 py-1.5 bg-orange-500/80 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 transition-colors"
-                  >
-                    Withdraw
+                    <span className="hidden sm:inline">Create Market</span>
                   </button>
                   <button
                     onClick={() => setShowBetSlip(true)}
-                    className="relative p-2 text-gray-400 hover:text-white"
+                    className={`relative p-2 ${textMuted} hover:${textColor}`}
                   >
                     <ShoppingCart className="w-5 h-5" />
                     {betSlip.length > 0 && (
@@ -532,52 +498,12 @@ export default function PolymarketStyleHomePage() {
                       </span>
                     )}
                   </button>
-                  <button
-                    onClick={() => window.location.href = '/account'}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-700 rounded-lg hover:border-gray-500 transition-colors"
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    <span className="hidden md:inline">{session?.user?.name || session?.user?.email?.split('@')[0]}</span>
-                  </button>
-                  <button
-                    onClick={() => signOut()}
-                    className="p-1.5 text-gray-500 hover:text-red-400 transition-colors"
-                    title="Sign Out"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
                 </>
-              )}
-              {!isLoggedIn && (
-                <button
-                  onClick={() => signIn()}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-green-500 text-white text-sm font-semibold rounded-lg hover:bg-green-600 transition-colors"
-                >
-                  <LogIn className="w-4 h-4" />
-                  Sign In
-                </button>
               )}
             </div>
           </div>
         </div>
-      </header>
-
-      {/* Mobile Search Bar */}
-      {showMobileSearch && (
-        <div className="md:hidden border-b border-gray-800 bg-[#171924] px-4 py-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search markets..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              autoFocus
-              className="w-full pl-9 pr-3 py-2 text-sm bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
-            />
-          </div>
-        </div>
-      )}
+      </div>
 
       {/* Categories Nav */}
       <nav className="border-b border-gray-800 bg-[#171924]">
@@ -934,19 +860,14 @@ export default function PolymarketStyleHomePage() {
         userBalance={userBalance}
       />
 
-      {/* Market Creation Modal */}
-      <MarketCreation
+      {/* Market Creation Modal - new flow with scheduled games + suggestions */}
+      <CreateMarketModal
         isOpen={showMarketCreation}
         onClose={() => setShowMarketCreation(false)}
-        onCreateMarket={handleCreateMarket}
-      />
-
-      {/* Deposit Modal */}
-      <DepositModal
-        isOpen={showDeposit}
-        onClose={() => setShowDeposit(false)}
-        onDeposit={handleDeposit}
-        currentBalance={userBalance}
+        onMarketCreated={() => {
+          // Reload markets after creation
+          fetch('/api/markets').then(r => r.json()).then(setMarkets).catch(console.error)
+        }}
       />
 
       {/* Withdraw Modal */}
