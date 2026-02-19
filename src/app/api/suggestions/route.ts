@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkRateLimit, sanitizeString } from '@/lib/rate-limit'
 
 // GET: Fetch suggestions (user's own or all for admins)
 export async function GET(request: NextRequest) {
@@ -59,27 +60,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Rate limit: 5 suggestions per hour per user
+    const rl = checkRateLimit(`suggestion:${session.user.id}`, 5, 3600_000)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many suggestions. Please wait before submitting again.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.resetMs / 1000)) } }
+      )
+    }
+
     const body = await request.json()
-    const { title, description, category, question, resolutionSource } = body
+
+    // Sanitize inputs
+    const title = sanitizeString(body.title || '', 200)
+    const category = sanitizeString(body.category || '', 100)
+    const question = sanitizeString(body.question || '', 300)
+    const description = body.description ? sanitizeString(String(body.description), 1000) : null
+    const resolutionSource = body.resolutionSource ? sanitizeString(String(body.resolutionSource), 500) : null
 
     // Validation
-    if (!title || typeof title !== 'string' || title.length < 5 || title.length > 200) {
+    if (!title || title.length < 5) {
       return NextResponse.json({ error: 'Title must be 5-200 characters' }, { status: 400 })
     }
-    if (!category || typeof category !== 'string') {
+    if (!category) {
       return NextResponse.json({ error: 'Category is required' }, { status: 400 })
     }
-    if (!question || typeof question !== 'string' || question.length < 10 || question.length > 300) {
+    if (!question || question.length < 10) {
       return NextResponse.json({ error: 'Question must be 10-300 characters' }, { status: 400 })
     }
 
     const suggestion = await prisma.marketSuggestion.create({
       data: {
         title: title.trim(),
-        description: description ? String(description).slice(0, 1000) : null,
+        description,
         category: category.trim(),
         question: question.trim(),
-        resolutionSource: resolutionSource ? String(resolutionSource).slice(0, 500) : null,
+        resolutionSource,
         suggesterId: session.user.id,
         status: 'PENDING',
       },

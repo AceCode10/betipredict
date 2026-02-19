@@ -65,3 +65,20 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Market card progress bar animation */
+@keyframes progressFill {
+  from { width: 0%; }
+}
+
+.progress-bar-animated {
+  animation: progressFill 0.6s ease-out;
+}
+
+/* Smooth card hover lift */
+.card-hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.card-hover-lift:hover {
+  transform: translateY(-1px);
+}

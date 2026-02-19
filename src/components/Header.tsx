@@ -176,17 +176,18 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                 <span className="text-green-500">B</span>etiPredict
               </button>
 
-              {/* Desktop Search - Polymarket style */}
-              <form onSubmit={handleSearch} className="hidden md:flex flex-1 max-w-md mx-6">
-                <div className={`relative flex-1 flex items-center ${isDarkMode ? 'bg-[#1e2130]' : 'bg-gray-100'} rounded-lg px-4 py-2 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} hover:border-green-500/50 transition-colors`}>
-                  <Search className={`w-4 h-4 ${textMuted} mr-3`} />
+              {/* Desktop Search */}
+              <form onSubmit={handleSearch} className="hidden md:flex items-center">
+                <div className={`flex items-center ${isDarkMode ? 'bg-[#1e2130] border-gray-700' : 'bg-gray-100 border-gray-200'} border rounded-lg px-3 py-2`}>
+                  <Search className={`w-4 h-4 ${textMuted} flex-shrink-0`} />
                   <input
                     type="text"
-                    placeholder="Search polymarkets..."
+                    placeholder="Search markets..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`flex-1 bg-transparent border-none outline-none text-sm ${textColor} placeholder:${textMuted}`}
+                    className={`bg-transparent border-none outline-none text-sm ${textColor} placeholder:${textMuted} ml-2 w-64 lg:w-80`}
                   />
+                  <kbd className={`hidden lg:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono ${isDarkMode ? 'bg-[#252840] text-gray-500 border-gray-600' : 'bg-gray-200 text-gray-400 border-gray-300'} border rounded ml-2`}>/</kbd>
                 </div>
               </form>
             </div>
@@ -222,7 +223,7 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                   {/* Deposit Button */}
                   <button
                     onClick={() => setShowDeposit(true)}
-                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                    className="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
                   >
                     Deposit
                   </button>
@@ -417,7 +418,7 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                   </button>
                   <button
                     onClick={() => router.push('/auth/signin')}
-                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                    className="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
                   >
                     Sign Up
                   </button>
@@ -429,22 +430,26 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
 
         {/* Mobile Search Bar */}
         {showMobileSearch && (
-          <div className={`md:hidden border-t ${borderColor} px-4 py-2`}>
-            <form onSubmit={handleSearch} className="flex gap-2">
+          <div className={`md:hidden border-t ${borderColor} px-4 py-3`}>
+            <form onSubmit={handleSearch} className="relative">
+              <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${textMuted}`} />
               <input
                 type="text"
                 placeholder="Search markets..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className={`flex-1 px-3 py-2 ${isDarkMode ? 'bg-[#1e2130]' : 'bg-gray-100'} border-none rounded-lg text-sm ${textColor} outline-none`}
+                className={`w-full pl-10 pr-10 py-2.5 ${isDarkMode ? 'bg-[#1e2130] border-gray-700' : 'bg-gray-100 border-gray-200'} border rounded-lg text-sm ${textColor} outline-none focus:border-green-500 transition-colors`}
                 autoFocus
               />
-              <button
-                type="submit"
-                className="px-4 py-2 bg-green-500 text-white text-sm rounded-lg"
-              >
-                Search
-              </button>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className={`absolute right-3 top-1/2 -translate-y-1/2 ${textMuted} hover:${textColor}`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </form>
           </div>
         )}

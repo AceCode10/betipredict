@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession, signIn } from 'next-auth/react'
 import { useWallet, WalletConnectButton } from '@/components/WalletConnect'
 import { useContractService } from '@/lib/contracts'
@@ -9,14 +9,20 @@ import { BetSlip } from '@/components/BetSlip'
 import { Header } from '@/components/Header'
 import { CreateMarketModal } from '@/components/CreateMarketModal'
 import { WithdrawModal } from '@/components/WithdrawModal'
-import { PercentageCircle } from '@/components/ui/PercentageCircle'
-import { BottomNavigation } from '@/components/BottomNavigation'
+import { LiveBetToast, type LiveTradeToast } from '@/components/LiveBetToast'
+import { useMarketStream, type LiveTrade, type MarketPriceUpdate } from '@/lib/useMarketStream'
 import { useTheme } from '@/contexts/ThemeContext'
 import { 
   TrendingUp, 
   Users,
   BarChart3,
-  Trophy
+  Trophy,
+  RefreshCw,
+  Bookmark,
+  Calendar,
+  Droplets,
+  Wifi,
+  WifiOff
 } from 'lucide-react'
 import { 
   formatZambianCurrency, 
@@ -202,9 +208,44 @@ export default function PolymarketStyleHomePage() {
   const [showWithdraw, setShowWithdraw] = useState(false)
   const [placingBets, setPlacingBets] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [liveTrades, setLiveTrades] = useState<LiveTradeToast[]>([])
   
   const contractService = useContractService()
   const isLoggedIn = sessionStatus === 'authenticated' && !!session?.user
+
+  // SSE: Real-time market data stream
+  const { isConnected: isStreamConnected } = useMarketStream({
+    onPriceUpdate: (updates: MarketPriceUpdate[]) => {
+      setMarkets(prev => {
+        const updateMap = new Map(updates.map(u => [u.id, u]))
+        return prev.map(m => {
+          const u = updateMap.get(m.id)
+          if (!u) return m
+          return {
+            ...m,
+            yesPrice: u.yesPrice,
+            noPrice: u.noPrice,
+            volume: u.volume,
+            liquidity: u.liquidity,
+          }
+        })
+      })
+    },
+    onNewTrades: (trades: LiveTrade[]) => {
+      const toasts: LiveTradeToast[] = trades.map(t => ({
+        id: t.id,
+        username: t.username,
+        side: t.side,
+        outcome: t.outcome,
+        price: t.price,
+        amount: t.amount,
+        marketTitle: t.marketTitle,
+        marketId: t.marketId,
+        createdAt: t.createdAt,
+      }))
+      setLiveTrades(prev => [...toasts, ...prev].slice(0, 30))
+    },
+  })
 
   // Load user balance from API
   const loadBalance = useCallback(async () => {
@@ -281,13 +322,38 @@ export default function PolymarketStyleHomePage() {
 
   const normalizedMarkets = markets.map(normalizeMarket)
 
+  // Map UI category slugs to match against API subcategory/league values
+  const categoryMatchMap: Record<string, string[]> = {
+    'premier-league': ['premier league', 'pl'],
+    'la-liga': ['la liga', 'primera division', 'pd'],
+    'bundesliga': ['bundesliga', 'bl1'],
+    'serie-a': ['serie a', 'sa'],
+    'ligue-1': ['ligue 1', 'fl1'],
+    'zambia-super-league': ['zambia super league', 'zsl'],
+    'champions-league': ['champions league', 'cl', 'uefa champions league'],
+    'other-sports': ['other sports', 'other'],
+  }
+
   const filteredMarkets = normalizedMarkets.filter(market => {
-    const matchesCategory = category === 'all' || market.category === category
+    let matchesCategory = category === 'all'
+    if (!matchesCategory) {
+      // Direct slug match (for hardcoded fallback markets)
+      if (market.category === category) {
+        matchesCategory = true
+      } else {
+        // Match against subcategory/league for API markets
+        const targets = categoryMatchMap[category] || [category]
+        const sub = (market.subcategory || '').toLowerCase()
+        const league = (market.league || '').toLowerCase()
+        const cat = (market.category || '').toLowerCase()
+        matchesCategory = targets.some(t => sub.includes(t) || league.includes(t) || cat.includes(t))
+      }
+    }
     const matchesSearch = !searchQuery || 
       market.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      market.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      market.homeTeam?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      market.awayTeam?.toLowerCase().includes(searchQuery.toLowerCase())
+      (market.question || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (market.homeTeam || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (market.awayTeam || '').toLowerCase().includes(searchQuery.toLowerCase())
     return matchesCategory && matchesSearch
   }).sort((a, b) => {
     if (sortBy === 'volume') return b.volume - a.volume
@@ -465,7 +531,7 @@ export default function PolymarketStyleHomePage() {
 
   // Polymarket-style homepage
   return (
-    <div className={`min-h-screen ${bgColor} pb-16 md:pb-0`}>
+    <div className={`min-h-screen ${bgColor}`}>
       {/* Header with search, create, bet slip integrated */}
       <Header
         searchQuery={searchQuery}
@@ -478,14 +544,14 @@ export default function PolymarketStyleHomePage() {
       {/* Categories Nav */}
       <nav className={`border-b ${borderColor} ${surfaceColor} sticky top-14 z-30`}>
         <div className="max-w-[1400px] mx-auto px-4">
-          <div className="flex items-center gap-1 h-10 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1.5 h-11 overflow-x-auto no-scrollbar">
             {SPORTS_CATEGORIES.map((cat) => (
               <button
                 key={cat.value}
                 onClick={() => setCategory(cat.value)}
-                className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors flex items-center gap-1 ${
+                className={`whitespace-nowrap px-3.5 py-1.5 text-xs font-medium rounded-full transition-all duration-200 flex items-center gap-1.5 ${
                   category === cat.value
-                    ? isDarkMode ? 'bg-[#2d3148] text-white' : 'bg-green-100 text-green-700'
+                    ? isDarkMode ? 'bg-green-500/15 text-green-400 ring-1 ring-green-500/30' : 'bg-green-50 text-green-700 ring-1 ring-green-200'
                     : isDarkMode ? 'text-gray-400 hover:text-white hover:bg-[#232637]' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'
                 }`}
               >
@@ -500,7 +566,7 @@ export default function PolymarketStyleHomePage() {
       {/* Main Content */}
       <main className="max-w-[1400px] mx-auto px-3 sm:px-4 py-4">
         {/* Sort Tabs */}
-        <div className="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1 mb-4 overflow-x-auto no-scrollbar">
           {[
             { value: 'volume', label: 'Top Volume' },
             { value: 'match-date', label: 'Match Date' },
@@ -510,10 +576,10 @@ export default function PolymarketStyleHomePage() {
             <button
               key={tab.value}
               onClick={() => setSortBy(tab.value)}
-              className={`whitespace-nowrap px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+              className={`whitespace-nowrap px-3.5 py-1.5 text-xs font-medium transition-all duration-200 border-b-2 ${
                 sortBy === tab.value
-                  ? isDarkMode ? 'bg-[#2d3148] text-white' : 'bg-green-100 text-green-700'
-                  : isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-500 hover:text-gray-800'
+                  ? isDarkMode ? 'border-green-500 text-green-400' : 'border-green-500 text-green-700'
+                  : isDarkMode ? 'border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-600' : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
               }`}
             >
               {tab.label}
@@ -524,14 +590,17 @@ export default function PolymarketStyleHomePage() {
         {/* Markets Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {filteredMarkets.map((market) => {
+            const yesPercent = Math.round(market.yesPrice * 100)
+            const noPercent = Math.round(market.noPrice * 100)
             const cardBg = isDarkMode ? 'bg-[#1e2130]' : 'bg-white'
             const cardBorder = isDarkMode ? 'border-gray-700/50' : 'border-gray-200'
-            const cardHover = isDarkMode ? 'hover:border-gray-600' : 'hover:border-gray-300 hover:shadow-md'
-            const subtleBg = isDarkMode ? 'bg-[#252840]' : 'bg-gray-100'
+            const cardHover = isDarkMode ? 'hover:border-gray-600 hover:shadow-lg hover:shadow-black/20' : 'hover:border-gray-300 hover:shadow-lg hover:shadow-gray-200/80'
+            const subtleBg = isDarkMode ? 'bg-[#252840]' : 'bg-gray-50'
+            const barTrack = isDarkMode ? 'bg-gray-700/50' : 'bg-gray-200'
             return (
             <div
               key={market.id}
-              className={`${cardBg} border ${cardBorder} rounded-xl p-4 ${cardHover} transition-all cursor-pointer group`}
+              className={`${cardBg} border ${cardBorder} rounded-xl p-4 ${cardHover} transition-all duration-200 cursor-pointer group card-hover-lift`}
               onClick={() => {
                 if (showChart?.marketId === market.id) {
                   setShowChart(null)
@@ -541,44 +610,91 @@ export default function PolymarketStyleHomePage() {
               }}
             >
               {/* Card Header: icon + title */}
-              <div className="flex items-start gap-2.5 mb-3">
-                <div className={`w-8 h-8 rounded-full ${subtleBg} flex items-center justify-center flex-shrink-0 text-sm`}>
+              <div className="flex items-start gap-3 mb-4">
+                <div className={`w-9 h-9 rounded-full ${subtleBg} flex items-center justify-center flex-shrink-0 text-base ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>
                   ⚽
                 </div>
-                <div className="flex-1">
-                  <h3 className={`text-sm font-semibold ${textColor} leading-tight line-clamp-2 group-hover:text-green-500 transition-colors`}>
-                    {market.title}
-                  </h3>
-                  {/* Market subtitle with teams */}
-                  <div className={`text-xs ${textMuted} mt-1 line-clamp-1`}>
-                    {market.homeTeam} vs {market.awayTeam}
+                <h3 className={`text-[15px] font-semibold ${textColor} leading-snug line-clamp-2 group-hover:text-green-500 transition-colors flex-1`}>
+                  {market.question || market.title}
+                </h3>
+              </div>
+
+              {/* Team rows with percentages and progress bars */}
+              <div className="space-y-2.5 mb-4">
+                {/* Home team row */}
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.homeTeam}</span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`text-sm font-bold ${textColor}`}>{yesPercent}%</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-green-500/15 text-green-500 hover:bg-green-500/30 transition-colors"
+                      >
+                        Yes
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-red-500/15 text-red-500 hover:bg-red-500/30 transition-colors"
+                      >
+                        No
+                      </button>
+                    </div>
+                  </div>
+                  <div className={`h-1 rounded-full ${barTrack} overflow-hidden`}>
+                    <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: `${yesPercent}%` }} />
+                  </div>
+                </div>
+                {/* Away team row */}
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.awayTeam}</span>
+                    <span className={`text-sm font-bold ${textColor} flex-shrink-0`}>{noPercent}%</span>
+                  </div>
+                  <div className={`h-1 rounded-full ${barTrack} overflow-hidden`}>
+                    <div className="h-full bg-red-400 rounded-full transition-all duration-500" style={{ width: `${noPercent}%` }} />
                   </div>
                 </div>
               </div>
 
-              {/* Polymarket-style Yes/No buttons with percentages */}
-              <div className="flex gap-2 mb-3">
+              {/* Team action buttons with odds */}
+              <div className="flex gap-1.5 mb-3">
                 <button
                   onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
-                  className="flex-1 py-2.5 px-3 bg-green-500 hover:bg-green-600 text-white text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                  className={`flex-1 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} text-green-500 border ${cardBorder} hover:border-green-500/50 hover:bg-green-500/10 transition-all duration-200 truncate`}
                 >
-                  <span>YES</span>
-                  <span className="text-xs opacity-90">{Math.round(market.yesPrice * 100)}%</span>
+                  {market.homeTeam}
+                </button>
+                <button
+                  onClick={(e) => e.stopPropagation()}
+                  className={`px-3 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-all duration-200`}
+                >
+                  DRAW
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
-                  className="flex-1 py-2.5 px-3 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                  className={`flex-1 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} text-red-500 border ${cardBorder} hover:border-red-500/50 hover:bg-red-500/10 transition-all duration-200 truncate`}
                 >
-                  <span>NO</span>
-                  <span className="text-xs opacity-90">{Math.round(market.noPrice * 100)}%</span>
+                  {market.awayTeam}
                 </button>
               </div>
 
-              {/* Footer: volume + league + date */}
-              <div className={`flex items-center justify-between text-[10px] ${textMuted} pt-2 border-t ${cardBorder}`}>
-                <span>{formatVolume(market.volume)} Vol.</span>
+              {/* Footer: volume + liquidity + league + date */}
+              <div className={`flex items-center justify-between text-[11px] ${textMuted} pt-2.5 border-t ${cardBorder}`}>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-0.5" title="Volume">
+                    <BarChart3 className="w-3 h-3" />
+                    <span>{formatVolume(market.volume)} Vol.</span>
+                  </div>
+                  {(market.liquidity > 0) && (
+                    <div className="flex items-center gap-0.5" title="Liquidity">
+                      <Droplets className="w-3 h-3 text-blue-400" />
+                      <span>{formatVolume(market.liquidity)}</span>
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate max-w-[80px]">{market.league}</span>
+                  <span className="truncate max-w-[70px]">{market.league}</span>
                   <span>{market.matchDate}</span>
                 </div>
               </div>
@@ -603,22 +719,29 @@ export default function PolymarketStyleHomePage() {
               const skelCard = isDarkMode ? 'bg-[#1e2130] border-gray-700/50' : 'bg-white border-gray-200'
               return (
               <div key={index} className={`${skelCard} border rounded-xl p-4`}>
-                <div className="flex items-start gap-2.5 mb-3">
-                  <div className={`w-8 h-8 rounded-full ${skelBg} animate-pulse`} />
+                <div className="flex items-start gap-3 mb-4">
+                  <div className={`w-9 h-9 rounded-full ${skelBg} animate-pulse`} />
                   <div className="flex-1 space-y-1.5">
-                    <div className={`h-3 ${skelBg} rounded animate-pulse`} />
-                    <div className={`h-3 ${skelBg} rounded animate-pulse w-2/3`} />
+                    <div className={`h-4 ${skelBg} rounded animate-pulse`} />
+                    <div className={`h-4 ${skelBg} rounded animate-pulse w-2/3`} />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <div className={`h-5 ${skelBg} rounded animate-pulse`} />
-                  <div className={`h-5 ${skelBg} rounded animate-pulse`} />
-                  <div className="flex gap-1.5">
-                    <div className={`flex-1 h-8 ${skelBg} rounded-lg animate-pulse`} />
-                    <div className={`w-14 h-8 ${skelBg} rounded-lg animate-pulse`} />
-                    <div className={`flex-1 h-8 ${skelBg} rounded-lg animate-pulse`} />
+                <div className="space-y-2.5 mb-4">
+                  <div>
+                    <div className={`h-5 ${skelBg} rounded animate-pulse mb-1`} />
+                    <div className={`h-1 ${skelBg} rounded-full animate-pulse`} />
+                  </div>
+                  <div>
+                    <div className={`h-5 ${skelBg} rounded animate-pulse mb-1`} />
+                    <div className={`h-1 ${skelBg} rounded-full animate-pulse`} />
                   </div>
                 </div>
+                <div className="flex gap-1.5 mb-3">
+                  <div className={`flex-1 h-10 ${skelBg} rounded-lg animate-pulse`} />
+                  <div className={`w-14 h-10 ${skelBg} rounded-lg animate-pulse`} />
+                  <div className={`flex-1 h-10 ${skelBg} rounded-lg animate-pulse`} />
+                </div>
+                <div className={`h-3 ${skelBg} rounded animate-pulse mt-2`} />
               </div>
               )
             })}
@@ -638,22 +761,33 @@ export default function PolymarketStyleHomePage() {
             <div className="absolute inset-0 bg-black/60" onClick={() => setShowChart(null)} />
             <div className={`relative ${modalBg} border ${modalBorder} rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90vh] sm:max-h-[80vh] overflow-y-auto shadow-2xl`}>
               {/* Detail Header */}
-              <div className={`flex items-start gap-3 p-4 border-b ${modalBorder}`}>
-                <div className={`w-10 h-10 rounded-full ${inputBg} flex items-center justify-center text-lg flex-shrink-0`}>⚽</div>
+              <div className={`flex items-start gap-3 p-5 border-b ${modalBorder}`}>
+                <div className={`w-11 h-11 rounded-full ${inputBg} flex items-center justify-center text-xl flex-shrink-0 ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>⚽</div>
                 <div className="flex-1">
-                  <div className={`text-xs ${textMuted} mb-0.5`}>{market.league}</div>
-                  <h2 className={`text-lg font-semibold ${textColor}`}>{market.title}</h2>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-green-500/15 text-green-400' : 'bg-green-50 text-green-700'}`}>{market.league}</span>
+                    {market.status === 'ACTIVE' && <span className={`text-[11px] ${textMuted}`}>• Active</span>}
+                  </div>
+                  <h2 className={`text-lg font-bold ${textColor} leading-snug`}>{market.question || market.title}</h2>
                 </div>
-                <button onClick={() => setShowChart(null)} className={`${textMuted} hover:${textColor} text-xl p-1`}>×</button>
+                <button onClick={() => setShowChart(null)} className={`${textMuted} hover:${textColor} p-1.5 rounded-lg ${isDarkMode ? 'hover:bg-[#252840]' : 'hover:bg-gray-100'} transition-colors`}>
+                  <span className="text-xl leading-none">×</span>
+                </button>
               </div>
 
               <div className="flex flex-col md:flex-row">
                 {/* Left: Chart */}
-                <div className="flex-1 p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <span className="text-2xl font-bold text-green-500">{Math.round(market.yesPrice * 100)}%</span>
-                    <span className={`text-xs ${textMuted}`}>chance</span>
-                    <span className={`text-xs ${market.trend === 'up' ? 'text-green-500' : 'text-red-500'}`}>
+                <div className="flex-1 p-5">
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                      <span className={`text-sm font-semibold ${textColor}`}>{market.homeTeam} {Math.round(market.yesPrice * 100)}%</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-red-400" />
+                      <span className={`text-sm font-semibold ${textColor}`}>{market.awayTeam} {Math.round(market.noPrice * 100)}%</span>
+                    </div>
+                    <span className={`text-xs ${market.trend === 'up' ? 'text-green-500' : 'text-red-500'} ml-auto`}>
                       {market.trend === 'up' ? '▲' : '▼'} {market.change}
                     </span>
                   </div>
@@ -664,9 +798,21 @@ export default function PolymarketStyleHomePage() {
                     onClose={() => setShowChart(null)}
                     onBuy={(amount) => handleBuyFromDetail(market, showChart.outcome, amount)}
                   />
-                  <div className={`flex items-center gap-4 mt-3 text-xs ${textMuted}`}>
-                    <span>{formatVolume(market.volume)} Vol.</span>
-                    <span>⏱ {market.matchDate}</span>
+                  <div className={`flex items-center gap-4 mt-4 text-xs ${textMuted}`}>
+                    <div className="flex items-center gap-1">
+                      <BarChart3 className="w-3 h-3" />
+                      <span>{formatVolume(market.volume)} Vol.</span>
+                    </div>
+                    {(market.liquidity > 0) && (
+                      <div className="flex items-center gap-1">
+                        <Droplets className="w-3 h-3 text-blue-400" />
+                        <span>{formatVolume(market.liquidity)} Liq.</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      <span>{market.matchDate}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -832,13 +978,20 @@ export default function PolymarketStyleHomePage() {
         currentBalance={userBalance}
       />
 
-      {/* Bottom Navigation - Mobile Only */}
-      <BottomNavigation
-        onOpenSearch={() => {/* Search is already in header */}}
-        onCreateMarket={() => setShowMarketCreation(true)}
-        betSlipCount={betSlip.length}
-        onOpenBetSlip={() => setShowBetSlip(true)}
-      />
+      {/* Live Bet Toasts — pop-up notifications for incoming bets */}
+      <LiveBetToast trades={liveTrades} maxVisible={3} />
+
+      {/* Live Connection Indicator */}
+      <div className="fixed bottom-4 right-4 z-30">
+        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-medium ${
+          isStreamConnected
+            ? isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200'
+            : isDarkMode ? 'bg-gray-800 text-gray-500 border border-gray-700' : 'bg-gray-100 text-gray-400 border border-gray-200'
+        }`}>
+          {isStreamConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+          {isStreamConnected ? 'Live' : 'Connecting...'}
+        </div>
+      </div>
     </div>
   )
 }

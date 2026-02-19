@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { TradeRequest } from '@/types'
-import { initializePool, calculateSharesForAmount, calculateBuyCost, getPrices } from '@/lib/cpmm'
+import { initializePool, calculateSharesForAmount, calculateBuyCost, calculateSellProceeds, getPrices } from '@/lib/cpmm'
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,6 +12,15 @@ export async function POST(request: NextRequest) {
     
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Rate limit: 30 trades per minute per user
+    const rl = checkRateLimit(`trade:${session.user.id}`, 30, 60_000)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many trades. Please wait before trying again.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.resetMs / 1000)) } }
+      )
     }
 
     const trade: TradeRequest = await request.json()
@@ -179,10 +189,13 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Calculate proceeds via CPMM (selling is the reverse of buying)
-      const currentPrice = outcome === 'YES' ? market.yesPrice : market.noPrice
-      const proceeds = sharesToSell * currentPrice
-      const newPrices = getPrices(pool) // Simplified: selling has inverse price effect
+      // Calculate proceeds via CPMM (proper sell-side computation)
+      const { proceeds, newPool: sellPool, avgPrice: sellAvgPrice } = calculateSellProceeds(pool, outcome as 'YES' | 'NO', sharesToSell)
+      const newPrices = getPrices(sellPool)
+
+      if (proceeds <= 0) {
+        return NextResponse.json({ error: 'Sell amount too small' }, { status: 400 })
+      }
 
       // Execute atomically
       const result = await prisma.$transaction(async (tx) => {
@@ -198,7 +211,7 @@ export async function POST(request: NextRequest) {
             type,
             side: 'SELL',
             outcome,
-            price: currentPrice,
+            price: sellAvgPrice,
             amount: sharesToSell,
             filled: sharesToSell,
             remaining: 0,
@@ -213,10 +226,10 @@ export async function POST(request: NextRequest) {
           data: {
             type: 'TRADE',
             amount: proceeds,
-            description: `Sold ${sharesToSell.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(currentPrice * 100).toFixed(1)}%`,
+            description: `Sold ${sharesToSell.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(sellAvgPrice * 100).toFixed(1)}%`,
             status: 'COMPLETED',
             userId: session.user.id,
-            metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares: sharesToSell, price: currentPrice, proceeds })
+            metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares: sharesToSell, price: sellAvgPrice, proceeds })
           }
         })
 
@@ -227,24 +240,26 @@ export async function POST(request: NextRequest) {
           data: { size: Math.max(0, newSize), isClosed: newSize <= 0 }
         })
 
-        // 5. Update market
+        // 5. Update market prices and liquidity
         const updatedMarket = await tx.market.update({
           where: { id: marketId },
           data: {
             volume: { increment: proceeds },
-            liquidity: { decrement: proceeds }
+            liquidity: Math.max(0, market.liquidity - proceeds),
+            yesPrice: Math.max(0.01, Math.min(0.99, newPrices.yesPrice)),
+            noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice)),
           }
         })
 
-        return { updatedUser, order, updatedMarket }
+        return { updatedUser, order, updatedMarket, newPrices }
       })
 
       return NextResponse.json({
         success: true,
         order: result.order,
         newBalance: result.updatedUser.balance,
-        newYesPrice: market.yesPrice,
-        newNoPrice: market.noPrice,
+        newYesPrice: result.newPrices.yesPrice,
+        newNoPrice: result.newPrices.noPrice,
         shares: sharesToSell,
         proceeds
       })

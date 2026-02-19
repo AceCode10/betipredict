@@ -154,6 +154,59 @@ export function calculateSharesForAmount(
 }
 
 /**
+ * Calculate proceeds from selling shares back to the pool.
+ * Selling YES shares is the reverse of buying: pool absorbs shares, user gets Kwacha.
+ * 
+ * @param pool - Current pool state
+ * @param outcome - 'YES' or 'NO'
+ * @param shares - Number of shares to sell
+ * @returns proceeds in Kwacha and new pool state
+ */
+export function calculateSellProceeds(
+  pool: PoolState,
+  outcome: 'YES' | 'NO',
+  shares: number
+): { proceeds: number; newPool: PoolState; avgPrice: number } {
+  if (shares <= 0) return { proceeds: 0, newPool: pool, avgPrice: 0 }
+
+  let newYes = pool.yesShares
+  let newNo = pool.noShares
+
+  if (outcome === 'YES') {
+    // Selling YES shares back: yesShares decrease, noShares increase
+    newYes = pool.yesShares - shares
+    if (newYes <= 0) {
+      // Can't sell more than pool has — clamp
+      newYes = 0.01
+    }
+    newNo = pool.k / newYes
+    const proceeds = (newNo - pool.noShares) + shares
+    const avgPrice = shares > 0 ? Math.max(0, proceeds / shares) : 0
+
+    return {
+      proceeds: Math.max(0, proceeds),
+      newPool: { yesShares: newYes, noShares: newNo, k: pool.k },
+      avgPrice: Math.min(1, avgPrice),
+    }
+  } else {
+    // Selling NO shares back
+    newNo = pool.noShares - shares
+    if (newNo <= 0) {
+      newNo = 0.01
+    }
+    newYes = pool.k / newNo
+    const proceeds = (newYes - pool.yesShares) + shares
+    const avgPrice = shares > 0 ? Math.max(0, proceeds / shares) : 0
+
+    return {
+      proceeds: Math.max(0, proceeds),
+      newPool: { yesShares: newYes, noShares: newNo, k: pool.k },
+      avgPrice: Math.min(1, avgPrice),
+    }
+  }
+}
+
+/**
  * Calculate potential payout if outcome wins
  * @param shares - Number of shares held
  * @returns Payout in Kwacha (each winning share = K1)
