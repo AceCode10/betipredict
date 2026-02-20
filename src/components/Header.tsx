@@ -15,8 +15,7 @@ import {
   Wallet,
   Search,
   X,
-  Plus,
-  ShoppingCart
+  Plus
 } from 'lucide-react'
 import { useTheme } from '@/contexts/ThemeContext'
 import { formatZambianCurrency } from '@/utils/currency'
@@ -161,18 +160,20 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
     <>
       <header className={`sticky top-0 z-50 ${bgColor} border-b ${borderColor}`}>
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between h-14">
-            {/* Logo */}
-            <div className="flex items-center gap-4">
+          <div className="flex items-center h-14">
+            {/* Logo - Left */}
+            <div className="flex-shrink-0">
               <button 
                 onClick={() => router.push('/')}
                 className={`text-xl font-bold ${textColor} flex items-center gap-2`}
               >
                 <span className="text-green-500">B</span>etiPredict
               </button>
+            </div>
 
-              {/* Desktop Search */}
-              <form onSubmit={handleSearch} className="hidden md:flex items-center">
+            {/* Desktop Search - Centered */}
+            <div className="hidden md:flex flex-1 justify-center px-8">
+              <form onSubmit={handleSearch} className="w-full max-w-md">
                 <div className={`flex items-center ${isDarkMode ? 'bg-[#1e2130] border-gray-700' : 'bg-gray-100 border-gray-200'} border rounded-lg px-3 py-2`}>
                   <Search className={`w-4 h-4 ${textMuted} flex-shrink-0`} />
                   <input
@@ -180,7 +181,7 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                     placeholder="Search markets..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`bg-transparent border-none outline-none text-sm ${textColor} placeholder:${textMuted} ml-2 w-64 lg:w-80`}
+                    className={`bg-transparent border-none outline-none text-sm ${textColor} placeholder:${textMuted} ml-2 w-full`}
                   />
                   <kbd className={`hidden lg:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono ${isDarkMode ? 'bg-[#252840] text-gray-500 border-gray-600' : 'bg-gray-200 text-gray-400 border-gray-300'} border rounded ml-2`}>/</kbd>
                 </div>
@@ -188,7 +189,7 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
             </div>
 
             {/* Right Side */}
-            <div className="flex items-center gap-2 md:gap-4">
+            <div className="flex items-center gap-2 md:gap-4 ml-auto">
               {/* Mobile Search Toggle */}
               <button
                 onClick={() => setShowMobileSearch(!showMobileSearch)}
@@ -222,32 +223,6 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                   >
                     Deposit
                   </button>
-
-                  {/* Create Market - Desktop */}
-                  {onCreateMarket && (
-                    <button
-                      onClick={onCreateMarket}
-                      className={`hidden sm:flex items-center gap-1 px-3 py-1.5 text-sm ${textMuted} hover:${textColor} border ${borderColor} rounded-lg hover:border-green-500 transition-colors`}
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span className="hidden lg:inline">Create</span>
-                    </button>
-                  )}
-
-                  {/* Bet Slip */}
-                  {onOpenBetSlip && (
-                    <button
-                      onClick={onOpenBetSlip}
-                      className={`relative p-2 rounded-lg ${hoverBg} ${textMuted}`}
-                    >
-                      <ShoppingCart className="w-5 h-5" />
-                      {betSlipCount > 0 && (
-                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
-                          {betSlipCount}
-                        </span>
-                      )}
-                    </button>
-                  )}
 
                   {/* Notifications */}
                   <div ref={notifRef} className="relative">
@@ -346,6 +321,15 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                             <Wallet className="w-4 h-4" />
                             <span className="text-sm">Account</span>
                           </button>
+                          {onCreateMarket && (
+                            <button
+                              onClick={() => { onCreateMarket(); setShowAccountMenu(false) }}
+                              className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} ${textColor}`}
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span className="text-sm">Create Market</span>
+                            </button>
+                          )}
                         </div>
 
                         {/* Dark Mode Toggle */}

@@ -22,7 +22,8 @@ import {
   Calendar,
   Droplets,
   Wifi,
-  WifiOff
+  WifiOff,
+  Search
 } from 'lucide-react'
 import { 
   formatZambianCurrency, 
@@ -554,6 +555,19 @@ export default function PolymarketStyleHomePage() {
             ))}
           </div>
         </div>
+        {/* Mobile Search - Below Categories */}
+        <div className="md:hidden px-4 py-2 border-t border-gray-800/50">
+          <div className={`flex items-center ${isDarkMode ? 'bg-[#1e2130] border-gray-700' : 'bg-gray-100 border-gray-200'} border rounded-lg px-3 py-2`}>
+            <Search className={`w-4 h-4 ${textMuted} flex-shrink-0`} />
+            <input
+              type="text"
+              placeholder="Search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`bg-transparent border-none outline-none text-sm ${textColor} placeholder:${textMuted} ml-2 w-full`}
+            />
+          </div>
+        </div>
       </nav>
 
       {/* Main Content */}
@@ -612,43 +626,17 @@ export default function PolymarketStyleHomePage() {
                 </h3>
               </div>
 
-              {/* Team rows with percentages and progress bars */}
-              <div className="space-y-2.5 mb-4">
+              {/* Team rows with percentages - Polymarket style */}
+              <div className="space-y-1.5 mb-4">
                 {/* Home team row */}
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.homeTeam}</span>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className={`text-sm font-bold ${textColor}`}>{yesPercent}%</span>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-green-500/15 text-green-500 hover:bg-green-500/30 transition-colors"
-                      >
-                        Yes
-                      </button>
-                    </div>
-                  </div>
-                  <div className={`h-1 rounded-full ${barTrack} overflow-hidden`}>
-                    <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: `${yesPercent}%` }} />
-                  </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.homeTeam}</span>
+                  <span className={`text-sm font-bold ${textColor}`}>{yesPercent}%</span>
                 </div>
                 {/* Away team row */}
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.awayTeam}</span>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className={`text-sm font-bold ${textColor}`}>{noPercent}%</span>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-red-500/15 text-red-500 hover:bg-red-500/30 transition-colors"
-                      >
-                        No
-                      </button>
-                    </div>
-                  </div>
-                  <div className={`h-1 rounded-full ${barTrack} overflow-hidden`}>
-                    <div className="h-full bg-red-400 rounded-full transition-all duration-500" style={{ width: `${noPercent}%` }} />
-                  </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.awayTeam}</span>
+                  <span className={`text-sm font-bold ${textColor}`}>{noPercent}%</span>
                 </div>
               </div>
 
@@ -721,15 +709,9 @@ export default function PolymarketStyleHomePage() {
                     <div className={`h-4 ${skelBg} rounded animate-pulse w-2/3`} />
                   </div>
                 </div>
-                <div className="space-y-2.5 mb-4">
-                  <div>
-                    <div className={`h-5 ${skelBg} rounded animate-pulse mb-1`} />
-                    <div className={`h-1 ${skelBg} rounded-full animate-pulse`} />
-                  </div>
-                  <div>
-                    <div className={`h-5 ${skelBg} rounded animate-pulse mb-1`} />
-                    <div className={`h-1 ${skelBg} rounded-full animate-pulse`} />
-                  </div>
+                <div className="space-y-1.5 mb-4">
+                  <div className={`h-5 ${skelBg} rounded animate-pulse`} />
+                  <div className={`h-5 ${skelBg} rounded animate-pulse`} />
                 </div>
                 <div className="flex gap-1.5 mb-3">
                   <div className={`flex-1 h-10 ${skelBg} rounded-lg animate-pulse`} />

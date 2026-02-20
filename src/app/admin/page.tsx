@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Trophy, Loader2, MessageSquare, BarChart3 } from 'lucide-react'
+import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Trophy, Loader2, MessageSquare, BarChart3, RefreshCw, DollarSign, Users, Settings } from 'lucide-react'
 import { formatZambianCurrency } from '@/utils/currency'
 import { useTheme } from '@/contexts/ThemeContext'
 
@@ -20,7 +20,16 @@ interface Suggestion {
   suggester: { id: string; username: string; fullName: string; avatar: string | null }
 }
 
-type TabType = 'markets' | 'suggestions'
+interface Stats {
+  totalUsers: number
+  totalMarkets: number
+  activeMarkets: number
+  totalVolume: number
+  totalRevenue: number
+  pendingSuggestions: number
+}
+
+type TabType = 'suggestions' | 'markets' | 'sync' | 'stats'
 
 export default function AdminPage() {
   const { data: session, status } = useSession()
@@ -29,8 +38,10 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<TabType>('suggestions')
   const [markets, setMarkets] = useState<any[]>([])
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [stats, setStats] = useState<Stats | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const [resolving, setResolving] = useState<string | null>(null)
   const [processing, setProcessing] = useState<string | null>(null)
   const [rejectionReason, setRejectionReason] = useState('')
@@ -55,9 +66,10 @@ export default function AdminPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [marketsRes, suggestionsRes] = await Promise.all([
+      const [marketsRes, suggestionsRes, statsRes] = await Promise.all([
         fetch('/api/markets'),
-        fetch('/api/suggestions?admin=true&status=PENDING')
+        fetch('/api/suggestions?admin=true&status=PENDING'),
+        fetch('/api/admin/stats')
       ])
       
       if (marketsRes.ok) {
@@ -68,10 +80,32 @@ export default function AdminPage() {
         setSuggestions(data.suggestions || [])
         setIsAdmin(data.isAdmin || false)
       }
+      if (statsRes.ok) {
+        setStats(await statsRes.json())
+      }
     } catch (err) {
       console.error('Failed to load data:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const syncGames = async () => {
+    setSyncing(true)
+    setMessage(null)
+    try {
+      const res = await fetch('/api/admin/sync-games', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Sync failed')
+      setMessage({
+        type: 'success',
+        text: `Synced games: ${data.created} created, ${data.skipped} skipped`
+      })
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -171,10 +205,10 @@ export default function AdminPage() {
       {/* Tabs */}
       <div className={`border-b ${borderColor} ${isDarkMode ? 'bg-[#171924]' : 'bg-white'}`}>
         <div className="max-w-[1000px] mx-auto px-4">
-          <div className="flex gap-1">
+          <div className="flex gap-1 overflow-x-auto no-scrollbar">
             <button
               onClick={() => setActiveTab('suggestions')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'suggestions'
                   ? 'border-green-500 text-green-500'
                   : `border-transparent ${textMuted} hover:${textColor}`
@@ -185,14 +219,36 @@ export default function AdminPage() {
             </button>
             <button
               onClick={() => setActiveTab('markets')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'markets'
                   ? 'border-green-500 text-green-500'
                   : `border-transparent ${textMuted} hover:${textColor}`
               }`}
             >
               <BarChart3 className="w-4 h-4" />
-              Resolve Markets ({activeMarkets.length})
+              Resolve ({activeMarkets.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('sync')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                activeTab === 'sync'
+                  ? 'border-green-500 text-green-500'
+                  : `border-transparent ${textMuted} hover:${textColor}`
+              }`}
+            >
+              <RefreshCw className="w-4 h-4" />
+              Sync Games
+            </button>
+            <button
+              onClick={() => setActiveTab('stats')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                activeTab === 'stats'
+                  ? 'border-green-500 text-green-500'
+                  : `border-transparent ${textMuted} hover:${textColor}`
+              }`}
+            >
+              <DollarSign className="w-4 h-4" />
+              Stats
             </button>
           </div>
         </div>
@@ -379,6 +435,111 @@ export default function AdminPage() {
             </div>
           )}
           </>
+        )}
+
+        {/* Sync Games Tab */}
+        {activeTab === 'sync' && (
+          <div>
+            <h2 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>
+              Sync Sports Games
+            </h2>
+            <div className={`${surfaceColor} border ${borderColor} rounded-xl p-6`}>
+              <div className="flex items-start gap-4">
+                <div className={`w-12 h-12 rounded-full ${isDarkMode ? 'bg-green-500/10' : 'bg-green-50'} flex items-center justify-center flex-shrink-0`}>
+                  <RefreshCw className="w-6 h-6 text-green-500" />
+                </div>
+                <div className="flex-1">
+                  <h3 className={`text-base font-semibold ${textColor} mb-1`}>Auto-Sync Scheduled Games</h3>
+                  <p className={`text-sm ${textMuted} mb-4`}>
+                    Fetch upcoming matches from the sports API and automatically create markets for them. 
+                    This will skip games that already have markets.
+                  </p>
+                  <button
+                    onClick={syncGames}
+                    disabled={syncing || !isAdmin}
+                    className="px-6 py-2.5 bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+                  >
+                    {syncing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4" />
+                        Sync Now
+                      </>
+                    )}
+                  </button>
+                  {!isAdmin && (
+                    <p className="text-xs text-yellow-400 mt-2">Admin access required</p>
+                  )}
+                </div>
+              </div>
+            </div>
+            <p className={`text-xs ${textMuted} mt-4`}>
+              Tip: Games are automatically synced hourly. Use this button to manually trigger a sync.
+            </p>
+          </div>
+        )}
+
+        {/* Stats Tab */}
+        {activeTab === 'stats' && (
+          <div>
+            <h2 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>
+              Platform Statistics
+            </h2>
+            {stats ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Users className="w-4 h-4 text-blue-400" />
+                    <span className={`text-xs ${textMuted}`}>Total Users</span>
+                  </div>
+                  <p className={`text-2xl font-bold ${textColor}`}>{stats.totalUsers.toLocaleString()}</p>
+                </div>
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <BarChart3 className="w-4 h-4 text-purple-400" />
+                    <span className={`text-xs ${textMuted}`}>Total Markets</span>
+                  </div>
+                  <p className={`text-2xl font-bold ${textColor}`}>{stats.totalMarkets.toLocaleString()}</p>
+                </div>
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Trophy className="w-4 h-4 text-green-400" />
+                    <span className={`text-xs ${textMuted}`}>Active Markets</span>
+                  </div>
+                  <p className={`text-2xl font-bold ${textColor}`}>{stats.activeMarkets.toLocaleString()}</p>
+                </div>
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <BarChart3 className="w-4 h-4 text-cyan-400" />
+                    <span className={`text-xs ${textMuted}`}>Total Volume</span>
+                  </div>
+                  <p className={`text-2xl font-bold ${textColor}`}>{formatZambianCurrency(stats.totalVolume)}</p>
+                </div>
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <DollarSign className="w-4 h-4 text-yellow-400" />
+                    <span className={`text-xs ${textMuted}`}>Platform Revenue</span>
+                  </div>
+                  <p className={`text-2xl font-bold text-green-500`}>{formatZambianCurrency(stats.totalRevenue)}</p>
+                </div>
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <MessageSquare className="w-4 h-4 text-orange-400" />
+                    <span className={`text-xs ${textMuted}`}>Pending Suggestions</span>
+                  </div>
+                  <p className={`text-2xl font-bold ${textColor}`}>{stats.pendingSuggestions}</p>
+                </div>
+              </div>
+            ) : (
+              <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
+                <p className={textMuted}>Loading stats...</p>
+              </div>
+            )}
+          </div>
         )}
       </main>
 
