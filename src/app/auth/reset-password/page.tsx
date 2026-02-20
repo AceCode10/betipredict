@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { Logo } from '@/components/Logo'
 import { Lock, Eye, EyeOff, CheckCircle } from 'lucide-react'
 
 export default function ResetPasswordPage() {
@@ -86,9 +87,8 @@ function ResetPasswordContent() {
     <div className="min-h-screen bg-[#131722] flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 mb-2">
-            <div className="w-9 h-9 rounded-lg bg-green-500 flex items-center justify-center text-white text-sm font-bold">B</div>
-            <span className="text-xl font-bold text-white">BetiPredict</span>
+          <div className="inline-flex items-center mb-2">
+            <Logo size="lg" />
           </div>
           <p className="text-gray-400 text-sm">Set your new password</p>
         </div>

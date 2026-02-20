@@ -20,6 +20,7 @@ import {
 import { useTheme } from '@/contexts/ThemeContext'
 import { formatZambianCurrency } from '@/utils/currency'
 import { DepositModal } from './DepositModal'
+import { Logo } from './Logo'
 
 interface Notification {
   id: string
@@ -165,9 +166,9 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
             <div className="flex-shrink-0">
               <button 
                 onClick={() => router.push('/')}
-                className={`text-xl font-bold ${textColor} flex items-center gap-2`}
+                className="flex items-center"
               >
-                <span className="text-green-500">B</span>etiPredict
+                <Logo size="md" />
               </button>
             </div>
 

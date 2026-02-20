@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { signIn } from 'next-auth/react'
+import { useState, useEffect } from 'react'
+import { useSession, signIn, getSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
+import { Logo } from '@/components/Logo'
 
 export default function SignIn() {
   const [email, setEmail] = useState('')
@@ -56,9 +57,8 @@ export default function SignIn() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 mb-2">
-            <div className="w-9 h-9 rounded-lg bg-green-500 flex items-center justify-center text-white text-sm font-bold">B</div>
-            <span className="text-xl font-bold text-white">BetiPredict</span>
+          <div className="inline-flex items-center mb-2">
+            <Logo size="lg" />
           </div>
           <p className="text-gray-400 text-sm">
             {mode === 'signin' ? 'Sign in to your account' : 'Create a new account'}

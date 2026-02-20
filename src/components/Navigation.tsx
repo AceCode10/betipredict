@@ -11,6 +11,7 @@ import {
   Menu,
   X
 } from 'lucide-react'
+import { Logo } from '@/components/Logo'
 
 interface NavigationProps {
   currentView: 'markets' | 'dashboard'
@@ -35,11 +36,8 @@ export function Navigation({ currentView, onViewChange, onDeposit }: NavigationP
           <div className="flex justify-between items-center h-16">
             {/* Logo and Navigation */}
             <div className="flex items-center gap-8">
-              <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-lg bg-teal-500/10 text-teal-700 flex items-center justify-center">
-                  <TrendingUp className="w-5 h-5" />
-                </div>
-                <h1 className="text-xl font-semibold">BetiPredict</h1>
+              <div className="flex items-center">
+                <Logo size="md" />
               </div>
               
               {/* Desktop Navigation */}

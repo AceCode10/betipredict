@@ -7,6 +7,7 @@ import { useContractService } from '@/lib/contracts'
 import { PriceChart } from '@/components/PriceChart'
 import { BetSlip } from '@/components/BetSlip'
 import { Header } from '@/components/Header'
+import { Logo } from '@/components/Logo'
 import { CreateMarketModal } from '@/components/CreateMarketModal'
 import { WithdrawModal } from '@/components/WithdrawModal'
 import { LiveBetToast, type LiveTradeToast } from '@/components/LiveBetToast'
@@ -908,7 +909,7 @@ export default function PolymarketStyleHomePage() {
         <div className="max-w-[1400px] mx-auto px-4 py-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <span className={`text-sm font-bold ${textColor}`}><span className="text-green-500">B</span>etiPredict</span>
+              <Logo size="sm" />
             </div>
             <div className={`flex items-center gap-4 text-xs ${textMuted}`}>
               {isLoggedIn && (
