@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
 
         // Create market for this match
         const title = `${match.homeTeam.name} vs ${match.awayTeam.name}`
-        const question = `${match.homeTeam.name} vs ${match.awayTeam.name}`
+        const question = `Who will win: ${match.homeTeam.name} vs ${match.awayTeam.name}?`
 
         await prisma.$transaction(async (tx) => {
           const newMarket = await tx.market.create({
@@ -94,6 +94,9 @@ export async function POST(request: NextRequest) {
               noPrice: 0.5,
               liquidity: 10000,
               volume: 0,
+              homeTeam: match.homeTeam.name,
+              awayTeam: match.awayTeam.name,
+              league: match.competition.name,
             }
           })
 
@@ -110,6 +113,9 @@ export async function POST(request: NextRequest) {
                 competitionCode: match.competition.code || '',
                 homeTeam: match.homeTeam.name,
                 awayTeam: match.awayTeam.name,
+                homeTeamCrest: match.homeTeam.crest || null,
+                awayTeamCrest: match.awayTeam.crest || null,
+                matchday: match.matchday || null,
                 utcDate: matchDate,
                 status: 'SCHEDULED',
                 marketId: newMarket.id,

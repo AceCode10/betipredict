@@ -19,6 +19,8 @@ interface LiveMatchData {
   marketTitle: string | null
   yesPrice: number | null
   noPrice: number | null
+  volume: number | null
+  liquidity: number | null
 }
 
 export async function GET(request: NextRequest) {
@@ -54,6 +56,8 @@ export async function GET(request: NextRequest) {
               marketTitle: null,
               yesPrice: null,
               noPrice: null,
+              volume: null,
+              liquidity: null,
             })
           }
         }
@@ -73,7 +77,7 @@ export async function GET(request: NextRequest) {
       const marketIds = linkedGames.filter(g => g.marketId).map(g => g.marketId!) 
       const markets = marketIds.length > 0 ? await prisma.market.findMany({
         where: { id: { in: marketIds } },
-        select: { id: true, title: true, yesPrice: true, noPrice: true },
+        select: { id: true, title: true, yesPrice: true, noPrice: true, volume: true, liquidity: true },
       }) : []
 
       const gameToMarket = new Map<number, string>()
@@ -91,6 +95,8 @@ export async function GET(request: NextRequest) {
             match.marketTitle = market.title
             match.yesPrice = market.yesPrice
             match.noPrice = market.noPrice
+            match.volume = market.volume || null
+            match.liquidity = market.liquidity || null
           }
         }
       }
@@ -122,7 +128,7 @@ export async function GET(request: NextRequest) {
     const dbMarketIds = dbGamesToMerge.map(g => g.marketId).filter((id): id is string => !!id)
     const dbMarkets = dbMarketIds.length > 0 ? await prisma.market.findMany({
       where: { id: { in: dbMarketIds } },
-      select: { id: true, title: true, yesPrice: true, noPrice: true },
+      select: { id: true, title: true, yesPrice: true, noPrice: true, volume: true, liquidity: true },
     }) : []
     const dbMarketMap = new Map(dbMarkets.map(m => [m.id, m]))
 
@@ -144,6 +150,8 @@ export async function GET(request: NextRequest) {
         marketTitle: market?.title || null,
         yesPrice: market?.yesPrice || null,
         noPrice: market?.noPrice || null,
+        volume: market?.volume || null,
+        liquidity: market?.liquidity || null,
       })
     }
 

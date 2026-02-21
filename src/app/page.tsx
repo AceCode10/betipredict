@@ -257,14 +257,13 @@ export default function PolymarketStyleHomePage() {
 
   // Map UI category slugs to match against API subcategory/league values
   const categoryMatchMap: Record<string, string[]> = {
-    'premier-league': ['premier league', 'pl'],
+    'premier-league': ['premier league', 'pl', 'championship', 'elc'],
     'la-liga': ['la liga', 'primera division', 'pd'],
     'bundesliga': ['bundesliga', 'bl1'],
     'serie-a': ['serie a', 'sa'],
     'ligue-1': ['ligue 1', 'fl1'],
     'zambia-super-league': ['zambia super league', 'zsl'],
     'champions-league': ['champions league', 'cl', 'uefa champions league'],
-    'other-sports': ['other sports', 'other'],
   }
 
   const filteredMarkets = normalizedMarkets.filter(market => {
@@ -273,6 +272,13 @@ export default function PolymarketStyleHomePage() {
       // Direct slug match
       if (market.category === category) {
         matchesCategory = true
+      } else if (category === 'other-sports') {
+        // "Other Sports" = anything NOT in the known categories
+        const sub = (market.subcategory || '').toLowerCase()
+        const league = (market.league || '').toLowerCase()
+        const cat = (market.category || '').toLowerCase()
+        const allKnown = Object.values(categoryMatchMap).flat()
+        matchesCategory = !allKnown.some(t => sub.includes(t) || league.includes(t) || cat.includes(t))
       } else {
         // Match against subcategory/league for API markets
         const targets = categoryMatchMap[category] || [category]
@@ -528,8 +534,13 @@ export default function PolymarketStyleHomePage() {
 
         {/* Live Matches Banner */}
         <LiveMatchBanner
+          category={category}
           onMarketClick={(marketId) => {
             setShowChart({ marketId, outcome: 'YES' })
+          }}
+          onBet={(marketId, outcome) => {
+            const market = normalizedMarkets.find(m => m.id === marketId)
+            if (market) addToBetSlip(market, outcome)
           }}
         />
 
@@ -565,66 +576,49 @@ export default function PolymarketStyleHomePage() {
                     {market.question || market.title}
                   </h3>
                 </div>
-                {isYesNo && (
+                {isYesNo && (() => {
+                  // Smooth color: 0%=deep red → 50%=orange → 100%=deep green
+                  const r = yesPercent <= 50 ? 220 : Math.round(220 - (yesPercent - 50) * 4.4)
+                  const g = yesPercent <= 50 ? Math.round(50 + yesPercent * 3.1) : Math.round(205 + (yesPercent - 50) * 0.4)
+                  const b = yesPercent <= 50 ? Math.round(30 + yesPercent * 0.4) : Math.round(50 - (yesPercent - 50) * 0.6)
+                  const strokeColor = `rgb(${r},${g},${b})`
+                  const textColorPct = yesPercent >= 50 ? 'text-green-500' : yesPercent >= 30 ? 'text-orange-400' : 'text-red-400'
+                  const circumference = 2 * Math.PI * 24
+                  return (
                   <div className="flex-shrink-0 relative">
-                    {/* Circular progress indicator */}
                     <div className="relative w-14 h-14">
                       <svg className="transform -rotate-90 w-14 h-14">
-                        {/* Background circle */}
+                        <circle cx="28" cy="28" r="24" stroke={isDarkMode ? '#374151' : '#e5e7eb'} strokeWidth="4" fill="none" />
                         <circle
-                          cx="28"
-                          cy="28"
-                          r="24"
-                          stroke={isDarkMode ? '#374151' : '#e5e7eb'}
+                          cx="28" cy="28" r="24"
+                          stroke={strokeColor}
                           strokeWidth="4"
                           fill="none"
-                        />
-                        {/* Progress circle */}
-                        <circle
-                          cx="28"
-                          cy="28"
-                          r="24"
-                          stroke="url(#gradient)"
-                          strokeWidth="4"
-                          fill="none"
-                          strokeDasharray={`${2 * Math.PI * 24}`}
-                          strokeDashoffset={`${2 * Math.PI * 24 * (1 - yesPercent / 100)}`}
+                          strokeDasharray={`${circumference}`}
+                          strokeDashoffset={`${circumference * (1 - yesPercent / 100)}`}
                           strokeLinecap="round"
                           className="transition-all duration-500"
                         />
-                        {/* Gradient definition */}
-                        <defs>
-                          <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                            <stop offset="0%" stopColor={yesPercent >= 50 ? '#22c55e' : '#ef4444'} />
-                            <stop offset="100%" stopColor={yesPercent >= 50 ? '#16a34a' : '#dc2626'} />
-                          </linearGradient>
-                        </defs>
                       </svg>
-                      {/* Percentage text */}
                       <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className={`text-sm font-bold ${yesPercent >= 50 ? 'text-green-500' : 'text-red-400'}`}>
-                          {yesPercent}%
-                        </span>
+                        <span className={`text-sm font-bold ${textColorPct}`}>{yesPercent}%</span>
                       </div>
                     </div>
                   </div>
-                )}
+                  )
+                })()}
               </div>
 
               {/* Yes/No labels below progress */}
               {isYesNo && (
                 <div className="flex justify-between mb-3">
                   <div className="flex items-center gap-1">
-                    <div className={`w-2 h-2 rounded-full ${yesPercent >= 50 ? 'bg-green-500' : 'bg-red-400'}`} />
-                    <span className={`text-xs font-medium ${yesPercent >= 50 ? 'text-green-500' : 'text-red-400'}`}>
-                      Yes {yesPercent}%
-                    </span>
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-xs font-medium text-green-500">Yes {yesPercent}%</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <div className={`w-2 h-2 rounded-full ${yesPercent < 50 ? 'bg-green-500' : 'bg-red-400'}`} />
-                    <span className={`text-xs font-medium ${yesPercent < 50 ? 'text-green-500' : 'text-red-400'}`}>
-                      No {noPercent}%
-                    </span>
+                    <div className="w-2 h-2 rounded-full bg-red-400" />
+                    <span className="text-xs font-medium text-red-400">No {noPercent}%</span>
                   </div>
                 </div>
               )}

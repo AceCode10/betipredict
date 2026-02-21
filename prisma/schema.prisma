@@ -60,6 +60,9 @@ model Market {
   resolvedAt      DateTime?
   winningOutcome  String?
   disputeDeadline DateTime? // End of challenge window (24h after resolution)
+  homeTeam        String?   // For match-winner markets: home team name
+  awayTeam        String?   // For match-winner markets: away team name
+  league          String?   // Competition/league name (e.g. "Premier League")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
