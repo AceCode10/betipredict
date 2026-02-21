@@ -555,7 +555,7 @@ export default function PolymarketStyleHomePage() {
                 }
               }}
             >
-              {/* Card Header: icon + title + percentage badge */}
+              {/* Card Header: icon + title + circular progress */}
               <div className="flex items-start gap-3 mb-3">
                 <div className={`w-9 h-9 rounded-full ${subtleBg} flex items-center justify-center flex-shrink-0 text-base ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>
                   ⚽
@@ -566,30 +566,65 @@ export default function PolymarketStyleHomePage() {
                   </h3>
                 </div>
                 {isYesNo && (
-                  <div className="flex-shrink-0 flex flex-col items-center">
-                    <span className={`text-xl font-bold ${yesPercent >= 50 ? 'text-green-500' : 'text-red-400'}`}>{yesPercent}%</span>
-                    <span className={`text-[10px] ${textMuted}`}>chance</span>
+                  <div className="flex-shrink-0 relative">
+                    {/* Circular progress indicator */}
+                    <div className="relative w-14 h-14">
+                      <svg className="transform -rotate-90 w-14 h-14">
+                        {/* Background circle */}
+                        <circle
+                          cx="28"
+                          cy="28"
+                          r="24"
+                          stroke={isDarkMode ? '#374151' : '#e5e7eb'}
+                          strokeWidth="4"
+                          fill="none"
+                        />
+                        {/* Progress circle */}
+                        <circle
+                          cx="28"
+                          cy="28"
+                          r="24"
+                          stroke="url(#gradient)"
+                          strokeWidth="4"
+                          fill="none"
+                          strokeDasharray={`${2 * Math.PI * 24}`}
+                          strokeDashoffset={`${2 * Math.PI * 24 * (1 - yesPercent / 100)}`}
+                          strokeLinecap="round"
+                          className="transition-all duration-500"
+                        />
+                        {/* Gradient definition */}
+                        <defs>
+                          <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor={yesPercent >= 50 ? '#22c55e' : '#ef4444'} />
+                            <stop offset="100%" stopColor={yesPercent >= 50 ? '#16a34a' : '#dc2626'} />
+                          </linearGradient>
+                        </defs>
+                      </svg>
+                      {/* Percentage text */}
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className={`text-sm font-bold ${yesPercent >= 50 ? 'text-green-500' : 'text-red-400'}`}>
+                          {yesPercent}%
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Yes/No progress bar */}
+              {/* Yes/No labels below progress */}
               {isYesNo && (
-                <div className="mb-3">
-                  <div className={`w-full h-2 rounded-full ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-200'} overflow-hidden`}>
-                    <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{
-                        width: `${yesPercent}%`,
-                        background: yesPercent >= 50
-                          ? `linear-gradient(90deg, #22c55e ${Math.max(0, yesPercent - 20)}%, #4ade80 100%)`
-                          : `linear-gradient(90deg, #ef4444 0%, #f87171 ${yesPercent + 20}%)`,
-                      }}
-                    />
+                <div className="flex justify-between mb-3">
+                  <div className="flex items-center gap-1">
+                    <div className={`w-2 h-2 rounded-full ${yesPercent >= 50 ? 'bg-green-500' : 'bg-red-400'}`} />
+                    <span className={`text-xs font-medium ${yesPercent >= 50 ? 'text-green-500' : 'text-red-400'}`}>
+                      Yes {yesPercent}%
+                    </span>
                   </div>
-                  <div className="flex justify-between mt-1">
-                    <span className="text-[10px] text-green-500 font-medium">Yes {yesPercent}%</span>
-                    <span className="text-[10px] text-red-400 font-medium">No {noPercent}%</span>
+                  <div className="flex items-center gap-1">
+                    <div className={`w-2 h-2 rounded-full ${yesPercent < 50 ? 'bg-green-500' : 'bg-red-400'}`} />
+                    <span className={`text-xs font-medium ${yesPercent < 50 ? 'text-green-500' : 'text-red-400'}`}>
+                      No {noPercent}%
+                    </span>
                   </div>
                 </div>
               )}

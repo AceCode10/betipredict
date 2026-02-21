@@ -31,8 +31,24 @@ This guide walks you through fully configuring both Airtel Money and MTN Mobile 
    - `Client ID`
    - `Client Secret`
 
-### Step 3 — Configure Callback URL
+### Step 3 — Server IP & Callback URL
 
+#### Server IP Configuration
+When creating your Airtel app, you'll be asked for a **Server IP**:
+
+- **Development**: Use ngrok to expose localhost:
+  ```bash
+  npx ngrok http 3000
+  ```
+  Use the IP that resolves from your ngrok URL
+
+- **Production**: 
+  - **Vercel/Serverless**: No static IP → Contact Airtel support with your domain
+  - **AWS EC2**: Use your EC2 public IP
+  - **DigitalOcean**: Use your Droplet public IP
+  - **Other hosts**: Ask your provider for the server IP
+
+#### Callback URL
 1. In your app settings on the Airtel portal, set the **Callback URL** to:
    ```
    https://yourdomain.com/api/payments/callback
