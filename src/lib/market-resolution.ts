@@ -164,12 +164,17 @@ export class MarketResolver {
         ])
       }
 
-      // Close losing positions
-      const losingOutcome = outcome === 'YES' ? 'NO' : 'YES'
-      await prisma.position.updateMany({
-        where: { marketId, outcome: losingOutcome, isClosed: false },
-        data: { isClosed: true, realizedPnl: 0 }
+      // Close losing positions — set realizedPnl to negative cost basis (total loss)
+      const losingPositions = await prisma.position.findMany({
+        where: { marketId, outcome: outcome === 'YES' ? 'NO' : 'YES', isClosed: false }
       })
+      for (const lp of losingPositions) {
+        const costBasis = lp.size * lp.averagePrice
+        await prisma.position.update({
+          where: { id: lp.id },
+          data: { isClosed: true, realizedPnl: -costBasis }
+        })
+      }
 
       // Finalize market (transition from FINALIZING → FINALIZED)
       await prisma.market.update({

@@ -27,7 +27,7 @@ interface LiveMatch {
 
 interface LiveMatchBannerProps {
   category?: string
-  onMarketClick?: (marketId: string) => void
+  onMarketClick?: (marketId: string, outcome?: 'YES' | 'NO') => void
   onBet?: (marketId: string, outcome: 'YES' | 'NO') => void
 }
 
@@ -174,23 +174,23 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet }: Live
                 </div>
               </div>
 
-              {/* Bet buttons: TeamA | DRAW | TeamB */}
+              {/* Bet buttons: TeamA | DRAW | TeamB — open trading interface */}
               {match.marketId && (
                 <div className="flex gap-1.5 mb-2.5">
                   <button
-                    onClick={(e) => { e.stopPropagation(); onBet?.(match.marketId!, 'YES') }}
+                    onClick={(e) => { e.stopPropagation(); onMarketClick?.(match.marketId!, 'YES') }}
                     className={`flex-1 py-2 text-[11px] font-semibold rounded-lg ${subtleBg} text-green-500 border ${cardBorder} hover:border-green-500/50 hover:bg-green-500/10 transition-all duration-200 truncate`}
                   >
                     {match.homeTeam.length > 12 ? match.homeTeam.substring(0, 12) + '…' : match.homeTeam}
                   </button>
                   <button
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); onMarketClick?.(match.marketId!, 'YES') }}
                     className={`px-2.5 py-2 text-[11px] font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-all duration-200`}
                   >
                     DRAW
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); onBet?.(match.marketId!, 'NO') }}
+                    onClick={(e) => { e.stopPropagation(); onMarketClick?.(match.marketId!, 'NO') }}
                     className={`flex-1 py-2 text-[11px] font-semibold rounded-lg ${subtleBg} text-red-500 border ${cardBorder} hover:border-red-500/50 hover:bg-red-500/10 transition-all duration-200 truncate`}
                   >
                     {match.awayTeam.length > 12 ? match.awayTeam.substring(0, 12) + '…' : match.awayTeam}

@@ -79,6 +79,12 @@ export default function PolymarketStyleHomePage() {
   const [placingBets, setPlacingBets] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [liveTrades, setLiveTrades] = useState<LiveTradeToast[]>([])
+  const [tradeSide, setTradeSide] = useState<'BUY' | 'SELL'>('BUY')
+  const [detailTab, setDetailTab] = useState<'comments' | 'top-holders' | 'positions' | 'activity'>('comments')
+  const [holders, setHolders] = useState<{ yesHolders: any[]; noHolders: any[] }>({ yesHolders: [], noHolders: [] })
+  const [positions, setPositions] = useState<any[]>([])
+  const [positionFilter, setPositionFilter] = useState<string>('All')
+  const [loadingHolders, setLoadingHolders] = useState(false)
   
   const contractService = useContractService()
   const isLoggedIn = sessionStatus === 'authenticated' && !!session?.user
@@ -140,6 +146,41 @@ export default function PolymarketStyleHomePage() {
       return () => clearTimeout(timer)
     }
   }, [error])
+
+  // Reset trading state when market overlay opens/changes
+  useEffect(() => {
+    if (showChart) {
+      setDetailAmount('')
+      setTradeSide('BUY')
+      setDetailTab('comments')
+      setHolders({ yesHolders: [], noHolders: [] })
+      setPositions([])
+    }
+  }, [showChart?.marketId])
+
+  // Fetch holders/positions when tab changes
+  useEffect(() => {
+    if (!showChart) return
+    const marketId = showChart.marketId
+
+    if (detailTab === 'top-holders' && holders.yesHolders.length === 0) {
+      setLoadingHolders(true)
+      fetch(`/api/markets/${marketId}/holders`)
+        .then(r => r.json())
+        .then(data => setHolders({ yesHolders: data.yesHolders || [], noHolders: data.noHolders || [] }))
+        .catch(console.error)
+        .finally(() => setLoadingHolders(false))
+    }
+
+    if (detailTab === 'positions' && positions.length === 0) {
+      setLoadingHolders(true)
+      fetch(`/api/markets/${marketId}/positions`)
+        .then(r => r.json())
+        .then(data => setPositions(data.positions || []))
+        .catch(console.error)
+        .finally(() => setLoadingHolders(false))
+    }
+  }, [detailTab, showChart?.marketId])
 
   // Load markets from API
   const loadMarkets = useCallback(async (showLoader = true) => {
@@ -385,6 +426,46 @@ export default function PolymarketStyleHomePage() {
     }
   }
 
+  const handleSellFromDetail = async (market: any, outcome: 'YES' | 'NO', shares: number) => {
+    if (!isLoggedIn) { signIn(); return }
+    if (!shares || shares <= 0) return
+
+    setPlacingBets(true)
+    setError(null)
+
+    try {
+      const res = await fetch('/api/trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          marketId: market.id,
+          outcome,
+          side: 'SELL',
+          type: 'MARKET',
+          amount: shares,
+        })
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Sell failed')
+
+      if (data.newYesPrice && data.newNoPrice) {
+        setMarkets(prev => prev.map(m =>
+          m.id === market.id
+            ? { ...m, yesPrice: data.newYesPrice, noPrice: data.newNoPrice }
+            : m
+        ))
+      }
+
+      await loadBalance()
+      setDetailAmount('')
+    } catch (err: any) {
+      setError(err.message || 'Failed to sell')
+    } finally {
+      setPlacingBets(false)
+    }
+  }
+
   const handleBuyFromDetail = async (market: any, outcome: 'YES' | 'NO', amount: number) => {
     if (!isLoggedIn) { signIn(); return }
     if (!amount || amount <= 0) return
@@ -535,12 +616,8 @@ export default function PolymarketStyleHomePage() {
         {/* Live Matches Banner */}
         <LiveMatchBanner
           category={category}
-          onMarketClick={(marketId) => {
-            setShowChart({ marketId, outcome: 'YES' })
-          }}
-          onBet={(marketId, outcome) => {
-            const market = normalizedMarkets.find(m => m.id === marketId)
-            if (market) addToBetSlip(market, outcome)
+          onMarketClick={(marketId, outcome) => {
+            setShowChart({ marketId, outcome: outcome || 'YES' })
           }}
         />
 
@@ -640,38 +717,38 @@ export default function PolymarketStyleHomePage() {
               {/* Action buttons */}
               <div className="flex gap-1.5 mb-3">
                 {isYesNo ? (
-                  /* Yes/No buttons — Polymarket style */
+                  /* Yes/No buttons — open trading interface */
                   <>
                     <button
-                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
+                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'YES' }) }}
                       className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200`}
                     >
                       Yes
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
+                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'NO' }) }}
                       className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50 transition-all duration-200`}
                     >
                       No
                     </button>
                   </>
                 ) : (
-                  /* Match-winner buttons: TeamA | DRAW | TeamB */
+                  /* Match-winner buttons: TeamA | DRAW | TeamB — open trading interface */
                   <>
                     <button
-                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
+                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'YES' }) }}
                       className={`flex-1 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} text-green-500 border ${cardBorder} hover:border-green-500/50 hover:bg-green-500/10 transition-all duration-200 truncate`}
                     >
                       {market.optionA}
                     </button>
                     <button
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'YES' }) }}
                       className={`px-3 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-all duration-200`}
                     >
                       DRAW
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
+                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'NO' }) }}
                       className={`flex-1 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} text-red-500 border ${cardBorder} hover:border-red-500/50 hover:bg-red-500/10 transition-all duration-200 truncate`}
                     >
                       {market.optionB}
@@ -744,7 +821,7 @@ export default function PolymarketStyleHomePage() {
         )}
       </main>
 
-      {/* Market Detail Overlay — shown when a card is clicked */}
+      {/* Market Detail Overlay — Polymarket-style trading interface */}
       {showChart && (() => {
         const market = normalizedMarkets.find(m => m.id === showChart.marketId)
         if (!market) return null
@@ -752,136 +829,373 @@ export default function PolymarketStyleHomePage() {
         const modalBorder = isDarkMode ? 'border-gray-700' : 'border-gray-200'
         const inputBg = isDarkMode ? 'bg-[#252840]' : 'bg-gray-100'
         const isYesNo = market.marketType === 'yes-no'
+        const price = showChart.outcome === 'YES' ? market.yesPrice : market.noPrice
+        const amt = parseFloat(detailAmount) || 0
+        const shares = tradeSide === 'BUY' ? (price > 0 ? (amt * 0.98) / price : 0) : amt
+        const potentialReturn = tradeSide === 'BUY' ? (price > 0 ? amt * 0.98 / price : 0) : shares * price * 0.98
+        const avgPriceDisplay = price
         return (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-start justify-center sm:pt-16 px-0 sm:px-4">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-start justify-center sm:pt-10 px-0 sm:px-4">
             <div className="absolute inset-0 bg-black/60" onClick={() => setShowChart(null)} />
-            <div className={`relative ${modalBg} border ${modalBorder} rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90vh] sm:max-h-[80vh] overflow-y-auto shadow-2xl`}>
+            <div className={`relative ${modalBg} border ${modalBorder} rounded-t-2xl sm:rounded-xl w-full max-w-4xl max-h-[92vh] sm:max-h-[85vh] overflow-y-auto shadow-2xl`}>
               {/* Detail Header */}
-              <div className={`flex items-start gap-3 p-5 border-b ${modalBorder}`}>
-                <div className={`w-11 h-11 rounded-full ${inputBg} flex items-center justify-center text-xl flex-shrink-0 ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>⚽</div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
+              <div className={`flex items-start gap-3 p-4 border-b ${modalBorder}`}>
+                <div className={`w-10 h-10 rounded-full ${inputBg} flex items-center justify-center text-lg flex-shrink-0 ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>⚽</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
                     <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-green-500/15 text-green-400' : 'bg-green-50 text-green-700'}`}>{market.league}</span>
                     {market.status === 'ACTIVE' && <span className={`text-[11px] ${textMuted}`}>• Active</span>}
                   </div>
-                  <h2 className={`text-lg font-bold ${textColor} leading-snug`}>{market.question || market.title}</h2>
+                  <h2 className={`text-base sm:text-lg font-bold ${textColor} leading-snug`}>{market.question || market.title}</h2>
                 </div>
-                <button onClick={() => setShowChart(null)} className={`${textMuted} hover:${textColor} p-1.5 rounded-lg ${isDarkMode ? 'hover:bg-[#252840]' : 'hover:bg-gray-100'} transition-colors`}>
+                <button onClick={() => setShowChart(null)} className={`${textMuted} hover:${textColor} p-1 rounded-lg ${isDarkMode ? 'hover:bg-[#252840]' : 'hover:bg-gray-100'} transition-colors flex-shrink-0`}>
                   <span className="text-xl leading-none">×</span>
                 </button>
               </div>
 
-              <div className="flex flex-col md:flex-row">
-                {/* Left: Chart */}
-                <div className="flex-1 p-5">
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-green-500" />
-                      <span className={`text-sm font-semibold ${textColor}`}>{market.optionA} {Math.round(market.yesPrice * 100)}%</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-red-400" />
-                      <span className={`text-sm font-semibold ${textColor}`}>{market.optionB} {Math.round(market.noPrice * 100)}%</span>
-                    </div>
-                    <span className={`text-xs ${market.trend === 'up' ? 'text-green-500' : 'text-red-500'} ml-auto`}>
-                      {market.trend === 'up' ? '▲' : '▼'} {market.change}
-                    </span>
-                  </div>
-                  <PriceChart
-                    marketId={market.id}
-                    outcome={showChart.outcome}
-                    currentPrice={showChart.outcome === 'YES' ? market.yesPrice : market.noPrice}
-                    onClose={() => setShowChart(null)}
-                    onBuy={(amount) => handleBuyFromDetail(market, showChart.outcome, amount)}
-                  />
-                  <div className={`flex items-center gap-4 mt-4 text-xs ${textMuted}`}>
-                    <div className="flex items-center gap-1">
-                      <BarChart3 className="w-3 h-3" />
-                      <span>{formatVolume(market.volume)} Vol.</span>
-                    </div>
-                    {(market.liquidity > 0) && (
-                      <div className="flex items-center gap-1">
-                        <Droplets className="w-3 h-3 text-blue-400" />
-                        <span>{formatVolume(market.liquidity)} Liq.</span>
+              <div className="flex flex-col lg:flex-row">
+                {/* Left: Chart + Tabs */}
+                <div className="flex-1 min-w-0">
+                  {/* Chart area */}
+                  <div className="p-4">
+                    <div className="flex items-center gap-4 mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-green-500" />
+                        <span className={`text-sm font-semibold ${textColor}`}>{market.optionA} {Math.round(market.yesPrice * 100)}%</span>
                       </div>
-                    )}
-                    <div className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
-                      <span>{market.matchDate}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-red-400" />
+                        <span className={`text-sm font-semibold ${textColor}`}>{market.optionB} {Math.round(market.noPrice * 100)}%</span>
+                      </div>
+                    </div>
+                    <PriceChart
+                      marketId={market.id}
+                      outcome={showChart.outcome}
+                      currentPrice={price}
+                      onClose={() => setShowChart(null)}
+                      onBuy={(amount) => handleBuyFromDetail(market, showChart.outcome, amount)}
+                    />
+                    <div className={`flex items-center gap-4 mt-3 text-xs ${textMuted}`}>
+                      <div className="flex items-center gap-1">
+                        <BarChart3 className="w-3 h-3" />
+                        <span>{formatVolume(market.volume)} Vol.</span>
+                      </div>
+                      {(market.liquidity > 0) && (
+                        <div className="flex items-center gap-1">
+                          <Droplets className="w-3 h-3 text-blue-400" />
+                          <span>{formatVolume(market.liquidity)} Liq.</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        <span>{market.matchDate}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tabbed content: Comments | Top Holders | Positions | Activity */}
+                  <div className={`border-t ${modalBorder}`}>
+                    <div className="flex items-center gap-0 px-4 pt-3">
+                      {(['comments', 'top-holders', 'positions', 'activity'] as const).map(tab => (
+                        <button
+                          key={tab}
+                          onClick={() => setDetailTab(tab)}
+                          className={`px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
+                            detailTab === tab
+                              ? isDarkMode ? 'border-white text-white' : 'border-gray-900 text-gray-900'
+                              : `border-transparent ${textMuted} hover:${textColor}`
+                          }`}
+                        >
+                          {tab === 'comments' ? 'Comments' : tab === 'top-holders' ? 'Top Holders' : tab === 'positions' ? 'Positions' : 'Activity'}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="p-4 min-h-[200px]">
+                      {/* Comments tab */}
+                      {detailTab === 'comments' && (
+                        <div>
+                          {/* Rules section */}
+                          <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} space-y-2 mb-4`}>
+                            {market.description ? (
+                              <p>{market.description}</p>
+                            ) : (
+                              <>
+                                <p>This market resolves to <span className="text-green-500 font-medium">&quot;Yes&quot;</span> if the condition is met by {market.resolveTime ? new Date(market.resolveTime).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'TBD'}.</p>
+                                <p>Otherwise resolves to <span className="text-red-400 font-medium">&quot;No&quot;</span>.</p>
+                              </>
+                            )}
+                            <div className={`text-xs ${textMuted} mt-2 pt-2 border-t ${modalBorder} space-y-1`}>
+                              <div className="flex justify-between"><span>Resolution</span><span className={textColor}>{market.resolveTime ? new Date(market.resolveTime).toLocaleDateString() : 'TBD'}</span></div>
+                              <div className="flex justify-between"><span>Category</span><span className={textColor}>{market.league || market.category || 'General'}</span></div>
+                              <div className="flex justify-between"><span>Created by</span><span className={textColor}>{market.creator?.username || 'System'}</span></div>
+                            </div>
+                          </div>
+                          <MarketChat marketId={market.id} isOpen={true} />
+                        </div>
+                      )}
+
+                      {/* Top Holders tab */}
+                      {detailTab === 'top-holders' && (
+                        <div>
+                          {loadingHolders ? (
+                            <div className={`text-center py-8 ${textMuted} text-sm`}>Loading holders...</div>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-4">
+                              {/* Yes holders */}
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <span className={`text-sm font-semibold ${textColor}`}>{isYesNo ? 'Yes' : market.optionA} holders</span>
+                                  <span className={`text-xs ${textMuted} uppercase`}>Shares</span>
+                                </div>
+                                {holders.yesHolders.length === 0 ? (
+                                  <p className={`text-xs ${textMuted}`}>No holders yet</p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {holders.yesHolders.map((h: any, i: number) => (
+                                      <div key={h.userId} className="flex items-center gap-2">
+                                        <div className={`w-6 h-6 rounded-full ${isDarkMode ? 'bg-green-500/20' : 'bg-green-100'} flex items-center justify-center text-[10px] font-bold text-green-500 flex-shrink-0`}>
+                                          {i + 1}
+                                        </div>
+                                        <span className={`text-sm ${textColor} truncate flex-1`}>{h.username}</span>
+                                        <span className={`text-sm font-semibold ${textColor} tabular-nums`}>{h.shares.toLocaleString()}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              {/* No holders */}
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <span className={`text-sm font-semibold ${textColor}`}>{isYesNo ? 'No' : market.optionB} holders</span>
+                                  <span className={`text-xs ${textMuted} uppercase`}>Shares</span>
+                                </div>
+                                {holders.noHolders.length === 0 ? (
+                                  <p className={`text-xs ${textMuted}`}>No holders yet</p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {holders.noHolders.map((h: any, i: number) => (
+                                      <div key={h.userId} className="flex items-center gap-2">
+                                        <div className={`w-6 h-6 rounded-full ${isDarkMode ? 'bg-red-500/20' : 'bg-red-100'} flex items-center justify-center text-[10px] font-bold text-red-500 flex-shrink-0`}>
+                                          {i + 1}
+                                        </div>
+                                        <span className={`text-sm ${textColor} truncate flex-1`}>{h.username}</span>
+                                        <span className={`text-sm font-semibold ${textColor} tabular-nums`}>{h.shares.toLocaleString()}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Positions tab */}
+                      {detailTab === 'positions' && (
+                        <div>
+                          {/* Filter dropdown */}
+                          <div className="flex items-center gap-3 mb-4">
+                            <select
+                              value={positionFilter}
+                              onChange={(e) => setPositionFilter(e.target.value)}
+                              className={`px-3 py-1.5 text-sm rounded-lg ${inputBg} border ${modalBorder} ${textColor} focus:outline-none`}
+                            >
+                              <option value="All">All</option>
+                              <option value="YES">{isYesNo ? 'Yes' : market.optionA}</option>
+                              <option value="NO">{isYesNo ? 'No' : market.optionB}</option>
+                            </select>
+                          </div>
+                          {loadingHolders ? (
+                            <div className={`text-center py-8 ${textMuted} text-sm`}>Loading positions...</div>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-4">
+                              {/* Yes positions */}
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <span className={`text-sm font-semibold ${textColor}`}>{isYesNo ? 'Yes' : market.optionA}</span>
+                                  <span className={`text-xs ${textMuted} uppercase`}>PNL</span>
+                                </div>
+                                {positions.filter(p => positionFilter === 'All' || p.outcome === 'YES').filter(p => p.outcome === 'YES').length === 0 ? (
+                                  <p className={`text-xs ${textMuted}`}>No positions</p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {positions.filter(p => p.outcome === 'YES').filter(p => positionFilter === 'All' || p.outcome === 'YES').map((p: any) => (
+                                      <div key={p.id} className="flex items-center gap-2">
+                                        <div className={`w-6 h-6 rounded-full ${isDarkMode ? 'bg-green-500/20' : 'bg-green-100'} flex items-center justify-center text-[10px] font-bold text-green-500 flex-shrink-0`}>
+                                          {p.username?.charAt(0)?.toUpperCase() || '?'}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <span className={`text-sm ${textColor} truncate block`}>{p.username}</span>
+                                          <span className={`text-[10px] ${textMuted}`}>avg K{p.avgPrice.toFixed(2)}</span>
+                                        </div>
+                                        <span className={`text-sm font-semibold tabular-nums ${p.pnl >= 0 ? 'text-green-500' : 'text-red-400'}`}>
+                                          {formatZambianCurrency(Math.abs(p.pnl))}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              {/* No positions */}
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <span className={`text-sm font-semibold ${textColor}`}>{isYesNo ? 'No' : market.optionB}</span>
+                                  <span className={`text-xs ${textMuted} uppercase`}>PNL</span>
+                                </div>
+                                {positions.filter(p => positionFilter === 'All' || p.outcome === 'NO').filter(p => p.outcome === 'NO').length === 0 ? (
+                                  <p className={`text-xs ${textMuted}`}>No positions</p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {positions.filter(p => p.outcome === 'NO').filter(p => positionFilter === 'All' || p.outcome === 'NO').map((p: any) => (
+                                      <div key={p.id} className="flex items-center gap-2">
+                                        <div className={`w-6 h-6 rounded-full ${isDarkMode ? 'bg-red-500/20' : 'bg-red-100'} flex items-center justify-center text-[10px] font-bold text-red-500 flex-shrink-0`}>
+                                          {p.username?.charAt(0)?.toUpperCase() || '?'}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <span className={`text-sm ${textColor} truncate block`}>{p.username}</span>
+                                          <span className={`text-[10px] ${textMuted}`}>avg K{p.avgPrice.toFixed(2)}</span>
+                                        </div>
+                                        <span className={`text-sm font-semibold tabular-nums ${p.pnl >= 0 ? 'text-green-500' : 'text-red-400'}`}>
+                                          {formatZambianCurrency(Math.abs(p.pnl))}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Activity tab */}
+                      {detailTab === 'activity' && (
+                        <div className={`text-center py-8 ${textMuted} text-sm`}>
+                          <p>Recent trading activity will appear here.</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Right: Buy/Sell Panel */}
-                <div className={`w-full md:w-72 border-t md:border-t-0 md:border-l ${modalBorder} p-4`}>
-                  <div className="flex items-center gap-3 mb-3">
+                {/* Right: Trading Panel — Polymarket style */}
+                <div className={`w-full lg:w-[280px] border-t lg:border-t-0 lg:border-l ${modalBorder} p-4 flex-shrink-0`}>
+                  {/* Buy / Sell toggle */}
+                  <div className="flex items-center gap-1 mb-3">
                     <button
-                      onClick={() => setShowChart({ ...showChart, outcome: 'YES' })}
-                      className={`flex-1 py-2 rounded-full text-sm font-semibold transition-colors ${
-                        showChart.outcome === 'YES'
-                          ? 'bg-green-500 text-white'
-                          : `${inputBg} ${textMuted} hover:${textColor}`
+                      onClick={() => { setTradeSide('BUY'); setDetailAmount('') }}
+                      className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${
+                        tradeSide === 'BUY'
+                          ? isDarkMode ? 'bg-white/10 text-white' : 'bg-gray-900 text-white'
+                          : `${textMuted} hover:${textColor}`
                       }`}
                     >
-                      {market.optionA} {formatPriceAsNgwee(market.yesPrice)}
+                      Buy
+                    </button>
+                    <button
+                      onClick={() => { setTradeSide('SELL'); setDetailAmount('') }}
+                      className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${
+                        tradeSide === 'SELL'
+                          ? isDarkMode ? 'bg-white/10 text-white' : 'bg-gray-900 text-white'
+                          : `${textMuted} hover:${textColor}`
+                      }`}
+                    >
+                      Sell
+                    </button>
+                    <div className={`ml-auto text-xs ${textMuted}`}>Market ▾</div>
+                  </div>
+
+                  {/* Outcome selector buttons */}
+                  <div className="flex items-center gap-2 mb-4">
+                    <button
+                      onClick={() => setShowChart({ ...showChart, outcome: 'YES' })}
+                      className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                        showChart.outcome === 'YES'
+                          ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
+                          : `${inputBg} ${textMuted} border ${modalBorder}`
+                      }`}
+                    >
+                      {isYesNo ? 'Yes' : market.optionA} {formatPriceAsNgwee(market.yesPrice)}
                     </button>
                     <button
                       onClick={() => setShowChart({ ...showChart, outcome: 'NO' })}
-                      className={`flex-1 py-2 rounded-full text-sm font-semibold transition-colors ${
+                      className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
                         showChart.outcome === 'NO'
-                          ? 'bg-red-500 text-white'
-                          : `${inputBg} ${textMuted} hover:${textColor}`
+                          ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
+                          : `${inputBg} ${textMuted} border ${modalBorder}`
                       }`}
                     >
-                      {market.optionB} {formatPriceAsNgwee(market.noPrice)}
+                      {isYesNo ? 'No' : market.optionB} {formatPriceAsNgwee(market.noPrice)}
                     </button>
                   </div>
 
+                  {/* Amount input */}
                   <div className="mb-3">
                     <div className="flex items-center justify-between mb-1">
-                      <span className={`text-sm ${textMuted}`}>Amount</span>
-                      <span className={`text-sm ${textMuted}`}>Balance {formatZambianCurrency(userBalance)}</span>
+                      <span className={`text-sm ${textMuted}`}>{tradeSide === 'BUY' ? 'Amount' : 'Shares'}</span>
                     </div>
                     <div className="relative">
-                      <span className={`absolute left-3 top-1/2 -translate-y-1/2 ${textMuted} text-lg`}>K</span>
+                      <span className={`absolute left-3 top-1/2 -translate-y-1/2 ${textMuted} text-lg font-medium`}>{tradeSide === 'BUY' ? 'K' : ''}</span>
                       <input
                         type="number"
                         value={detailAmount}
                         onChange={(e) => setDetailAmount(e.target.value)}
                         placeholder="0"
-                        className={`w-full pl-8 pr-3 py-3 text-right text-2xl font-bold ${inputBg} border ${modalBorder} rounded-lg ${textColor} focus:outline-none focus:border-green-500`}
+                        className={`w-full ${tradeSide === 'BUY' ? 'pl-8' : 'pl-3'} pr-3 py-3 text-right text-2xl font-bold ${inputBg} border ${modalBorder} rounded-lg ${textColor} focus:outline-none focus:border-green-500`}
                       />
                     </div>
                   </div>
 
-                  <div className="flex gap-2 mb-3">
-                    {[1, 5, 10, 100].map(amt => (
-                      <button key={amt} onClick={() => setDetailAmount(prev => String((parseFloat(prev) || 0) + amt))} className={`flex-1 py-1.5 text-xs font-medium ${inputBg} border ${modalBorder} rounded ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} hover:border-green-500/50 transition-colors`}>
-                        +K{amt}
+                  {/* Quick-add buttons */}
+                  <div className="flex gap-1.5 mb-3">
+                    {(tradeSide === 'BUY' ? [1, 5, 10, 100] : [10, 50, 100, 500]).map(val => (
+                      <button
+                        key={val}
+                        onClick={() => setDetailAmount(prev => String((parseFloat(prev) || 0) + val))}
+                        className={`flex-1 py-1.5 text-xs font-medium ${inputBg} border ${modalBorder} rounded ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} hover:border-green-500/50 transition-colors`}
+                      >
+                        +{tradeSide === 'BUY' ? 'K' : ''}{val}
                       </button>
                     ))}
-                    <button onClick={() => setDetailAmount(String(userBalance))} className={`px-2 py-1.5 text-xs font-medium ${inputBg} border ${modalBorder} rounded ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} hover:border-green-500/50 transition-colors`}>
+                    <button
+                      onClick={() => setDetailAmount(tradeSide === 'BUY' ? String(userBalance) : 'Max')}
+                      className={`px-2 py-1.5 text-xs font-medium ${inputBg} border ${modalBorder} rounded ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} hover:border-green-500/50 transition-colors`}
+                    >
                       Max
                     </button>
                   </div>
 
-                  {/* To Win display */}
-                  {detailAmount && parseFloat(detailAmount) > 0 && (
-                    <div className="space-y-1 mb-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className={textMuted}>Potential return</span>
-                        <span className="text-green-500 font-bold text-lg">
-                          {formatZambianCurrency(parseFloat(detailAmount) / (showChart.outcome === 'YES' ? market.yesPrice : market.noPrice))}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className={textMuted}>Profit if {showChart.outcome} wins</span>
-                        <span className="text-green-500 font-medium">
-                          +{formatZambianCurrency((parseFloat(detailAmount) / (showChart.outcome === 'YES' ? market.yesPrice : market.noPrice)) - parseFloat(detailAmount))}
-                        </span>
-                      </div>
-                      {parseFloat(detailAmount) > userBalance && (
-                        <div className="text-xs text-red-500 mt-1">Insufficient balance ({formatZambianCurrency(userBalance)} available)</div>
+                  {/* To Win / Proceeds display */}
+                  {amt > 0 && (
+                    <div className="space-y-1.5 mb-3">
+                      {tradeSide === 'BUY' ? (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <span className={`text-sm ${textMuted} flex items-center gap-1`}>
+                              To win <span className="text-green-500">🍀</span>
+                            </span>
+                            <span className="text-green-500 font-bold text-xl tabular-nums">
+                              {formatZambianCurrency(potentialReturn)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className={textMuted}>Avg. Price</span>
+                            <span className={textColor}>{formatPriceAsNgwee(avgPriceDisplay)} ⓘ</span>
+                          </div>
+                          {amt > userBalance && (
+                            <div className="text-xs text-red-500">Insufficient balance ({formatZambianCurrency(userBalance)})</div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <span className={`text-sm ${textMuted}`}>Est. proceeds</span>
+                            <span className="text-green-500 font-bold text-xl tabular-nums">
+                              {formatZambianCurrency(potentialReturn)}
+                            </span>
+                          </div>
+                        </>
                       )}
                     </div>
                   )}
@@ -892,24 +1206,25 @@ export default function PolymarketStyleHomePage() {
                     </div>
                   )}
 
+                  {/* Trade button */}
                   <button
                     onClick={() => {
                       if (!isLoggedIn) { signIn(); return }
-                      const amt = parseFloat(detailAmount)
-                      if (amt > 0) {
+                      if (amt <= 0) return
+                      if (tradeSide === 'BUY') {
                         handleBuyFromDetail(market, showChart.outcome, amt)
                       } else {
-                        addToBetSlip(market, showChart.outcome)
+                        handleSellFromDetail(market, showChart.outcome, amt)
                       }
                     }}
-                    disabled={placingBets || (!!detailAmount && parseFloat(detailAmount) > userBalance)}
+                    disabled={placingBets || amt <= 0 || (tradeSide === 'BUY' && amt > userBalance)}
                     className={`w-full py-3 text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 ${
-                      showChart.outcome === 'YES'
-                        ? 'bg-green-500 hover:bg-green-600 text-white'
-                        : 'bg-red-500 hover:bg-red-600 text-white'
+                      tradeSide === 'SELL'
+                        ? 'bg-red-500 hover:bg-red-600 text-white'
+                        : 'bg-blue-500 hover:bg-blue-600 text-white'
                     }`}
                   >
-                    {placingBets ? 'Processing...' : !isLoggedIn ? 'Sign In to Trade' : detailAmount && parseFloat(detailAmount) > 0 ? `Buy ${showChart.outcome}` : 'Add to Bet Slip'}
+                    {placingBets ? 'Processing...' : !isLoggedIn ? 'Sign In to Trade' : amt > 0 ? 'Trade' : 'Enter amount'}
                   </button>
 
                   <p className={`text-[10px] ${textMuted} text-center mt-2`}>
@@ -917,46 +1232,6 @@ export default function PolymarketStyleHomePage() {
                   </p>
                 </div>
               </div>
-
-              {/* Rules Section — Polymarket style */}
-              <div className={`border-t ${modalBorder} p-5`}>
-                <div className="flex items-center gap-4 mb-4">
-                  <button className={`text-sm font-semibold ${textColor} border-b-2 border-green-500 pb-1`}>Rules</button>
-                  <button className={`text-sm font-medium ${textMuted} pb-1`}>Market Context</button>
-                </div>
-                <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} space-y-3`}>
-                  {market.description ? (
-                    <p>{market.description}</p>
-                  ) : (
-                    <>
-                      <p>
-                        This market will resolve to <span className="text-green-500 font-medium">&quot;Yes&quot;</span> if the condition described in the question is met by the resolution date
-                        ({market.resolveTime ? new Date(market.resolveTime).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'TBD'}).
-                      </p>
-                      <p>
-                        Otherwise, this market will resolve to <span className="text-red-400 font-medium">&quot;No&quot;</span>.
-                      </p>
-                    </>
-                  )}
-                  <div className={`text-xs ${textMuted} mt-3 pt-3 border-t ${modalBorder}`}>
-                    <div className="flex items-center justify-between">
-                      <span>Resolution date</span>
-                      <span className={textColor}>{market.resolveTime ? new Date(market.resolveTime).toLocaleDateString() : 'TBD'}</span>
-                    </div>
-                    <div className="flex items-center justify-between mt-1">
-                      <span>Category</span>
-                      <span className={textColor}>{market.league || market.category || 'General'}</span>
-                    </div>
-                    <div className="flex items-center justify-between mt-1">
-                      <span>Created by</span>
-                      <span className={textColor}>{market.creator?.username || 'System'}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Market Chat */}
-              <MarketChat marketId={market.id} isOpen={true} />
             </div>
           </div>
         )

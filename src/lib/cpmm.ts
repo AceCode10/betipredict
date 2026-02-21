@@ -174,14 +174,15 @@ export function calculateSellProceeds(
 
   if (outcome === 'YES') {
     // Selling YES shares back: yesShares decrease, noShares increase
-    newYes = pool.yesShares - shares
-    if (newYes <= 0) {
-      // Can't sell more than pool has — clamp
-      newYes = 0.01
-    }
+    // Clamp to prevent selling more than 95% of pool (prevents exploit)
+    const maxSellable = pool.yesShares * 0.95
+    const effectiveShares = Math.min(shares, maxSellable)
+    if (effectiveShares <= 0) return { proceeds: 0, newPool: pool, avgPrice: 0 }
+
+    newYes = pool.yesShares - effectiveShares
     newNo = pool.k / newYes
-    const proceeds = (newNo - pool.noShares) + shares
-    const avgPrice = shares > 0 ? Math.max(0, proceeds / shares) : 0
+    const proceeds = (newNo - pool.noShares) + effectiveShares
+    const avgPrice = effectiveShares > 0 ? Math.max(0, proceeds / effectiveShares) : 0
 
     return {
       proceeds: Math.max(0, proceeds),
@@ -190,13 +191,14 @@ export function calculateSellProceeds(
     }
   } else {
     // Selling NO shares back
-    newNo = pool.noShares - shares
-    if (newNo <= 0) {
-      newNo = 0.01
-    }
+    const maxSellable = pool.noShares * 0.95
+    const effectiveShares = Math.min(shares, maxSellable)
+    if (effectiveShares <= 0) return { proceeds: 0, newPool: pool, avgPrice: 0 }
+
+    newNo = pool.noShares - effectiveShares
     newYes = pool.k / newNo
-    const proceeds = (newYes - pool.yesShares) + shares
-    const avgPrice = shares > 0 ? Math.max(0, proceeds / shares) : 0
+    const proceeds = (newYes - pool.yesShares) + effectiveShares
+    const avgPrice = effectiveShares > 0 ? Math.max(0, proceeds / effectiveShares) : 0
 
     return {
       proceeds: Math.max(0, proceeds),

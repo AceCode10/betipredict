@@ -197,14 +197,14 @@ export async function POST(request: NextRequest) {
       // SELL: `amount` = number of shares to sell
       const sharesToSell = amount
 
-      // Check user has enough shares
-      const position = await prisma.position.findUnique({
+      // Pre-check (non-authoritative — real check is inside transaction)
+      const positionPreCheck = await prisma.position.findUnique({
         where: { userId_marketId_outcome: { userId: session.user.id, marketId, outcome } }
       })
 
-      if (!position || position.size < sharesToSell) {
+      if (!positionPreCheck || positionPreCheck.size < sharesToSell) {
         return NextResponse.json(
-          { error: `Insufficient shares. You have ${position?.size.toFixed(2) || '0'} but want to sell ${sharesToSell.toFixed(2)}` },
+          { error: `Insufficient shares. You have ${positionPreCheck?.size.toFixed(2) || '0'} but want to sell ${sharesToSell.toFixed(2)}` },
           { status: 400 }
         )
       }
@@ -221,15 +221,24 @@ export async function POST(request: NextRequest) {
       const sellFee = calculateTradeFee(grossProceeds)
       const netProceeds = sellFee.netAmount
 
-      // Execute atomically
+      // Execute atomically — re-check position inside transaction to prevent race
       const result = await prisma.$transaction(async (tx) => {
-        // 1. Credit balance (net of fee)
+        // 1. Re-check position inside transaction (prevents double-sell race)
+        const position = await tx.position.findUnique({
+          where: { userId_marketId_outcome: { userId: session.user.id, marketId, outcome } }
+        })
+
+        if (!position || position.size < sharesToSell) {
+          throw new Error(`Insufficient shares. You have ${position?.size.toFixed(2) || '0'} but want to sell ${sharesToSell.toFixed(2)}`)
+        }
+
+        // 2. Credit balance (net of fee)
         const updatedUser = await tx.user.update({
           where: { id: session.user.id },
           data: { balance: { increment: netProceeds } }
         })
 
-        // 2. Create order
+        // 3. Create order
         const order = await tx.order.create({
           data: {
             type,
@@ -245,7 +254,7 @@ export async function POST(request: NextRequest) {
           }
         })
 
-        // 3. Create transaction (with fee tracking)
+        // 4. Create transaction (with fee tracking)
         await tx.transaction.create({
           data: {
             type: 'TRADE',
@@ -258,7 +267,7 @@ export async function POST(request: NextRequest) {
           }
         })
 
-        // 3b. Record platform revenue from trading fee
+        // 4b. Record platform revenue from trading fee
         if (sellFee.feeAmount > 0) {
           await tx.platformRevenue.create({
             data: {
@@ -272,19 +281,21 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // 4. Reduce position
+        // 5. Reduce position
         const newSize = position.size - sharesToSell
         await tx.position.update({
           where: { id: position.id },
           data: { size: Math.max(0, newSize), isClosed: newSize <= 0 }
         })
 
-        // 5. Update market prices and liquidity
+        // 6. Update market prices and liquidity (read fresh inside tx)
+        const freshMarket = await tx.market.findUnique({ where: { id: marketId }, select: { liquidity: true } })
+        const currentLiquidity = freshMarket?.liquidity || 0
         const updatedMarket = await tx.market.update({
           where: { id: marketId },
           data: {
             volume: { increment: grossProceeds },
-            liquidity: Math.max(0, market.liquidity - grossProceeds),
+            liquidity: Math.max(0, currentLiquidity - grossProceeds),
             yesPrice: Math.max(0.01, Math.min(0.99, newPrices.yesPrice)),
             noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice)),
           }
