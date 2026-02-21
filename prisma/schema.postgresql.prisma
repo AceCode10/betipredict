@@ -47,6 +47,9 @@ model Market {
   noPrice        Float     @default(0.5)
   volume         Float     @default(0)
   liquidity      Float     @default(0)
+  poolYesShares  Float?
+  poolNoShares   Float?
+  poolK          Float?
   status         String    @default("PENDING")
   resolveTime    DateTime
   resolvedAt     DateTime?

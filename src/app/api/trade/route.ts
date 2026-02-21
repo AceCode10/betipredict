@@ -44,6 +44,9 @@ export async function POST(request: NextRequest) {
     if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000) {
       return NextResponse.json({ error: 'Amount must be between K0.01 and K1,000,000' }, { status: 400 })
     }
+    if (amount < 0.01) {
+      return NextResponse.json({ error: 'Minimum trade amount is K0.01' }, { status: 400 })
+    }
 
     // Get user with fresh balance
     const user = await prisma.user.findUnique({
@@ -67,8 +70,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Market is not active for trading' }, { status: 400 })
     }
 
-    // Initialize CPMM pool from current market state
-    const pool = initializePool(market.liquidity || 1000, market.yesPrice)
+    // Use persisted CPMM pool state if available, otherwise initialize (legacy fallback)
+    let pool;
+    if (market.poolYesShares != null && market.poolNoShares != null && market.poolK != null) {
+      pool = { yesShares: market.poolYesShares, noShares: market.poolNoShares, k: market.poolK }
+    } else {
+      pool = initializePool(market.liquidity || 1000, market.yesPrice)
+    }
 
     if (side === 'BUY') {
       // For BUY: `amount` = Kwacha the user wants to spend (gross)
@@ -96,7 +104,7 @@ export async function POST(request: NextRequest) {
       const result = await prisma.$transaction(async (tx) => {
         // 1. Deduct balance (re-check inside transaction for safety)
         const freshUser = await tx.user.findUnique({ where: { id: session.user.id } })
-        if (!freshUser || freshUser.balance < grossAmount) {
+        if (!freshUser || freshUser.balance < grossAmount || (freshUser.balance - grossAmount) < -0.001) {
           throw new Error('Insufficient balance')
         }
 
@@ -166,14 +174,17 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // 5. Update market prices and volume
+        // 5. Update market prices, volume, and persist CPMM pool state
         const updatedMarket = await tx.market.update({
           where: { id: marketId },
           data: {
-            volume: { increment: kwachaToSpend },
+            volume: { increment: grossAmount },
             liquidity: { increment: kwachaToSpend },
             yesPrice: Math.max(0.01, Math.min(0.99, newPrices.yesPrice)),
-            noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice))
+            noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice)),
+            poolYesShares: newPool.yesShares,
+            poolNoShares: newPool.noShares,
+            poolK: newPool.k,
           }
         })
 
@@ -288,7 +299,7 @@ export async function POST(request: NextRequest) {
           data: { size: Math.max(0, newSize), isClosed: newSize <= 0 }
         })
 
-        // 6. Update market prices and liquidity (read fresh inside tx)
+        // 6. Update market prices, liquidity, and persist CPMM pool state
         const freshMarket = await tx.market.findUnique({ where: { id: marketId }, select: { liquidity: true } })
         const currentLiquidity = freshMarket?.liquidity || 0
         const updatedMarket = await tx.market.update({
@@ -298,6 +309,9 @@ export async function POST(request: NextRequest) {
             liquidity: Math.max(0, currentLiquidity - grossProceeds),
             yesPrice: Math.max(0.01, Math.min(0.99, newPrices.yesPrice)),
             noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice)),
+            poolYesShares: sellPool.yesShares,
+            poolNoShares: sellPool.noShares,
+            poolK: sellPool.k,
           }
         })
 
@@ -320,9 +334,12 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Error executing trade:', error)
-    const message = error?.message === 'Insufficient balance' 
-      ? 'Insufficient balance' 
-      : 'Failed to execute trade'
-    return NextResponse.json({ error: message }, { status: 500 })
+    const msg = error?.message || ''
+    // Pass through known user-facing error messages
+    const userMessage = 
+      msg.includes('Insufficient balance') ? 'Insufficient balance' :
+      msg.includes('Insufficient shares') ? msg :
+      'Failed to execute trade'
+    return NextResponse.json({ error: userMessage }, { status: 500 })
   }
 }

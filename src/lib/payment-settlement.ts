@@ -9,6 +9,7 @@
  */
 
 import { prisma } from './prisma'
+import { sendDepositConfirmation, sendWithdrawalConfirmation } from './email'
 
 interface SettlementResult {
   settled: boolean
@@ -99,6 +100,19 @@ export async function settleDepositCompleted(paymentId: string): Promise<Settlem
     ])
 
     console.log(`[Settlement] Deposit completed: K${payment.netAmount} for user ${payment.userId}`)
+
+    // Fire-and-forget email notification
+    prisma.user.findUnique({ where: { id: payment.userId }, select: { email: true } })
+      .then(user => {
+        if (user?.email) {
+          sendDepositConfirmation(user.email, {
+            amount: payment.netAmount,
+            method: providerLabel(payment.provider),
+          }).catch(err => console.error('[Settlement] Email notification failed:', err))
+        }
+      })
+      .catch(() => {})
+
     return { settled: true, alreadySettled: false }
   } catch (error) {
     // Rollback settlement claim on failure
@@ -181,6 +195,21 @@ export async function settleWithdrawalCompleted(paymentId: string): Promise<Sett
     ])
 
     console.log(`[Settlement] Withdrawal completed: K${payment.netAmount} for user ${payment.userId}`)
+
+    // Fire-and-forget email notification
+    prisma.user.findUnique({ where: { id: payment.userId }, select: { email: true } })
+      .then(user => {
+        if (user?.email) {
+          sendWithdrawalConfirmation(user.email, {
+            amount: payment.amount,
+            fee: payment.feeAmount,
+            netAmount: payment.netAmount,
+            method: providerLabel(payment.provider),
+          }).catch(err => console.error('[Settlement] Email notification failed:', err))
+        }
+      })
+      .catch(() => {})
+
     return { settled: true, alreadySettled: false }
   } catch (error) {
     await prisma.mobilePayment.update({

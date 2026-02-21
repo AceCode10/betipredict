@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "@/lib/env-check";
 import { Providers } from "@/components/providers/SessionProvider";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 

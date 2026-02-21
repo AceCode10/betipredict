@@ -5,7 +5,7 @@ import { useSession, signIn } from 'next-auth/react'
 import { useWallet, WalletConnectButton } from '@/components/WalletConnect'
 import { useContractService } from '@/lib/contracts'
 import { PriceChart } from '@/components/PriceChart'
-import { BetSlip } from '@/components/BetSlip'
+// BetSlip removed — replaced by trading panel in market detail overlay
 import { Header } from '@/components/Header'
 import { Logo } from '@/components/Logo'
 import { CreateMarketModal } from '@/components/CreateMarketModal'
@@ -71,8 +71,6 @@ export default function PolymarketStyleHomePage() {
   const [sortBy, setSortBy] = useState<string>('volume')
   const [showChart, setShowChart] = useState<{marketId: string, outcome: 'YES' | 'NO'} | null>(null)
   const [detailAmount, setDetailAmount] = useState<string>('')
-  const [betSlip, setBetSlip] = useState<BetItem[]>([])
-  const [showBetSlip, setShowBetSlip] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showMarketCreation, setShowMarketCreation] = useState(false)
   const [showWithdraw, setShowWithdraw] = useState(false)
@@ -85,6 +83,7 @@ export default function PolymarketStyleHomePage() {
   const [positions, setPositions] = useState<any[]>([])
   const [positionFilter, setPositionFilter] = useState<string>('All')
   const [loadingHolders, setLoadingHolders] = useState(false)
+  const [activityFeed, setActivityFeed] = useState<any[]>([])
   
   const contractService = useContractService()
   const isLoggedIn = sessionStatus === 'authenticated' && !!session?.user
@@ -155,6 +154,7 @@ export default function PolymarketStyleHomePage() {
       setDetailTab('comments')
       setHolders({ yesHolders: [], noHolders: [] })
       setPositions([])
+      setActivityFeed([])
     }
   }, [showChart?.marketId])
 
@@ -177,6 +177,15 @@ export default function PolymarketStyleHomePage() {
       fetch(`/api/markets/${marketId}/positions`)
         .then(r => r.json())
         .then(data => setPositions(data.positions || []))
+        .catch(console.error)
+        .finally(() => setLoadingHolders(false))
+    }
+
+    if (detailTab === 'activity' && activityFeed.length === 0) {
+      setLoadingHolders(true)
+      fetch(`/api/markets/activity?marketId=${marketId}&limit=30`)
+        .then(r => r.json())
+        .then(data => setActivityFeed(data.activity || []))
         .catch(console.error)
         .finally(() => setLoadingHolders(false))
     }
@@ -329,11 +338,14 @@ export default function PolymarketStyleHomePage() {
         matchesCategory = targets.some(t => sub.includes(t) || league.includes(t) || cat.includes(t))
       }
     }
+    const q = searchQuery.toLowerCase()
     const matchesSearch = !searchQuery || 
-      market.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (market.question || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (market.homeTeam || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (market.awayTeam || '').toLowerCase().includes(searchQuery.toLowerCase())
+      market.title.toLowerCase().includes(q) ||
+      (market.question || '').toLowerCase().includes(q) ||
+      (market.homeTeam || '').toLowerCase().includes(q) ||
+      (market.awayTeam || '').toLowerCase().includes(q) ||
+      (market.league || '').toLowerCase().includes(q) ||
+      (market.category || '').toLowerCase().includes(q)
     return matchesCategory && matchesSearch
   }).sort((a, b) => {
     if (sortBy === 'volume') return b.volume - a.volume
@@ -342,89 +354,6 @@ export default function PolymarketStyleHomePage() {
     if (sortBy === 'match-date') return new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime()
     return 0
   })
-
-  // Betting functions
-  const addToBetSlip = (market: any, outcome: 'YES' | 'NO') => {
-    const existingBetIndex = betSlip.findIndex(
-      bet => bet.marketId === market.id && bet.outcome === outcome
-    )
-    
-    if (existingBetIndex >= 0) {
-      // Already in bet slip, just open it
-      setShowBetSlip(true)
-      return
-    }
-
-    // Add new bet with K10 default stake
-    const newBet: BetItem = {
-      id: `${market.id}-${outcome}-${Date.now()}`,
-      marketId: market.id,
-      marketTitle: market.title,
-      outcome,
-      price: outcome === 'YES' ? market.yesPrice : market.noPrice,
-      amount: 10 // Default K10 stake
-    }
-    setBetSlip([...betSlip, newBet])
-    setShowBetSlip(true)
-  }
-
-  const updateBetAmount = (betId: string, amount: number) => {
-    setBetSlip(betSlip.map(bet => 
-      bet.id === betId ? { ...bet, amount } : bet
-    ))
-  }
-
-  const removeBet = (betId: string) => {
-    setBetSlip(betSlip.filter(bet => bet.id !== betId))
-  }
-
-  const clearBetSlip = () => {
-    setBetSlip([])
-  }
-
-  const placeBets = async () => {
-    if (!isLoggedIn) { signIn(); return }
-    if (betSlip.length === 0) return
-
-    setPlacingBets(true)
-    setError(null)
-
-    try {
-      for (const bet of betSlip) {
-        const res = await fetch('/api/trade', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            marketId: bet.marketId,
-            outcome: bet.outcome,
-            side: 'BUY',
-            type: 'MARKET',
-            amount: bet.amount,
-          })
-        })
-
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Trade failed')
-
-        // Update market prices locally from response
-        if (data.newYesPrice && data.newNoPrice) {
-          setMarkets(prev => prev.map(m =>
-            m.id === bet.marketId
-              ? { ...m, yesPrice: data.newYesPrice, noPrice: data.newNoPrice }
-              : m
-          ))
-        }
-      }
-
-      await loadBalance()
-      setBetSlip([])
-      setShowBetSlip(false)
-    } catch (err: any) {
-      setError(err.message || 'Failed to place bets')
-    } finally {
-      setPlacingBets(false)
-    }
-  }
 
   const handleSellFromDetail = async (market: any, outcome: 'YES' | 'NO', shares: number) => {
     if (!isLoggedIn) { signIn(); return }
@@ -550,8 +479,6 @@ export default function PolymarketStyleHomePage() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onCreateMarket={() => setShowMarketCreation(true)}
-        betSlipCount={betSlip.length}
-        onOpenBetSlip={() => setShowBetSlip(true)}
       />
 
       {/* Categories Nav */}
@@ -941,7 +868,7 @@ export default function PolymarketStyleHomePage() {
                           {loadingHolders ? (
                             <div className={`text-center py-8 ${textMuted} text-sm`}>Loading holders...</div>
                           ) : (
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                               {/* Yes holders */}
                               <div>
                                 <div className="flex items-center justify-between mb-3">
@@ -1009,7 +936,7 @@ export default function PolymarketStyleHomePage() {
                           {loadingHolders ? (
                             <div className={`text-center py-8 ${textMuted} text-sm`}>Loading positions...</div>
                           ) : (
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                               {/* Yes positions */}
                               <div>
                                 <div className="flex items-center justify-between mb-3">
@@ -1071,8 +998,49 @@ export default function PolymarketStyleHomePage() {
 
                       {/* Activity tab */}
                       {detailTab === 'activity' && (
-                        <div className={`text-center py-8 ${textMuted} text-sm`}>
-                          <p>Recent trading activity will appear here.</p>
+                        <div>
+                          {loadingHolders ? (
+                            <div className={`text-center py-8 ${textMuted} text-sm`}>Loading activity...</div>
+                          ) : activityFeed.length === 0 ? (
+                            <div className={`text-center py-8 ${textMuted} text-sm`}>No trading activity yet.</div>
+                          ) : (
+                            <div className="space-y-1">
+                              {activityFeed.map((a: any) => {
+                                const isBuy = a.side === 'BUY'
+                                const timeAgo = (() => {
+                                  const diff = Date.now() - new Date(a.createdAt).getTime()
+                                  const mins = Math.floor(diff / 60000)
+                                  if (mins < 1) return 'just now'
+                                  if (mins < 60) return `${mins}m ago`
+                                  const hrs = Math.floor(mins / 60)
+                                  if (hrs < 24) return `${hrs}h ago`
+                                  return `${Math.floor(hrs / 24)}d ago`
+                                })()
+                                return (
+                                  <div key={a.id} className={`flex items-center gap-3 py-2.5 px-2 rounded-lg ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-gray-50'} transition-colors`}>
+                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                                      isBuy
+                                        ? isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-600'
+                                        : isDarkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-600'
+                                    }`}>
+                                      {isBuy ? 'B' : 'S'}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className={`text-sm ${textColor}`}>
+                                        <span className="font-medium">{a.username}</span>
+                                        <span className={textMuted}> {isBuy ? 'bought' : 'sold'} </span>
+                                        <span className={`font-semibold ${a.outcome === 'YES' ? 'text-green-500' : 'text-red-400'}`}>
+                                          {a.amount.toFixed(1)} {a.outcome}
+                                        </span>
+                                        <span className={textMuted}> @ {(a.price * 100).toFixed(0)}%</span>
+                                      </div>
+                                    </div>
+                                    <span className={`text-[11px] ${textMuted} flex-shrink-0`}>{timeAgo}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1246,25 +1214,14 @@ export default function PolymarketStyleHomePage() {
             </div>
             <div className={`flex items-center gap-4 text-xs ${textMuted}`}>
               <button onClick={() => window.location.href = '/account'} className={`hover:${textColor} transition-colors`}>My Account</button>
+              <button onClick={() => window.location.href = '/leaderboard'} className={`hover:${textColor} transition-colors`}>Leaderboard</button>
+              <button onClick={() => window.location.href = '/terms'} className={`hover:${textColor} transition-colors`}>Terms</button>
+              <button onClick={() => window.location.href = '/privacy'} className={`hover:${textColor} transition-colors`}>Privacy</button>
               <span>&copy; {new Date().getFullYear()} BetiPredict. All rights reserved.</span>
             </div>
           </div>
         </div>
       </footer>
-
-      {/* Bet Slip Sidebar */}
-      <BetSlip
-        bets={betSlip}
-        onUpdateBet={updateBetAmount}
-        onRemoveBet={removeBet}
-        onPlaceBets={placeBets}
-        onClearAll={clearBetSlip}
-        isOpen={showBetSlip}
-        onClose={() => setShowBetSlip(false)}
-        isPlacing={placingBets}
-        error={error}
-        userBalance={userBalance}
-      />
 
       {/* Market Creation Modal - new flow with scheduled games + suggestions */}
       <CreateMarketModal

@@ -55,6 +55,9 @@ model Market {
   noPrice         Float     @default(0.5)
   volume          Float     @default(0)
   liquidity       Float     @default(0)
+  poolYesShares   Float?    // CPMM pool: YES share count (persisted between trades)
+  poolNoShares    Float?    // CPMM pool: NO share count (persisted between trades)
+  poolK           Float?    // CPMM pool: constant product invariant (yesShares * noShares)
   status          String    @default("PENDING") // PENDING, ACTIVE, RESOLVED, DISPUTED, FINALIZED, CANCELLED
   resolveTime     DateTime
   resolvedAt      DateTime?

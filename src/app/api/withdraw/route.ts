@@ -94,9 +94,31 @@ export async function POST(request: NextRequest) {
     }
 
     // User must have enough to cover the full withdrawal amount (fee is deducted from it)
-    if (user.balance < amount) {
+    // Use small epsilon to prevent floating-point edge cases making balance slightly negative
+    if (user.balance < amount || (user.balance - amount) < -0.001) {
       if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json({ error: 'Insufficient balance' }, { status: 400 })
+    }
+
+    // Daily withdrawal limit: K500,000 per 24 hours
+    const DAILY_WITHDRAWAL_LIMIT = 500_000
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const recentWithdrawals = await prisma.mobilePayment.aggregate({
+      where: {
+        userId: session.user.id,
+        type: 'WITHDRAWAL',
+        status: { in: ['PENDING', 'PROCESSING', 'COMPLETED'] },
+        createdAt: { gte: dayAgo },
+      },
+      _sum: { amount: true },
+    })
+    const dailyTotal = (recentWithdrawals._sum.amount || 0) + amount
+    if (dailyTotal > DAILY_WITHDRAWAL_LIMIT) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+      const remaining = Math.max(0, DAILY_WITHDRAWAL_LIMIT - (recentWithdrawals._sum.amount || 0))
+      return NextResponse.json({
+        error: `Daily withdrawal limit is K${DAILY_WITHDRAWAL_LIMIT.toLocaleString()}. You can withdraw up to K${remaining.toLocaleString()} more today.`
+      }, { status: 400 })
     }
 
     // Validate phone number is required
@@ -260,7 +282,8 @@ export async function POST(request: NextRequest) {
           data: {
             status: 'FAILED',
             statusMessage: err.message || 'Disbursement failed',
-            settledAt: new Date(),
+            settledAt: new Date(), // Mark as settled to prevent double-refund from callback/poller
+            completedAt: new Date(),
           }
         }),
         prisma.transaction.update({

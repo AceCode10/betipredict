@@ -151,8 +151,18 @@ export async function POST(request: NextRequest) {
     })
   } catch (error: any) {
     console.error('Error resolving market:', error)
+    // Don't leak internal error details to users
+    const safeMessages = [
+      'Market is not active',
+      'Market not found',
+      'Dispute window is still open',
+      'Market has open dispute',
+      'No winning outcome set',
+    ]
+    const msg = error?.message || ''
+    const isSafe = safeMessages.some(m => msg.includes(m))
     return NextResponse.json(
-      { error: error.message || 'Failed to resolve market' },
+      { error: isSafe ? msg : 'Failed to resolve market' },
       { status: 500 }
     )
   }

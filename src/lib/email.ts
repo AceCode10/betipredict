@@ -55,3 +55,66 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
   console.log(`[Email] Password reset email for ${email}:`)
   console.log(`[Email] Reset URL: ${resetUrl}`)
 }
+
+// ─── Transactional Notification Emails ──────────────────────
+
+interface EmailPayload {
+  to: string
+  subject: string
+  text: string
+  html?: string
+}
+
+async function sendEmail(payload: EmailPayload): Promise<void> {
+  // TODO: Replace with real email provider (Resend, SendGrid, AWS SES)
+  // Example with Resend:
+  // const resend = new Resend(process.env.RESEND_API_KEY)
+  // await resend.emails.send({ from: 'BetiPredict <noreply@betipredict.com>', ...payload })
+  console.log(`[Email] To: ${payload.to} | Subject: ${payload.subject}`)
+  console.log(`[Email] Body: ${payload.text}`)
+}
+
+export async function sendTradeConfirmation(
+  email: string,
+  details: { side: string; outcome: string; amount: number; shares: number; market: string }
+): Promise<void> {
+  const { side, outcome, amount, shares, market } = details
+  await sendEmail({
+    to: email,
+    subject: `Trade Confirmed: ${side} ${outcome} on "${market}"`,
+    text: `Your ${side} order has been filled.\n\nMarket: ${market}\nOutcome: ${outcome}\nAmount: K${amount.toFixed(2)}\nShares: ${shares.toFixed(2)}\n\nView your portfolio: ${APP_URL}/account`,
+  })
+}
+
+export async function sendDepositConfirmation(
+  email: string,
+  details: { amount: number; method: string }
+): Promise<void> {
+  await sendEmail({
+    to: email,
+    subject: `Deposit Received: K${details.amount.toFixed(2)}`,
+    text: `Your deposit of K${details.amount.toFixed(2)} via ${details.method} has been credited to your account.\n\nView your balance: ${APP_URL}/account`,
+  })
+}
+
+export async function sendWithdrawalConfirmation(
+  email: string,
+  details: { amount: number; fee: number; netAmount: number; method: string }
+): Promise<void> {
+  await sendEmail({
+    to: email,
+    subject: `Withdrawal Processed: K${details.netAmount.toFixed(2)}`,
+    text: `Your withdrawal has been processed.\n\nGross: K${details.amount.toFixed(2)}\nFee: K${details.fee.toFixed(2)}\nNet sent: K${details.netAmount.toFixed(2)}\nMethod: ${details.method}\n\nView your balance: ${APP_URL}/account`,
+  })
+}
+
+export async function sendPayoutNotification(
+  email: string,
+  details: { market: string; outcome: string; payout: number }
+): Promise<void> {
+  await sendEmail({
+    to: email,
+    subject: `Payout: K${details.payout.toFixed(2)} from "${details.market}"`,
+    text: `The market "${details.market}" has been resolved.\n\nWinning outcome: ${details.outcome}\nYour payout: K${details.payout.toFixed(2)}\n\nView your portfolio: ${APP_URL}/account`,
+  })
+}

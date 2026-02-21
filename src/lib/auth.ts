@@ -4,6 +4,12 @@ import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import { generateToken, sendVerificationEmail } from "@/lib/email"
 import { writeAuditLog } from "@/lib/audit"
+import { checkRateLimit } from "@/lib/rate-limit"
+
+// Track failed login attempts per email for account lockout
+const failedAttempts = new Map<string, { count: number; lastAttempt: number }>()
+const MAX_FAILED_ATTEMPTS = 5
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000 // 15 minutes
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -33,6 +39,23 @@ export const authOptions: NextAuthOptions = {
           throw new Error('Password must be at least 6 characters')
         }
 
+        // Rate limit: 10 auth attempts per minute per email
+        const rl = checkRateLimit(`auth:${email}`, 10, 60_000)
+        if (!rl.allowed) {
+          throw new Error('Too many attempts. Please wait before trying again.')
+        }
+
+        // Account lockout check
+        const failed = failedAttempts.get(email)
+        if (failed && failed.count >= MAX_FAILED_ATTEMPTS) {
+          const elapsed = Date.now() - failed.lastAttempt
+          if (elapsed < LOCKOUT_DURATION_MS) {
+            const minutesLeft = Math.ceil((LOCKOUT_DURATION_MS - elapsed) / 60000)
+            throw new Error(`Account temporarily locked. Try again in ${minutesLeft} minute(s).`)
+          }
+          failedAttempts.delete(email) // Lockout expired
+        }
+
         let user = await prisma.user.findUnique({
           where: { email }
         })
@@ -53,7 +76,7 @@ export const authOptions: NextAuthOptions = {
               password: hashedPassword,
               username: email.split('@')[0] + '_' + Date.now().toString(36),
               fullName: email.split('@')[0],
-              balance: 1000,
+              balance: 0, // No free signup bonus — users must deposit real money
               isVerified: false,
               verificationToken,
               verificationTokenExpiry,
@@ -83,8 +106,18 @@ export const authOptions: NextAuthOptions = {
 
           const isPasswordValid = await bcrypt.compare(password, user.password)
           if (!isPasswordValid) {
+            // Track failed attempt
+            const current = failedAttempts.get(email) || { count: 0, lastAttempt: 0 }
+            failedAttempts.set(email, { count: current.count + 1, lastAttempt: Date.now() })
+            const remaining = MAX_FAILED_ATTEMPTS - current.count - 1
+            if (remaining <= 0) {
+              throw new Error('Account temporarily locked due to too many failed attempts. Try again in 15 minutes.')
+            }
             throw new Error('Incorrect password')
           }
+
+          // Clear failed attempts on successful login
+          failedAttempts.delete(email)
 
           writeAuditLog({
             action: 'USER_LOGIN',

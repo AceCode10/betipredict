@@ -47,12 +47,55 @@ const RATE_LIMITS: { pattern: RegExp; max: number; windowMs: number }[] = [
   { pattern: /^\/api\//, max: 60, windowMs: 60_000 },
 ]
 
+// ─── CSRF origin validation ─────────────────────────────────
+const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+const CSRF_EXEMPT_PATHS = [
+  '/api/payments/callback',  // External webhook from payment providers
+  '/api/cron/',              // Cron jobs use secret-based auth
+  '/api/auth/',              // NextAuth handles its own CSRF
+]
+
+function isOriginAllowed(request: NextRequest): boolean {
+  const origin = request.headers.get('origin')
+  const host = request.headers.get('host')
+
+  // If no origin header (same-origin requests, server-to-server), allow
+  if (!origin) return true
+
+  // Extract hostname from origin
+  try {
+    const originUrl = new URL(origin)
+    const expectedHost = host?.split(':')[0]
+    const originHost = originUrl.hostname
+
+    // Allow if origin matches host
+    if (originHost === expectedHost) return true
+    // Allow localhost variants in development
+    if (originHost === 'localhost' || originHost === '127.0.0.1') return true
+
+    return false
+  } catch {
+    return false
+  }
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Only rate-limit API routes
+  // Only apply rate-limiting and CSRF to API routes
   if (!pathname.startsWith('/api/')) {
     return NextResponse.next()
+  }
+
+  // ─── CSRF check for state-changing methods ───
+  if (!CSRF_SAFE_METHODS.has(request.method)) {
+    const isExempt = CSRF_EXEMPT_PATHS.some(p => pathname.startsWith(p))
+    if (!isExempt && !isOriginAllowed(request)) {
+      return NextResponse.json(
+        { error: 'Forbidden: origin not allowed' },
+        { status: 403 }
+      )
+    }
   }
 
   // Skip rate limiting for GET requests on markets (public browsing)
@@ -60,7 +103,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Skip rate limiting for Airtel Money callback (external webhook)
+  // Skip rate limiting for payment callbacks (external webhook)
   if (pathname === '/api/payments/callback') {
     return NextResponse.next()
   }

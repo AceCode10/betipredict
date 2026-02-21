@@ -112,14 +112,26 @@ export async function POST(
     }
 
     const body = await request.json()
-    const content = typeof body.content === 'string' ? body.content.trim() : ''
+    const rawContent = typeof body.content === 'string' ? body.content.trim() : ''
     const parentId = typeof body.parentId === 'string' ? body.parentId : null
 
-    if (!content || content.length === 0) {
+    if (!rawContent || rawContent.length === 0) {
       return NextResponse.json({ error: 'Comment cannot be empty' }, { status: 400 })
     }
-    if (content.length > 500) {
+    if (rawContent.length > 500) {
       return NextResponse.json({ error: 'Comment too long (max 500 characters)' }, { status: 400 })
+    }
+
+    // Sanitize: strip HTML tags and dangerous patterns to prevent stored XSS
+    const content = rawContent
+      .replace(/<[^>]*>/g, '')           // Strip all HTML tags
+      .replace(/javascript:/gi, '')       // Remove javascript: URIs
+      .replace(/on\w+\s*=/gi, '')         // Remove inline event handlers
+      .replace(/data:\s*text\/html/gi, '') // Remove data:text/html URIs
+      .trim()
+
+    if (!content) {
+      return NextResponse.json({ error: 'Comment cannot be empty after sanitization' }, { status: 400 })
     }
 
     // Verify market exists
