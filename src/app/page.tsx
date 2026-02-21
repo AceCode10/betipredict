@@ -382,7 +382,13 @@ export default function PolymarketStyleHomePage() {
       if (data.newYesPrice && data.newNoPrice) {
         setMarkets(prev => prev.map(m =>
           m.id === market.id
-            ? { ...m, yesPrice: data.newYesPrice, noPrice: data.newNoPrice }
+            ? {
+                ...m,
+                yesPrice: data.newYesPrice,
+                noPrice: data.newNoPrice,
+                volume: typeof data.newVolume === 'number' ? data.newVolume : m.volume,
+                liquidity: typeof data.newLiquidity === 'number' ? data.newLiquidity : m.liquidity,
+              }
             : m
         ))
       }
@@ -423,7 +429,13 @@ export default function PolymarketStyleHomePage() {
       if (data.newYesPrice && data.newNoPrice) {
         setMarkets(prev => prev.map(m =>
           m.id === market.id
-            ? { ...m, yesPrice: data.newYesPrice, noPrice: data.newNoPrice, volume: (m.volume || 0) + amount }
+            ? {
+                ...m,
+                yesPrice: data.newYesPrice,
+                noPrice: data.newNoPrice,
+                volume: typeof data.newVolume === 'number' ? data.newVolume : (m.volume || 0) + amount,
+                liquidity: typeof data.newLiquidity === 'number' ? data.newLiquidity : m.liquidity,
+              }
             : m
         ))
       }
