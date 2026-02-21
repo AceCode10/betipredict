@@ -8,11 +8,22 @@ import {
   mapAirtelStatus,
   isAirtelMoneyConfigured,
 } from '@/lib/airtel-money'
+import {
+  settleDepositCompleted,
+  settleDepositFailed,
+  settleWithdrawalCompleted,
+  settleWithdrawalFailed,
+} from '@/lib/payment-settlement'
 
 /**
  * Check the status of a mobile payment.
  * Used by the frontend to poll for payment completion.
- * 
+ *
+ * This endpoint updates the MobilePayment record status from Airtel polling,
+ * then delegates all financial settlement to the shared settlement module.
+ * The settlement module uses atomic `settledAt` claims to prevent
+ * double-settlement with the callback handler.
+ *
  * GET /api/payments/status?paymentId=xxx
  */
 export async function GET(request: NextRequest) {
@@ -43,7 +54,6 @@ export async function GET(request: NextRequest) {
 
     // If payment is already in terminal state, return immediately
     if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(payment.status)) {
-      // Get updated balance
       const user = await prisma.user.findUnique({
         where: { id: session.user.id },
         select: { balance: true },
@@ -61,7 +71,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Check if expired
+    // Check if expired — mark as FAILED and trigger settlement
     if (new Date() > payment.expiresAt) {
       await prisma.mobilePayment.update({
         where: { id: payment.id },
@@ -71,18 +81,23 @@ export async function GET(request: NextRequest) {
         }
       })
 
-      // If withdrawal expired, refund
+      // Delegate financial settlement to the shared module (handles refund + fee reversal atomically)
       if (payment.type === 'WITHDRAWAL') {
-        await prisma.user.update({
-          where: { id: session.user.id },
-          data: { balance: { increment: payment.amount } }
-        })
+        await settleWithdrawalFailed(payment.id, 'Payment expired')
+      } else if (payment.type === 'DEPOSIT') {
+        await settleDepositFailed(payment.id, 'Payment expired')
       }
+
+      const user = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { balance: true },
+      })
 
       return NextResponse.json({
         paymentId: payment.id,
         status: 'FAILED',
         statusMessage: 'Payment expired. Please try again.',
+        newBalance: user?.balance || 0,
       })
     }
 
@@ -96,8 +111,8 @@ export async function GET(request: NextRequest) {
         const txnStatus = airtelStatus.data?.transaction?.status
         if (txnStatus) {
           const mappedStatus = mapAirtelStatus(txnStatus)
-          
-          // If status changed, update
+
+          // If status changed, update the payment record
           if (mappedStatus !== payment.status) {
             await prisma.mobilePayment.update({
               where: { id: payment.id },
@@ -108,56 +123,17 @@ export async function GET(request: NextRequest) {
               }
             })
 
-            // Handle deposit completion (credit balance)
+            // Delegate financial settlement to the shared module
+            // The settlement module uses atomic settledAt claims — safe even if
+            // callback also fires concurrently
             if (mappedStatus === 'COMPLETED' && payment.type === 'DEPOSIT') {
-              await prisma.$transaction([
-                prisma.user.update({
-                  where: { id: session.user.id },
-                  data: { balance: { increment: payment.netAmount } }
-                }),
-                prisma.transaction.create({
-                  data: {
-                    type: 'DEPOSIT',
-                    amount: payment.netAmount,
-                    feeAmount: payment.feeAmount,
-                    description: `Deposit K${payment.netAmount.toFixed(2)} via Airtel Money (${payment.phoneNumber})`,
-                    status: 'COMPLETED',
-                    userId: session.user.id,
-                    metadata: JSON.stringify({
-                      method: 'airtel_money',
-                      phoneNumber: payment.phoneNumber,
-                      externalRef: payment.externalRef,
-                      paymentId: payment.id,
-                    })
-                  }
-                }),
-                prisma.notification.create({
-                  data: {
-                    type: 'DEPOSIT',
-                    title: 'Deposit Successful',
-                    message: `K${payment.netAmount.toFixed(2)} has been added to your account via Airtel Money.`,
-                    userId: session.user.id,
-                  }
-                })
-              ])
-            }
-
-            // Handle failed withdrawal (refund)
-            if (mappedStatus === 'FAILED' && payment.type === 'WITHDRAWAL') {
-              await prisma.$transaction([
-                prisma.user.update({
-                  where: { id: session.user.id },
-                  data: { balance: { increment: payment.amount } }
-                }),
-                prisma.notification.create({
-                  data: {
-                    type: 'WITHDRAW',
-                    title: 'Withdrawal Failed',
-                    message: `Your withdrawal failed. K${payment.amount.toFixed(2)} has been refunded.`,
-                    userId: session.user.id,
-                  }
-                })
-              ])
+              await settleDepositCompleted(payment.id)
+            } else if (mappedStatus === 'COMPLETED' && payment.type === 'WITHDRAWAL') {
+              await settleWithdrawalCompleted(payment.id)
+            } else if (mappedStatus === 'FAILED' && payment.type === 'DEPOSIT') {
+              await settleDepositFailed(payment.id, airtelStatus.data?.transaction?.message)
+            } else if (mappedStatus === 'FAILED' && payment.type === 'WITHDRAWAL') {
+              await settleWithdrawalFailed(payment.id, airtelStatus.data?.transaction?.message)
             }
 
             // Get updated balance

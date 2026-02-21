@@ -13,6 +13,7 @@ import {
 import { checkRateLimit } from '@/lib/rate-limit'
 import {
   getIdempotencyKeyFromRequest,
+  scopeIdempotencyKey,
   checkIdempotencyKey,
   lockIdempotencyKey,
   completeIdempotencyKey,
@@ -20,6 +21,7 @@ import {
 } from '@/lib/idempotency'
 
 export async function POST(request: NextRequest) {
+  let idempotencyKey: string | null = null
   try {
     const session = await getServerSession(authOptions)
     
@@ -27,8 +29,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Idempotency check — prevent duplicate withdrawals
-    const idempotencyKey = getIdempotencyKeyFromRequest(request.headers)
+    // Idempotency check — prevent duplicate withdrawals (scoped by userId + route)
+    const rawIdempotencyKey = getIdempotencyKeyFromRequest(request.headers)
+    idempotencyKey = rawIdempotencyKey ? scopeIdempotencyKey(rawIdempotencyKey, session.user.id, 'withdraw') : null
     if (idempotencyKey) {
       const cached = await checkIdempotencyKey(idempotencyKey)
       if (cached === 'processing') {
@@ -57,14 +60,17 @@ export async function POST(request: NextRequest) {
     const phoneNumber = typeof body.phoneNumber === 'string' ? body.phoneNumber.trim() : ''
     const method = typeof body.method === 'string' ? body.method.slice(0, 50) : 'airtel_money'
 
-    // Validate amount
+    // Validate amount — release idempotency key on validation failures
     if (!Number.isFinite(amount) || amount <= 0) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json({ error: 'Invalid withdrawal amount' }, { status: 400 })
     }
     if (amount < FEES.WITHDRAW_MIN_AMOUNT) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json({ error: `Minimum withdrawal is K${FEES.WITHDRAW_MIN_AMOUNT}` }, { status: 400 })
     }
     if (amount > FEES.WITHDRAW_MAX_AMOUNT) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json({ error: `Maximum withdrawal is K${FEES.WITHDRAW_MAX_AMOUNT.toLocaleString()}` }, { status: 400 })
     }
 
@@ -76,17 +82,20 @@ export async function POST(request: NextRequest) {
       where: { id: session.user.id }
     })
     if (!user) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
     // User must have enough to cover the full withdrawal amount (fee is deducted from it)
     if (user.balance < amount) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json({ error: 'Insufficient balance' }, { status: 400 })
     }
 
     // ─── Airtel Money Disbursement Flow ──────────────────────
     if (method === 'airtel_money' && isAirtelMoneyConfigured()) {
       if (!phoneNumber) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
         return NextResponse.json({ error: 'Phone number is required for Airtel Money withdrawals' }, { status: 400 })
       }
 
@@ -94,6 +103,7 @@ export async function POST(request: NextRequest) {
       try {
         normalizedPhone = normalizeZambianPhone(phoneNumber)
       } catch (e: any) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
         return NextResponse.json({ error: e.message || 'Invalid phone number' }, { status: 400 })
       }
 
@@ -214,6 +224,7 @@ export async function POST(request: NextRequest) {
             data: {
               status: 'FAILED',
               statusMessage: err.message || 'Disbursement failed',
+              settledAt: new Date(), // Mark as settled to prevent double-refund from late callback
             }
           }),
           prisma.transaction.update({
@@ -284,8 +295,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(directSuccessBody)
   } catch (error: any) {
     console.error('Error processing withdrawal:', error)
-    const idempotencyKey = getIdempotencyKeyFromRequest(request.headers)
-    if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+    if (idempotencyKey) {
+      await releaseIdempotencyKey(idempotencyKey)
+    }
     const message = error?.message === 'Insufficient balance'
       ? 'Insufficient balance'
       : 'Failed to process withdrawal'

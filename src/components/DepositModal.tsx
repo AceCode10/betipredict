@@ -71,6 +71,8 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('success')
           setSuccess(`Successfully deposited ${formatZambianCurrency(data.netAmount || parseFloat(amount))}`)
+          // Trigger parent data refresh
+          onDeposit(data.netAmount || parseFloat(amount)).catch(() => {})
         } else if (data.status === 'FAILED' || data.status === 'CANCELLED') {
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('failed')

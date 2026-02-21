@@ -96,9 +96,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 3. Also fetch scheduled games that are marked LIVE in our DB
+    // 3. Also fetch scheduled games that are IN_PLAY in our DB (fallback for API downtime)
     const dbLiveGames = await prisma.scheduledGame.findMany({
-      where: { status: 'LIVE' },
+      where: { status: { in: ['IN_PLAY', 'LIVE'] } },
       select: {
         externalId: true,
         homeTeam: true,
@@ -116,33 +116,35 @@ export async function GET(request: NextRequest) {
 
     // Merge DB live games that aren't already in the API results
     const apiIds = new Set(liveMatches.map(m => m.id))
-    for (const game of dbLiveGames) {
-      if (!apiIds.has(game.externalId)) {
-        let market = null
-        if (game.marketId) {
-          market = await prisma.market.findUnique({
-            where: { id: game.marketId },
-            select: { id: true, title: true, yesPrice: true, noPrice: true },
-          })
-        }
-        liveMatches.push({
-          id: game.externalId,
-          homeTeam: game.homeTeam,
-          awayTeam: game.awayTeam,
-          homeTeamCrest: game.homeTeamCrest,
-          awayTeamCrest: game.awayTeamCrest,
-          competition: game.competition,
-          competitionCode: game.competitionCode,
-          status: 'IN_PLAY',
-          minute: null,
-          homeScore: game.homeScore,
-          awayScore: game.awayScore,
-          marketId: market?.id || null,
-          marketTitle: market?.title || null,
-          yesPrice: market?.yesPrice || null,
-          noPrice: market?.noPrice || null,
-        })
-      }
+    const dbGamesToMerge = dbLiveGames.filter(g => !apiIds.has(g.externalId))
+
+    // Batch-fetch all linked markets to avoid N+1 queries
+    const dbMarketIds = dbGamesToMerge.map(g => g.marketId).filter((id): id is string => !!id)
+    const dbMarkets = dbMarketIds.length > 0 ? await prisma.market.findMany({
+      where: { id: { in: dbMarketIds } },
+      select: { id: true, title: true, yesPrice: true, noPrice: true },
+    }) : []
+    const dbMarketMap = new Map(dbMarkets.map(m => [m.id, m]))
+
+    for (const game of dbGamesToMerge) {
+      const market = game.marketId ? dbMarketMap.get(game.marketId) : null
+      liveMatches.push({
+        id: game.externalId,
+        homeTeam: game.homeTeam,
+        awayTeam: game.awayTeam,
+        homeTeamCrest: game.homeTeamCrest,
+        awayTeamCrest: game.awayTeamCrest,
+        competition: game.competition,
+        competitionCode: game.competitionCode,
+        status: 'IN_PLAY',
+        minute: null,
+        homeScore: game.homeScore,
+        awayScore: game.awayScore,
+        marketId: market?.id || null,
+        marketTitle: market?.title || null,
+        yesPrice: market?.yesPrice || null,
+        noPrice: market?.noPrice || null,
+      })
     }
 
     return NextResponse.json({

@@ -37,9 +37,13 @@ export async function GET(
       }
     })
 
+    // nextCursor should be the oldest message ID (last in desc order = messages[length-1])
+    // so the next page fetches messages older than this cursor
+    const nextCursor = messages.length === limit ? messages[messages.length - 1]?.id : null
+
     return NextResponse.json({
       messages: messages.reverse(), // Return in chronological order
-      nextCursor: messages.length === limit ? messages[0]?.id : null,
+      nextCursor,
     })
   } catch (error) {
     console.error('[Chat] Error fetching messages:', error)

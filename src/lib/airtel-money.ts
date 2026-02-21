@@ -401,9 +401,13 @@ const WEBHOOK_SECRET = process.env.AIRTEL_MONEY_WEBHOOK_SECRET || ''
  * @returns true if signature is valid or verification is disabled (no secret configured)
  */
 export function verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
-  // If no webhook secret is configured, skip verification (dev mode)
+  // If no webhook secret is configured, reject in production, allow in dev
   if (!WEBHOOK_SECRET) {
-    console.warn('[Airtel Webhook] No AIRTEL_MONEY_WEBHOOK_SECRET configured — skipping signature verification')
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[Airtel Webhook] AIRTEL_MONEY_WEBHOOK_SECRET is required in production — rejecting callback')
+      return false
+    }
+    console.warn('[Airtel Webhook] No AIRTEL_MONEY_WEBHOOK_SECRET configured — skipping signature verification (dev mode)')
     return true
   }
 

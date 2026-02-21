@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { MarketResolver } from '@/lib/market-resolution'
-
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim())
+import { requireAdmin } from '@/lib/admin-auth'
 
 /**
  * GET  /api/admin/disputes - List all open disputes (admin only)
@@ -13,8 +10,8 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !ADMIN_EMAILS.includes(session.user.email)) {
+    const session = await requireAdmin()
+    if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
@@ -39,12 +36,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !ADMIN_EMAILS.includes(session.user.email)) {
+    const session = await requireAdmin()
+    if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    const admin = await prisma.user.findUnique({ where: { email: session.user.email } })
+    const admin = await prisma.user.findUnique({ where: { email: session.user.email! } })
     if (!admin) {
       return NextResponse.json({ error: 'Admin user not found' }, { status: 404 })
     }

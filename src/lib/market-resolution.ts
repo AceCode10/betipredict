@@ -72,27 +72,52 @@ export class MarketResolver {
    */
   static async finalizeMarket(marketId: string) {
     try {
-      const market = await prisma.market.findUnique({
-        where: { id: marketId },
-        include: { positions: true, disputes: true }
+      // ── Atomic finalization lock ──────────────────────────────
+      // Use updateMany with WHERE status='RESOLVED' to atomically claim
+      // finalization rights. If count === 0, another caller already claimed it
+      // or the market isn't in the right state. This prevents double-payout
+      // when cron and admin fire concurrently.
+      const claimed = await prisma.market.updateMany({
+        where: {
+          id: marketId,
+          status: 'RESOLVED',
+          disputeDeadline: { lte: new Date() },
+          disputes: { none: { status: 'OPEN' } },
+        },
+        data: { status: 'FINALIZING' },
       })
 
-      if (!market) throw new Error('Market not found')
-      if (market.status !== 'RESOLVED') throw new Error('Market is not in RESOLVED state')
-
-      // Check for open disputes
-      const openDisputes = market.disputes?.filter((d: any) => d.status === 'OPEN') || []
-      if (openDisputes.length > 0) {
-        throw new Error(`Market has ${openDisputes.length} open dispute(s). Resolve disputes before finalizing.`)
+      if (claimed.count === 0) {
+        // Either already finalized/finalizing, has open disputes, or window not passed
+        const market = await prisma.market.findUnique({
+          where: { id: marketId },
+          select: { status: true, disputeDeadline: true },
+        })
+        if (!market) throw new Error('Market not found')
+        if (market.status === 'FINALIZED' || market.status === 'FINALIZING') {
+          return { success: true, finalized: 'already', feesCollected: 0 }
+        }
+        if (market.status !== 'RESOLVED') throw new Error(`Market is in ${market.status} state, not RESOLVED`)
+        if (market.disputeDeadline && new Date() < market.disputeDeadline) {
+          throw new Error(`Dispute window is still open until ${market.disputeDeadline.toISOString()}`)
+        }
+        throw new Error('Market has open dispute(s). Resolve disputes before finalizing.')
       }
 
-      // Check dispute window has passed
-      if (market.disputeDeadline && new Date() < market.disputeDeadline) {
-        throw new Error(`Dispute window is still open until ${market.disputeDeadline.toISOString()}`)
-      }
+      // We now hold the lock (status = FINALIZING). Process payouts.
+      const market = await prisma.market.findUnique({
+        where: { id: marketId },
+        include: { positions: true },
+      })
+
+      if (!market) throw new Error('Market not found after lock')
 
       const outcome = market.winningOutcome as 'YES' | 'NO'
-      if (!outcome) throw new Error('No winning outcome set')
+      if (!outcome) {
+        // Rollback lock
+        await prisma.market.update({ where: { id: marketId }, data: { status: 'RESOLVED' } })
+        throw new Error('No winning outcome set')
+      }
 
       // Process winning positions with resolution fee deduction
       const winningPositions = await prisma.position.findMany({
@@ -146,7 +171,7 @@ export class MarketResolver {
         data: { isClosed: true, realizedPnl: 0 }
       })
 
-      // Finalize market
+      // Finalize market (transition from FINALIZING → FINALIZED)
       await prisma.market.update({
         where: { id: marketId },
         data: { status: 'FINALIZED' }
@@ -156,6 +181,11 @@ export class MarketResolver {
       return { success: true, finalized: outcome, feesCollected: totalFeesCollected }
 
     } catch (error) {
+      // If we crash mid-finalization, rollback the lock so it can be retried
+      await prisma.market.updateMany({
+        where: { id: marketId, status: 'FINALIZING' },
+        data: { status: 'RESOLVED' },
+      }).catch(() => {})
       console.error('Error finalizing market:', error)
       throw error
     }

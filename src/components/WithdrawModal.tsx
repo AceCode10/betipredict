@@ -87,10 +87,14 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('success')
           setSuccess(`K${(data.netAmount || feeInfo?.net || 0).toFixed(2)} sent to your Airtel Money!`)
+          // Trigger parent data refresh
+          onWithdraw(parseFloat(amount), phoneNumber || undefined).catch(() => {})
         } else if (data.status === 'FAILED' || data.status === 'CANCELLED') {
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('failed')
           setError(data.statusMessage || 'Withdrawal failed. Your balance has been refunded.')
+          // Trigger parent data refresh (balance was refunded)
+          onWithdraw(0).catch(() => {})
         } else {
           setStatusMessage(data.statusMessage || 'Processing withdrawal...')
         }

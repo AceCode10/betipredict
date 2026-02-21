@@ -13,6 +13,7 @@ import {
 import { checkRateLimit } from '@/lib/rate-limit'
 import {
   getIdempotencyKeyFromRequest,
+  scopeIdempotencyKey,
   checkIdempotencyKey,
   lockIdempotencyKey,
   completeIdempotencyKey,
@@ -20,6 +21,7 @@ import {
 } from '@/lib/idempotency'
 
 export async function POST(request: NextRequest) {
+  let idempotencyKey: string | null = null
   try {
     const session = await getServerSession(authOptions)
     
@@ -27,8 +29,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Idempotency check — prevent duplicate deposits
-    const idempotencyKey = getIdempotencyKeyFromRequest(request.headers)
+    // Idempotency check — prevent duplicate deposits (scoped by userId + route)
+    const rawIdempotencyKey = getIdempotencyKeyFromRequest(request.headers)
+    idempotencyKey = rawIdempotencyKey ? scopeIdempotencyKey(rawIdempotencyKey, session.user.id, 'deposit') : null
     if (idempotencyKey) {
       const cached = await checkIdempotencyKey(idempotencyKey)
       if (cached === 'processing') {
@@ -57,14 +60,17 @@ export async function POST(request: NextRequest) {
     const phoneNumber = typeof body.phoneNumber === 'string' ? body.phoneNumber.trim() : ''
     const method = typeof body.method === 'string' ? body.method.slice(0, 50) : 'airtel_money'
 
-    // Validate amount
+    // Validate amount — release idempotency key on validation failures
     if (!Number.isFinite(amount) || amount <= 0) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json({ error: 'Invalid deposit amount' }, { status: 400 })
     }
     if (amount < FEES.DEPOSIT_MIN_AMOUNT) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json({ error: `Minimum deposit is K${FEES.DEPOSIT_MIN_AMOUNT}` }, { status: 400 })
     }
     if (amount > FEES.DEPOSIT_MAX_AMOUNT) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json({ error: `Maximum deposit is K${FEES.DEPOSIT_MAX_AMOUNT.toLocaleString()}` }, { status: 400 })
     }
 
@@ -73,13 +79,15 @@ export async function POST(request: NextRequest) {
       where: { id: session.user.id }
     })
     if (!user) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // ─── Airtel Money Flow ───────────────────────────────────
+    // ─── Airtel Money Flow ───────────────────────────────────────
     if (method === 'airtel_money' && isAirtelMoneyConfigured()) {
       // Validate phone number
       if (!phoneNumber) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
         return NextResponse.json({ error: 'Phone number is required for Airtel Money deposits' }, { status: 400 })
       }
 
@@ -87,6 +95,7 @@ export async function POST(request: NextRequest) {
       try {
         normalizedPhone = normalizeZambianPhone(phoneNumber)
       } catch (e: any) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
         return NextResponse.json({ error: e.message || 'Invalid phone number' }, { status: 400 })
       }
 
@@ -190,7 +199,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(directSuccessBody)
   } catch (error) {
     console.error('Error processing deposit:', error)
-    const idempotencyKey = getIdempotencyKeyFromRequest(request.headers)
     if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
     return NextResponse.json(
       { error: 'Failed to process deposit' },

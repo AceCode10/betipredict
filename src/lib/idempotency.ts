@@ -4,15 +4,26 @@
  * Prevents duplicate payment processing by tracking request idempotency keys.
  * Uses PostgreSQL (via Prisma) for persistence — survives server restarts.
  * 
+ * Keys are scoped by userId + route to prevent cross-user/cross-route collisions.
+ * 
  * Usage:
  *   Client sends header: X-Idempotency-Key: <unique-uuid>
  *   Server checks if key was already processed and returns cached response.
  */
 
 import { prisma } from './prisma'
+import { NextResponse } from 'next/server'
 
 // TTL: 24 hours
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Build a scoped idempotency key: userId:route:clientKey
+ * Prevents the same client key from colliding across users or routes.
+ */
+export function scopeIdempotencyKey(clientKey: string, userId: string, route: string): string {
+  return `${userId}:${route}:${clientKey}`
+}
 
 /**
  * Check if an idempotency key has already been used.
@@ -91,4 +102,57 @@ export async function releaseIdempotencyKey(key: string): Promise<void> {
  */
 export function getIdempotencyKeyFromRequest(headers: Headers): string | null {
   return headers.get('x-idempotency-key') || headers.get('idempotency-key') || null
+}
+
+/**
+ * Wraps a handler with idempotency logic.
+ * Guarantees release/complete on ALL exit paths (success, validation error, exception).
+ * 
+ * Usage:
+ *   return withIdempotency(request, userId, 'withdraw', async (complete) => {
+ *     // ... do work ...
+ *     return complete(200, body) // caches and returns NextResponse
+ *   })
+ */
+export async function withIdempotency(
+  headers: Headers,
+  userId: string,
+  route: string,
+  handler: (complete: (status: number, body: any) => NextResponse) => Promise<NextResponse>
+): Promise<NextResponse | null> {
+  const clientKey = getIdempotencyKeyFromRequest(headers)
+  if (!clientKey) {
+    // No idempotency key — run handler without idempotency
+    const complete = (status: number, body: any) => NextResponse.json(body, { status })
+    return handler(complete)
+  }
+
+  const scopedKey = scopeIdempotencyKey(clientKey, userId, route)
+
+  // Check for existing entry
+  const cached = await checkIdempotencyKey(scopedKey)
+  if (cached === 'processing') {
+    return NextResponse.json({ error: 'Request is already being processed' }, { status: 409 })
+  }
+  if (cached) {
+    return NextResponse.json(cached.body, { status: cached.status })
+  }
+
+  // Lock the key
+  if (!(await lockIdempotencyKey(scopedKey))) {
+    return NextResponse.json({ error: 'Duplicate request' }, { status: 409 })
+  }
+
+  try {
+    const complete = (status: number, body: any) => {
+      // Fire-and-forget: cache the response
+      completeIdempotencyKey(scopedKey, status, body).catch(() => {})
+      return NextResponse.json(body, { status })
+    }
+    return await handler(complete)
+  } catch (error) {
+    // Release the key so the client can retry
+    await releaseIdempotencyKey(scopedKey)
+    throw error // Re-throw so the caller's catch block handles it
+  }
 }

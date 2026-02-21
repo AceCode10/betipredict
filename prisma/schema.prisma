@@ -145,6 +145,7 @@ model MobilePayment {
   statusMessage     String?
   callbackReceived  Boolean  @default(false)
   callbackData      String?  // Raw callback JSON for audit
+  settledAt         DateTime? // When financial settlement (credit/refund) was applied — prevents double-settlement
   expiresAt         DateTime // Payment expires after 5 minutes
   completedAt       DateTime?
   createdAt         DateTime @default(now())

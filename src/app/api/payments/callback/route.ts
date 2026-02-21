@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { mapAirtelStatus, verifyWebhookSignature } from '@/lib/airtel-money'
+import {
+  settleDepositCompleted,
+  settleDepositFailed,
+  settleWithdrawalCompleted,
+  settleWithdrawalFailed,
+} from '@/lib/payment-settlement'
 
 /**
  * Airtel Money Callback Webhook
  * 
  * Airtel sends POST requests here when a collection/disbursement completes.
- * This endpoint:
- * 1. Verifies webhook signature (HMAC-SHA256)
- * 2. Validates the callback
- * 3. Updates the MobilePayment record
- * 4. Credits user balance for successful deposits
- * 5. Creates transaction records
+ * This is the AUTHORITATIVE settlement path — all financial mutations go
+ * through the shared settlement module which uses atomic `settledAt` claims
+ * to prevent double-settlement with the polling endpoint.
+ *
+ * Late callbacks (after local timeout/expiry) are still processed: we look
+ * for payments that haven't been settled yet, regardless of local status.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -42,26 +48,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'ok' }) // Return 200 to prevent retries
     }
 
-    // Find the mobile payment by external reference or Airtel ID
+    // Find the mobile payment — match ANY unsettled payment (not just PENDING/PROCESSING)
+    // This handles late callbacks that arrive after local timeout/expiry
     let mobilePayment = await prisma.mobilePayment.findFirst({
       where: {
         OR: [
           { externalRef: externalRef },
-          { externalId: airtelId },
+          ...(airtelId ? [{ externalId: airtelId }] : []),
         ],
-        status: { in: ['PENDING', 'PROCESSING'] }, // Only process non-terminal states
+        settledAt: null, // Only process if not yet financially settled
       }
     })
 
     if (!mobilePayment) {
-      console.warn('[Airtel Callback] No matching pending payment found for ref:', externalRef)
+      console.warn('[Airtel Callback] No matching unsettled payment found for ref:', externalRef)
       return NextResponse.json({ status: 'ok' })
     }
 
     const newStatus = mapAirtelStatus(airtelStatus)
     const now = new Date()
 
-    // Update the mobile payment record
+    // Update the mobile payment record status
     await prisma.mobilePayment.update({
       where: { id: mobilePayment.id },
       data: {
@@ -74,135 +81,16 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // If deposit completed successfully, credit user balance
+    // Delegate all financial mutations to the settlement module
+    // The settlement module uses atomic settledAt claims to prevent double-settlement
     if (newStatus === 'COMPLETED' && mobilePayment.type === 'DEPOSIT') {
-      await prisma.$transaction([
-        // Credit user balance
-        prisma.user.update({
-          where: { id: mobilePayment.userId },
-          data: { balance: { increment: mobilePayment.netAmount } }
-        }),
-        // Create transaction record
-        prisma.transaction.create({
-          data: {
-            type: 'DEPOSIT',
-            amount: mobilePayment.netAmount,
-            feeAmount: mobilePayment.feeAmount,
-            description: `Deposit K${mobilePayment.netAmount.toFixed(2)} via Airtel Money (${mobilePayment.phoneNumber})`,
-            status: 'COMPLETED',
-            userId: mobilePayment.userId,
-            metadata: JSON.stringify({
-              method: 'airtel_money',
-              phoneNumber: mobilePayment.phoneNumber,
-              externalRef: mobilePayment.externalRef,
-              airtelId,
-              paymentId: mobilePayment.id,
-            })
-          }
-        }),
-        // Create notification
-        prisma.notification.create({
-          data: {
-            type: 'DEPOSIT',
-            title: 'Deposit Successful',
-            message: `K${mobilePayment.netAmount.toFixed(2)} has been added to your account via Airtel Money.`,
-            userId: mobilePayment.userId,
-            metadata: JSON.stringify({ paymentId: mobilePayment.id }),
-          }
-        })
-      ])
-
-      console.log(`[Airtel Callback] Deposit completed: K${mobilePayment.netAmount} for user ${mobilePayment.userId}`)
-    }
-
-    // If withdrawal completed successfully, create notification
-    if (newStatus === 'COMPLETED' && mobilePayment.type === 'WITHDRAWAL') {
-      await prisma.$transaction([
-        // Update related transaction to COMPLETED
-        prisma.transaction.updateMany({
-          where: {
-            userId: mobilePayment.userId,
-            status: 'PROCESSING',
-            metadata: { contains: mobilePayment.externalRef },
-          },
-          data: { status: 'COMPLETED' }
-        }),
-        // Create notification
-        prisma.notification.create({
-          data: {
-            type: 'WITHDRAW',
-            title: 'Withdrawal Successful',
-            message: `K${mobilePayment.netAmount.toFixed(2)} has been sent to your Airtel Money (${mobilePayment.phoneNumber}).`,
-            userId: mobilePayment.userId,
-            metadata: JSON.stringify({ paymentId: mobilePayment.id }),
-          }
-        })
-      ])
-
-      console.log(`[Airtel Callback] Withdrawal completed: K${mobilePayment.netAmount} for user ${mobilePayment.userId}`)
-    }
-
-    // If deposit failed, create failure notification
-    if (newStatus === 'FAILED' && mobilePayment.type === 'DEPOSIT') {
-      await prisma.notification.create({
-        data: {
-          type: 'DEPOSIT',
-          title: 'Deposit Failed',
-          message: `Your Airtel Money deposit of K${mobilePayment.amount.toFixed(2)} was unsuccessful. ${message || 'Please try again.'}`,
-          userId: mobilePayment.userId,
-          metadata: JSON.stringify({ paymentId: mobilePayment.id }),
-        }
-      })
-    }
-
-    // If withdrawal failed, refund user, reverse fee revenue, and notify
-    if (newStatus === 'FAILED' && mobilePayment.type === 'WITHDRAWAL') {
-      const refundOps: any[] = [
-        // Refund user balance (full amount including fee)
-        prisma.user.update({
-          where: { id: mobilePayment.userId },
-          data: { balance: { increment: mobilePayment.amount } }
-        }),
-        // Update transaction to FAILED
-        prisma.transaction.updateMany({
-          where: {
-            userId: mobilePayment.userId,
-            status: 'PROCESSING',
-            metadata: { contains: mobilePayment.externalRef },
-          },
-          data: { status: 'FAILED' }
-        }),
-        // Create notification
-        prisma.notification.create({
-          data: {
-            type: 'WITHDRAW',
-            title: 'Withdrawal Failed',
-            message: `Your withdrawal of K${mobilePayment.netAmount.toFixed(2)} to Airtel Money failed. K${mobilePayment.amount.toFixed(2)} has been refunded to your account.`,
-            userId: mobilePayment.userId,
-            metadata: JSON.stringify({ paymentId: mobilePayment.id }),
-          }
-        }),
-      ]
-
-      // Reverse the platform revenue entry for the withdrawal fee
-      if (mobilePayment.feeAmount > 0) {
-        refundOps.push(
-          prisma.platformRevenue.create({
-            data: {
-              feeType: 'WITHDRAWAL_FEE_REVERSAL',
-              amount: -mobilePayment.feeAmount,
-              description: `Reversed withdrawal fee — Airtel callback reported failure for ${mobilePayment.phoneNumber}`,
-              sourceType: 'WITHDRAWAL',
-              sourceId: mobilePayment.id,
-              userId: mobilePayment.userId,
-            }
-          })
-        )
-      }
-
-      await prisma.$transaction(refundOps)
-
-      console.log(`[Airtel Callback] Withdrawal failed, refunded K${mobilePayment.amount} (fee K${mobilePayment.feeAmount} reversed) for user ${mobilePayment.userId}`)
+      await settleDepositCompleted(mobilePayment.id)
+    } else if (newStatus === 'COMPLETED' && mobilePayment.type === 'WITHDRAWAL') {
+      await settleWithdrawalCompleted(mobilePayment.id)
+    } else if (newStatus === 'FAILED' && mobilePayment.type === 'DEPOSIT') {
+      await settleDepositFailed(mobilePayment.id, message)
+    } else if (newStatus === 'FAILED' && mobilePayment.type === 'WITHDRAWAL') {
+      await settleWithdrawalFailed(mobilePayment.id, message)
     }
 
     return NextResponse.json({ status: 'ok' })
