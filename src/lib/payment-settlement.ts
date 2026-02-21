@@ -16,6 +16,24 @@ interface SettlementResult {
   error?: string
 }
 
+/** Map provider code to user-friendly name */
+function providerLabel(provider: string): string {
+  switch (provider) {
+    case 'MTN_MOMO': return 'MTN MoMo'
+    case 'AIRTEL_MONEY': return 'Airtel Money'
+    default: return provider
+  }
+}
+
+/** Map provider code to metadata method key */
+function providerMethod(provider: string): string {
+  switch (provider) {
+    case 'MTN_MOMO': return 'mtn_momo'
+    case 'AIRTEL_MONEY': return 'airtel_money'
+    default: return provider.toLowerCase()
+  }
+}
+
 /**
  * Atomically claim settlement rights for a payment.
  * Returns the payment if we won the claim, null if already settled.
@@ -57,11 +75,12 @@ export async function settleDepositCompleted(paymentId: string): Promise<Settlem
           type: 'DEPOSIT',
           amount: payment.netAmount,
           feeAmount: payment.feeAmount,
-          description: `Deposit K${payment.netAmount.toFixed(2)} via Airtel Money (${payment.phoneNumber})`,
+          description: `Deposit K${payment.netAmount.toFixed(2)} via ${providerLabel(payment.provider)} (${payment.phoneNumber})`,
           status: 'COMPLETED',
           userId: payment.userId,
           metadata: JSON.stringify({
-            method: 'airtel_money',
+            method: providerMethod(payment.provider),
+            provider: payment.provider,
             phoneNumber: payment.phoneNumber,
             externalRef: payment.externalRef,
             paymentId: payment.id,
@@ -72,7 +91,7 @@ export async function settleDepositCompleted(paymentId: string): Promise<Settlem
         data: {
           type: 'DEPOSIT',
           title: 'Deposit Successful',
-          message: `K${payment.netAmount.toFixed(2)} has been added to your account via Airtel Money.`,
+          message: `K${payment.netAmount.toFixed(2)} has been added to your account via ${providerLabel(payment.provider)}.`,
           userId: payment.userId,
           metadata: JSON.stringify({ paymentId: payment.id }),
         },
@@ -109,7 +128,7 @@ export async function settleDepositFailed(paymentId: string, message?: string): 
       data: {
         type: 'DEPOSIT',
         title: 'Deposit Failed',
-        message: `Your Airtel Money deposit of K${payment.amount.toFixed(2)} was unsuccessful. ${message || 'Please try again.'}`,
+        message: `Your ${providerLabel(payment.provider)} deposit of K${payment.amount.toFixed(2)} was unsuccessful. ${message || 'Please try again.'}`,
         userId: payment.userId,
         metadata: JSON.stringify({ paymentId: payment.id }),
       },
@@ -154,7 +173,7 @@ export async function settleWithdrawalCompleted(paymentId: string): Promise<Sett
         data: {
           type: 'WITHDRAW',
           title: 'Withdrawal Successful',
-          message: `K${payment.netAmount.toFixed(2)} has been sent to your Airtel Money (${payment.phoneNumber}).`,
+          message: `K${payment.netAmount.toFixed(2)} has been sent to your ${providerLabel(payment.provider)} (${payment.phoneNumber}).`,
           userId: payment.userId,
           metadata: JSON.stringify({ paymentId: payment.id }),
         },
@@ -206,7 +225,7 @@ export async function settleWithdrawalFailed(paymentId: string, message?: string
         data: {
           type: 'WITHDRAW',
           title: 'Withdrawal Failed',
-          message: `Your withdrawal of K${payment.netAmount.toFixed(2)} to Airtel Money failed. K${payment.amount.toFixed(2)} has been refunded to your account.`,
+          message: `Your withdrawal of K${payment.netAmount.toFixed(2)} to ${providerLabel(payment.provider)} failed. K${payment.amount.toFixed(2)} has been refunded to your account.`,
           userId: payment.userId,
           metadata: JSON.stringify({ paymentId: payment.id }),
         },

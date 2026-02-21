@@ -165,20 +165,92 @@ export default function PolymarketStyleHomePage() {
     return () => clearInterval(interval)
   }, [loadMarkets])
 
-  // Normalize market data from API or fallback to ensure consistent shape
+  /**
+   * Detect whether a market question is a Yes/No type or a match-winner type.
+   * Yes/No patterns: "Will X?", "Is X?", "Can X?", "Does X?", "Are X?",
+   *   "over/under", "more than", "less than", "at least", etc.
+   * Match-winner: "Team A vs Team B" title with "Who will win" or team-based question.
+   */
+  const detectMarketType = (m: any): 'yes-no' | 'match-winner' => {
+    const q = (m.question || '').toLowerCase()
+    const title = (m.title || '').toLowerCase()
+
+    // Explicit yes/no patterns in the question
+    const yesNoPatterns = [
+      /^will\s/,
+      /^is\s/,
+      /^can\s/,
+      /^does\s/,
+      /^do\s/,
+      /^are\s/,
+      /^has\s/,
+      /^have\s/,
+      /^should\s/,
+      /^would\s/,
+      /over\s*\/\s*under/,
+      /over\s+\d/,
+      /under\s+\d/,
+      /more than/,
+      /less than/,
+      /at least/,
+      /\bbtts\b/,
+      /both teams/,
+      /clean sheet/,
+    ]
+
+    // If question matches yes/no patterns AND does NOT look like "Who will win: X vs Y?"
+    const isWhoWillWin = /who will win/i.test(q) || /who wins/i.test(q)
+    if (isWhoWillWin) return 'match-winner'
+
+    // Check if the title has "vs" AND the question is about the match result (not a yes/no prop)
+    const titleHasVs = /\bvs\.?\s/i.test(title)
+    const questionIsAboutWinning = /will.*win/i.test(q) && titleHasVs
+
+    // If the question is "Will X win?" and title has "vs", it could be either.
+    // But if it's specifically "Will [TeamA] win?" where TeamA is in the title, treat as yes/no
+    // because the user is betting Yes/No on that team winning.
+    if (yesNoPatterns.some(p => p.test(q))) return 'yes-no'
+    if (questionIsAboutWinning) return 'yes-no'
+
+    // If title has "vs" pattern and question doesn't match yes/no, it's match-winner
+    if (titleHasVs) return 'match-winner'
+
+    // Default: yes/no (safest for generic questions)
+    return 'yes-no'
+  }
+
+  // Normalize market data from API to ensure consistent shape
   const normalizeMarket = (m: any) => {
-    // Try title first, then question for "Team A vs Team B" pattern
+    const marketType = detectMarketType(m)
     const titleVs = (m.title || '').match(/^(.+?)\s+vs\.?\s+(.+)$/i)
     const questionVs = (m.question || '').match(/^(.+?)\s+vs\.?\s+(.+)$/i)
     const vsMatch = titleVs || questionVs
-    const homeTeam = m.homeTeam || (vsMatch ? vsMatch[1].trim() : m.title || 'Home')
-    const awayTeam = m.awayTeam || (vsMatch ? vsMatch[2].trim() : '')
+
+    let homeTeam = m.homeTeam || ''
+    let awayTeam = m.awayTeam || ''
+    let optionA = 'Yes'
+    let optionB = 'No'
+
+    if (marketType === 'match-winner') {
+      homeTeam = homeTeam || (vsMatch ? vsMatch[1].trim() : m.title || 'Home')
+      awayTeam = awayTeam || (vsMatch ? vsMatch[2].trim() : 'Away')
+      optionA = homeTeam
+      optionB = awayTeam
+    } else {
+      // Yes/No market — options are always Yes and No
+      optionA = 'Yes'
+      optionB = 'No'
+      // Still extract team names for context display if available
+      if (!homeTeam && vsMatch) homeTeam = vsMatch[1].trim()
+      if (!awayTeam && vsMatch) awayTeam = vsMatch[2].trim()
+    }
+
     const league = m.league || m.subcategory || m.category || ''
     const matchDate = m.matchDate || (m.resolveTime ? new Date(m.resolveTime).toLocaleDateString() : '')
     const trend = m.trend || (m.yesPrice > 0.5 ? 'up' : 'down')
     const change = m.change || ''
     const volume = m.volume || 0
-    return { ...m, homeTeam, awayTeam, league, matchDate, trend, change, volume }
+    return { ...m, marketType, homeTeam, awayTeam, optionA, optionB, league, matchDate, trend, change, volume }
   }
 
   const normalizedMarkets = markets.map(normalizeMarket)
@@ -470,7 +542,7 @@ export default function PolymarketStyleHomePage() {
             const cardBorder = isDarkMode ? 'border-gray-700/50' : 'border-gray-200'
             const cardHover = isDarkMode ? 'hover:border-gray-600 hover:shadow-lg hover:shadow-black/20' : 'hover:border-gray-300 hover:shadow-lg hover:shadow-gray-200/80'
             const subtleBg = isDarkMode ? 'bg-[#252840]' : 'bg-gray-50'
-            const barTrack = isDarkMode ? 'bg-gray-700/50' : 'bg-gray-200'
+            const isYesNo = market.marketType === 'yes-no'
             return (
             <div
               key={market.id}
@@ -488,45 +560,71 @@ export default function PolymarketStyleHomePage() {
                 <div className={`w-9 h-9 rounded-full ${subtleBg} flex items-center justify-center flex-shrink-0 text-base ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>
                   ⚽
                 </div>
-                <h3 className={`text-[15px] font-semibold ${textColor} leading-snug line-clamp-2 group-hover:text-green-500 transition-colors flex-1`}>
-                  {market.question || market.title}
-                </h3>
-              </div>
-
-              {/* Team rows with percentages - Polymarket style */}
-              <div className="space-y-1.5 mb-4">
-                {/* Home team row */}
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.homeTeam}</span>
-                  <span className={`text-sm font-bold ${textColor}`}>{yesPercent}%</span>
-                </div>
-                {/* Away team row */}
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.awayTeam}</span>
-                  <span className={`text-sm font-bold ${textColor}`}>{noPercent}%</span>
+                <div className="flex-1">
+                  <h3 className={`text-[15px] font-semibold ${textColor} leading-snug line-clamp-2 group-hover:text-green-500 transition-colors`}>
+                    {market.question || market.title}
+                  </h3>
+                  {isYesNo && (
+                    <span className={`inline-block mt-1 text-lg font-bold ${textColor}`}>{yesPercent}%</span>
+                  )}
                 </div>
               </div>
 
-              {/* Team action buttons with odds */}
+              {/* Option rows — different layout for yes/no vs match-winner */}
+              {!isYesNo && (
+                <div className="space-y-1.5 mb-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.optionA}</span>
+                    <span className={`text-sm font-bold ${textColor}`}>{yesPercent}%</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.optionB}</span>
+                    <span className={`text-sm font-bold ${textColor}`}>{noPercent}%</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Action buttons */}
               <div className="flex gap-1.5 mb-3">
-                <button
-                  onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
-                  className={`flex-1 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} text-green-500 border ${cardBorder} hover:border-green-500/50 hover:bg-green-500/10 transition-all duration-200 truncate`}
-                >
-                  {market.homeTeam}
-                </button>
-                <button
-                  onClick={(e) => e.stopPropagation()}
-                  className={`px-3 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-all duration-200`}
-                >
-                  DRAW
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
-                  className={`flex-1 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} text-red-500 border ${cardBorder} hover:border-red-500/50 hover:bg-red-500/10 transition-all duration-200 truncate`}
-                >
-                  {market.awayTeam}
-                </button>
+                {isYesNo ? (
+                  /* Yes/No buttons — Polymarket style */
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
+                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200`}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
+                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50 transition-all duration-200`}
+                    >
+                      No
+                    </button>
+                  </>
+                ) : (
+                  /* Match-winner buttons: TeamA | DRAW | TeamB */
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'YES') }}
+                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} text-green-500 border ${cardBorder} hover:border-green-500/50 hover:bg-green-500/10 transition-all duration-200 truncate`}
+                    >
+                      {market.optionA}
+                    </button>
+                    <button
+                      onClick={(e) => e.stopPropagation()}
+                      className={`px-3 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-all duration-200`}
+                    >
+                      DRAW
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); addToBetSlip(market, 'NO') }}
+                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} text-red-500 border ${cardBorder} hover:border-red-500/50 hover:bg-red-500/10 transition-all duration-200 truncate`}
+                    >
+                      {market.optionB}
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Footer: volume + liquidity + league + date */}
@@ -595,11 +693,12 @@ export default function PolymarketStyleHomePage() {
 
       {/* Market Detail Overlay — shown when a card is clicked */}
       {showChart && (() => {
-        const market = markets.find(m => m.id === showChart.marketId)
+        const market = normalizedMarkets.find(m => m.id === showChart.marketId)
         if (!market) return null
         const modalBg = isDarkMode ? 'bg-[#1e2130]' : 'bg-white'
         const modalBorder = isDarkMode ? 'border-gray-700' : 'border-gray-200'
         const inputBg = isDarkMode ? 'bg-[#252840]' : 'bg-gray-100'
+        const isYesNo = market.marketType === 'yes-no'
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-start justify-center sm:pt-16 px-0 sm:px-4">
             <div className="absolute inset-0 bg-black/60" onClick={() => setShowChart(null)} />
@@ -625,11 +724,11 @@ export default function PolymarketStyleHomePage() {
                   <div className="flex items-center gap-4 mb-4">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-green-500" />
-                      <span className={`text-sm font-semibold ${textColor}`}>{market.homeTeam} {Math.round(market.yesPrice * 100)}%</span>
+                      <span className={`text-sm font-semibold ${textColor}`}>{market.optionA} {Math.round(market.yesPrice * 100)}%</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-red-400" />
-                      <span className={`text-sm font-semibold ${textColor}`}>{market.awayTeam} {Math.round(market.noPrice * 100)}%</span>
+                      <span className={`text-sm font-semibold ${textColor}`}>{market.optionB} {Math.round(market.noPrice * 100)}%</span>
                     </div>
                     <span className={`text-xs ${market.trend === 'up' ? 'text-green-500' : 'text-red-500'} ml-auto`}>
                       {market.trend === 'up' ? '▲' : '▼'} {market.change}
@@ -671,7 +770,7 @@ export default function PolymarketStyleHomePage() {
                           : `${inputBg} ${textMuted} hover:${textColor}`
                       }`}
                     >
-                      Yes {formatPriceAsNgwee(market.yesPrice)}
+                      {market.optionA} {formatPriceAsNgwee(market.yesPrice)}
                     </button>
                     <button
                       onClick={() => setShowChart({ ...showChart, outcome: 'NO' })}
@@ -681,7 +780,7 @@ export default function PolymarketStyleHomePage() {
                           : `${inputBg} ${textMuted} hover:${textColor}`
                       }`}
                     >
-                      No {formatPriceAsNgwee(market.noPrice)}
+                      {market.optionB} {formatPriceAsNgwee(market.noPrice)}
                     </button>
                   </div>
 
@@ -763,6 +862,43 @@ export default function PolymarketStyleHomePage() {
                   <p className={`text-[10px] ${textMuted} text-center mt-2`}>
                     By trading, you agree to the Terms of Use.
                   </p>
+                </div>
+              </div>
+
+              {/* Rules Section — Polymarket style */}
+              <div className={`border-t ${modalBorder} p-5`}>
+                <div className="flex items-center gap-4 mb-4">
+                  <button className={`text-sm font-semibold ${textColor} border-b-2 border-green-500 pb-1`}>Rules</button>
+                  <button className={`text-sm font-medium ${textMuted} pb-1`}>Market Context</button>
+                </div>
+                <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} space-y-3`}>
+                  {market.description ? (
+                    <p>{market.description}</p>
+                  ) : (
+                    <>
+                      <p>
+                        This market will resolve to <span className="text-green-500 font-medium">&quot;Yes&quot;</span> if the condition described in the question is met by the resolution date
+                        ({market.resolveTime ? new Date(market.resolveTime).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'TBD'}).
+                      </p>
+                      <p>
+                        Otherwise, this market will resolve to <span className="text-red-400 font-medium">&quot;No&quot;</span>.
+                      </p>
+                    </>
+                  )}
+                  <div className={`text-xs ${textMuted} mt-3 pt-3 border-t ${modalBorder}`}>
+                    <div className="flex items-center justify-between">
+                      <span>Resolution date</span>
+                      <span className={textColor}>{market.resolveTime ? new Date(market.resolveTime).toLocaleDateString() : 'TBD'}</span>
+                    </div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span>Category</span>
+                      <span className={textColor}>{market.league || market.category || 'General'}</span>
+                    </div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span>Created by</span>
+                      <span className={textColor}>{market.creator?.username || 'System'}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 

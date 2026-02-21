@@ -198,7 +198,6 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className={`bg-transparent border-none outline-none text-sm ${textColor} placeholder:${textMuted} ml-2 w-full`}
                   />
-                  <kbd className={`hidden lg:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono ${isDarkMode ? 'bg-[#252840] text-gray-500 border-gray-600' : 'bg-gray-200 text-gray-400 border-gray-300'} border rounded ml-2`}>Ctrl+K</kbd>
                 </div>
               </form>
             </div>

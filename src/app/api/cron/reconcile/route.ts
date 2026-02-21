@@ -1,6 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { checkCollectionStatus, checkDisbursementStatus, mapAirtelStatus, isAirtelMoneyConfigured } from '@/lib/airtel-money'
+import {
+  checkCollectionStatus as checkAirtelCollectionStatus,
+  checkDisbursementStatus as checkAirtelDisbursementStatus,
+  mapAirtelStatus,
+  isAirtelMoneyConfigured,
+} from '@/lib/airtel-money'
+import {
+  checkCollectionStatus as checkMtnCollectionStatus,
+  checkDisbursementStatus as checkMtnDisbursementStatus,
+  mapMtnStatus,
+  isMtnMoneyConfigured,
+} from '@/lib/mtn-money'
+import {
+  settleDepositCompleted,
+  settleDepositFailed,
+  settleWithdrawalCompleted,
+  settleWithdrawalFailed,
+} from '@/lib/payment-settlement'
 import { writeAuditLog } from '@/lib/audit'
 import { MarketResolver } from '@/lib/market-resolution'
 import crypto from 'crypto'
@@ -10,9 +27,10 @@ import crypto from 'crypto'
  * 
  * Runs periodically to:
  * 1. Expire stuck PENDING/PROCESSING payments past their expiry time
- * 2. Poll Airtel Money for status of in-flight payments
- * 3. Refund users for failed/expired withdrawals
- * 4. Auto-finalize markets past their dispute window
+ *    — delegates to settlement module for refunds (no direct balance mutations)
+ * 2. Poll Airtel Money & MTN MoMo for status of in-flight payments
+ *    — delegates to settlement module for financial mutations
+ * 3. Auto-finalize markets past their dispute window
  * 
  * Security: requires CRON_SECRET header
  */
@@ -39,17 +57,19 @@ export async function POST(request: NextRequest) {
   const summary = {
     expiredPayments: 0,
     polledPayments: 0,
-    refundedWithdrawals: 0,
+    settledPayments: 0,
     finalizedMarkets: 0,
     errors: [] as string[],
   }
 
   try {
     // ─── 1. Expire stuck payments ────────────────────────────
+    // Mark expired, then delegate financial settlement to the shared module
     const expiredPayments = await prisma.mobilePayment.findMany({
       where: {
         status: { in: ['PENDING', 'PROCESSING'] },
         expiresAt: { lt: new Date() },
+        settledAt: null,
       }
     })
 
@@ -63,43 +83,12 @@ export async function POST(request: NextRequest) {
           }
         })
 
-        // Refund user for expired withdrawals
+        // Delegate to settlement module — it handles refunds, fee reversals,
+        // notifications, and uses atomic settledAt to prevent double-settlement
         if (payment.type === 'WITHDRAWAL') {
-          await prisma.$transaction([
-            prisma.user.update({
-              where: { id: payment.userId },
-              data: { balance: { increment: payment.amount } }
-            }),
-            prisma.transaction.updateMany({
-              where: {
-                userId: payment.userId,
-                status: 'PROCESSING',
-                metadata: { contains: payment.externalRef },
-              },
-              data: { status: 'FAILED' }
-            }),
-            prisma.notification.create({
-              data: {
-                type: 'WITHDRAW',
-                title: 'Withdrawal Expired',
-                message: `Your withdrawal of K${payment.netAmount.toFixed(2)} expired. K${payment.amount.toFixed(2)} has been refunded.`,
-                userId: payment.userId,
-              }
-            }),
-          ])
-          summary.refundedWithdrawals++
-        }
-
-        // Notify user for expired deposits
-        if (payment.type === 'DEPOSIT') {
-          await prisma.notification.create({
-            data: {
-              type: 'DEPOSIT',
-              title: 'Deposit Expired',
-              message: `Your Airtel Money deposit of K${payment.amount.toFixed(2)} expired. Please try again.`,
-              userId: payment.userId,
-            }
-          })
+          await settleWithdrawalFailed(payment.id, 'Payment expired')
+        } else if (payment.type === 'DEPOSIT') {
+          await settleDepositFailed(payment.id, 'Payment expired')
         }
 
         summary.expiredPayments++
@@ -108,82 +97,73 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ─── 2. Poll Airtel for in-flight payments ───────────────
-    if (isAirtelMoneyConfigured()) {
-      const inFlightPayments = await prisma.mobilePayment.findMany({
-        where: {
-          status: 'PROCESSING',
-          expiresAt: { gt: new Date() },
-          callbackReceived: false,
-        },
-        take: 20, // Limit to avoid API rate limits
-      })
+    // ─── 2. Poll providers for in-flight payments ────────────
+    const inFlightPayments = await prisma.mobilePayment.findMany({
+      where: {
+        status: 'PROCESSING',
+        expiresAt: { gt: new Date() },
+        callbackReceived: false,
+        settledAt: null,
+      },
+      take: 20,
+    })
 
-      for (const payment of inFlightPayments) {
-        try {
-          const statusResponse = payment.type === 'DEPOSIT'
-            ? await checkCollectionStatus(payment.externalRef)
-            : await checkDisbursementStatus(payment.externalRef)
+    for (const payment of inFlightPayments) {
+      try {
+        let mappedStatus: string | null = null
+        let statusMessage = ''
+        let externalTxnId: string | null = null
 
-          const newStatus = mapAirtelStatus(statusResponse.data?.transaction?.status || '')
+        if (payment.provider === 'MTN_MOMO' && isMtnMoneyConfigured()) {
+          // ─── MTN MoMo status polling ───
+          const result = payment.type === 'DEPOSIT'
+            ? await checkMtnCollectionStatus(payment.externalRef)
+            : await checkMtnDisbursementStatus(payment.externalRef)
 
-          if (newStatus !== 'PROCESSING' && newStatus !== 'PENDING') {
-            // Status has changed — update
-            await prisma.mobilePayment.update({
-              where: { id: payment.id },
-              data: {
-                status: newStatus,
-                statusMessage: statusResponse.data?.transaction?.message || '',
-                externalId: statusResponse.data?.transaction?.airtel_money_id || payment.externalId,
-                completedAt: newStatus === 'COMPLETED' ? new Date() : null,
-              }
-            })
+          mappedStatus = mapMtnStatus(result.status)
+          statusMessage = result.reason?.message || ''
+          externalTxnId = result.financialTransactionId || null
+        } else if (payment.provider === 'AIRTEL_MONEY' && isAirtelMoneyConfigured()) {
+          // ─── Airtel Money status polling ───
+          const result = payment.type === 'DEPOSIT'
+            ? await checkAirtelCollectionStatus(payment.externalRef)
+            : await checkAirtelDisbursementStatus(payment.externalRef)
 
-            // Handle completed deposits
-            if (newStatus === 'COMPLETED' && payment.type === 'DEPOSIT') {
-              await prisma.$transaction([
-                prisma.user.update({
-                  where: { id: payment.userId },
-                  data: { balance: { increment: payment.netAmount } }
-                }),
-                prisma.transaction.create({
-                  data: {
-                    type: 'DEPOSIT',
-                    amount: payment.netAmount,
-                    feeAmount: payment.feeAmount,
-                    description: `Deposit K${payment.netAmount.toFixed(2)} via Airtel Money (reconciled)`,
-                    status: 'COMPLETED',
-                    userId: payment.userId,
-                    metadata: JSON.stringify({ method: 'airtel_money', paymentId: payment.id, reconciled: true }),
-                  }
-                }),
-              ])
+          const txnStatus = result.data?.transaction?.status || ''
+          mappedStatus = mapAirtelStatus(txnStatus)
+          statusMessage = result.data?.transaction?.message || ''
+          externalTxnId = result.data?.transaction?.airtel_money_id || null
+        }
+
+        if (mappedStatus && mappedStatus !== 'PROCESSING' && mappedStatus !== 'PENDING') {
+          // Status has changed — update the record
+          await prisma.mobilePayment.update({
+            where: { id: payment.id },
+            data: {
+              status: mappedStatus,
+              statusMessage,
+              externalId: externalTxnId || payment.externalId,
+              completedAt: mappedStatus === 'COMPLETED' ? new Date() : null,
             }
+          })
 
-            // Handle failed withdrawals — refund
-            if (newStatus === 'FAILED' && payment.type === 'WITHDRAWAL') {
-              await prisma.$transaction([
-                prisma.user.update({
-                  where: { id: payment.userId },
-                  data: { balance: { increment: payment.amount } }
-                }),
-                prisma.transaction.updateMany({
-                  where: {
-                    userId: payment.userId,
-                    status: 'PROCESSING',
-                    metadata: { contains: payment.externalRef },
-                  },
-                  data: { status: 'FAILED' }
-                }),
-              ])
-              summary.refundedWithdrawals++
-            }
+          // Delegate financial settlement to the shared module
+          if (mappedStatus === 'COMPLETED' && payment.type === 'DEPOSIT') {
+            await settleDepositCompleted(payment.id)
+          } else if (mappedStatus === 'COMPLETED' && payment.type === 'WITHDRAWAL') {
+            await settleWithdrawalCompleted(payment.id)
+          } else if (mappedStatus === 'FAILED' && payment.type === 'DEPOSIT') {
+            await settleDepositFailed(payment.id, statusMessage)
+          } else if (mappedStatus === 'FAILED' && payment.type === 'WITHDRAWAL') {
+            await settleWithdrawalFailed(payment.id, statusMessage)
           }
 
-          summary.polledPayments++
-        } catch (err: any) {
-          summary.errors.push(`Poll payment ${payment.id}: ${err.message}`)
+          summary.settledPayments++
         }
+
+        summary.polledPayments++
+      } catch (err: any) {
+        summary.errors.push(`Poll payment ${payment.id}: ${err.message}`)
       }
     }
 

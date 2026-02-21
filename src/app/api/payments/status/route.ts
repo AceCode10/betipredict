@@ -3,11 +3,17 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import {
-  checkCollectionStatus,
-  checkDisbursementStatus,
+  checkCollectionStatus as checkAirtelCollectionStatus,
+  checkDisbursementStatus as checkAirtelDisbursementStatus,
   mapAirtelStatus,
   isAirtelMoneyConfigured,
 } from '@/lib/airtel-money'
+import {
+  checkCollectionStatus as checkMtnCollectionStatus,
+  checkDisbursementStatus as checkMtnDisbursementStatus,
+  mapMtnStatus,
+  isMtnMoneyConfigured,
+} from '@/lib/mtn-money'
 import {
   settleDepositCompleted,
   settleDepositFailed,
@@ -101,62 +107,77 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // If Airtel is configured and we have an external ref, poll Airtel for status
-    if (isAirtelMoneyConfigured() && payment.externalRef && !payment.callbackReceived) {
+    // Poll the appropriate provider for status if we have an external ref and no callback yet
+    if (payment.externalRef && !payment.callbackReceived) {
+      let mappedStatus: string | null = null
+      let statusMessage: string | null = null
+
       try {
-        const airtelStatus = payment.type === 'DEPOSIT'
-          ? await checkCollectionStatus(payment.externalRef)
-          : await checkDisbursementStatus(payment.externalRef)
+        if (payment.provider === 'MTN_MOMO' && isMtnMoneyConfigured()) {
+          // ─── MTN MoMo status polling ───
+          const mtnResult = payment.type === 'DEPOSIT'
+            ? await checkMtnCollectionStatus(payment.externalRef)
+            : await checkMtnDisbursementStatus(payment.externalRef)
 
-        const txnStatus = airtelStatus.data?.transaction?.status
-        if (txnStatus) {
-          const mappedStatus = mapAirtelStatus(txnStatus)
+          mappedStatus = mapMtnStatus(mtnResult.status)
+          statusMessage = mtnResult.reason?.message || ''
+        } else if (payment.provider === 'AIRTEL_MONEY' && isAirtelMoneyConfigured()) {
+          // ─── Airtel Money status polling ───
+          const airtelResult = payment.type === 'DEPOSIT'
+            ? await checkAirtelCollectionStatus(payment.externalRef)
+            : await checkAirtelDisbursementStatus(payment.externalRef)
 
-          // If status changed, update the payment record
-          if (mappedStatus !== payment.status) {
-            await prisma.mobilePayment.update({
-              where: { id: payment.id },
-              data: {
-                status: mappedStatus,
-                statusMessage: airtelStatus.data?.transaction?.message || payment.statusMessage,
-                completedAt: mappedStatus === 'COMPLETED' ? new Date() : null,
-              }
-            })
-
-            // Delegate financial settlement to the shared module
-            // The settlement module uses atomic settledAt claims — safe even if
-            // callback also fires concurrently
-            if (mappedStatus === 'COMPLETED' && payment.type === 'DEPOSIT') {
-              await settleDepositCompleted(payment.id)
-            } else if (mappedStatus === 'COMPLETED' && payment.type === 'WITHDRAWAL') {
-              await settleWithdrawalCompleted(payment.id)
-            } else if (mappedStatus === 'FAILED' && payment.type === 'DEPOSIT') {
-              await settleDepositFailed(payment.id, airtelStatus.data?.transaction?.message)
-            } else if (mappedStatus === 'FAILED' && payment.type === 'WITHDRAWAL') {
-              await settleWithdrawalFailed(payment.id, airtelStatus.data?.transaction?.message)
-            }
-
-            // Get updated balance
-            const user = await prisma.user.findUnique({
-              where: { id: session.user.id },
-              select: { balance: true },
-            })
-
-            return NextResponse.json({
-              paymentId: payment.id,
-              status: mappedStatus,
-              statusMessage: airtelStatus.data?.transaction?.message || '',
-              amount: payment.amount,
-              feeAmount: payment.feeAmount,
-              netAmount: payment.netAmount,
-              completedAt: mappedStatus === 'COMPLETED' ? new Date().toISOString() : null,
-              newBalance: user?.balance || 0,
-            })
+          const txnStatus = airtelResult.data?.transaction?.status
+          if (txnStatus) {
+            mappedStatus = mapAirtelStatus(txnStatus)
+            statusMessage = airtelResult.data?.transaction?.message || ''
           }
         }
+
+        // If we got a new status from the provider, process it
+        if (mappedStatus && mappedStatus !== payment.status) {
+          await prisma.mobilePayment.update({
+            where: { id: payment.id },
+            data: {
+              status: mappedStatus,
+              statusMessage: statusMessage || payment.statusMessage,
+              completedAt: mappedStatus === 'COMPLETED' ? new Date() : null,
+            }
+          })
+
+          // Delegate financial settlement to the shared module
+          // The settlement module uses atomic settledAt claims — safe even if
+          // callback also fires concurrently
+          if (mappedStatus === 'COMPLETED' && payment.type === 'DEPOSIT') {
+            await settleDepositCompleted(payment.id)
+          } else if (mappedStatus === 'COMPLETED' && payment.type === 'WITHDRAWAL') {
+            await settleWithdrawalCompleted(payment.id)
+          } else if (mappedStatus === 'FAILED' && payment.type === 'DEPOSIT') {
+            await settleDepositFailed(payment.id, statusMessage || undefined)
+          } else if (mappedStatus === 'FAILED' && payment.type === 'WITHDRAWAL') {
+            await settleWithdrawalFailed(payment.id, statusMessage || undefined)
+          }
+
+          // Get updated balance
+          const user = await prisma.user.findUnique({
+            where: { id: session.user.id },
+            select: { balance: true },
+          })
+
+          return NextResponse.json({
+            paymentId: payment.id,
+            status: mappedStatus,
+            statusMessage: statusMessage || '',
+            amount: payment.amount,
+            feeAmount: payment.feeAmount,
+            netAmount: payment.netAmount,
+            completedAt: mappedStatus === 'COMPLETED' ? new Date().toISOString() : null,
+            newBalance: user?.balance || 0,
+          })
+        }
       } catch (err) {
-        // Airtel status check failed — return current DB status
-        console.error('[PaymentStatus] Airtel status check failed:', err)
+        // Provider status check failed — return current DB status
+        console.error(`[PaymentStatus] ${payment.provider} status check failed:`, err)
       }
     }
 
