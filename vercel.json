@@ -1,16 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/sync-games",
-      "schedule": "0 */2 * * *"
-    },
-    {
-      "path": "/api/cron/resolve",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/reconcile",
-      "schedule": "*/10 * * * *"
-    }
-  ]
-}
+{}

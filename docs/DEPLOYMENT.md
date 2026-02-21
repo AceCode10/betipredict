@@ -122,32 +122,11 @@ Click **Deploy**. Vercel will:
 
 ## Step 5: Set Up Cron Jobs
 
-BetiPredict needs 3 recurring cron jobs. Use **Vercel Cron** or an external service.
+BetiPredict needs 3 recurring cron jobs.
 
-### Option A: Vercel Cron (vercel.json)
-Create `vercel.json` in project root:
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/sync-games",
-      "schedule": "0 */2 * * *"
-    },
-    {
-      "path": "/api/cron/resolve",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/reconcile",
-      "schedule": "*/10 * * * *"
-    }
-  ]
-}
-```
+> **Recommended for this project:** use an **external scheduler** (cron-job.org, EasyCron, UptimeRobot) instead of `vercel.json` crons, because plan-level cron limits can block Vercel deployments.
 
-**Important**: Set the `CRON_SECRET` env var, and Vercel will automatically include it.
-
-### Option B: External Cron (cron-job.org)
+### Option A (Recommended): External Cron (cron-job.org)
 1. Go to [cron-job.org](https://cron-job.org) (free)
 2. Create 3 jobs:
 
@@ -158,6 +137,13 @@ Create `vercel.json` in project root:
 | Reconcile Payments | `https://betipredict.com/api/cron/reconcile` | Every 10 minutes |
 
 3. Add header `Authorization: Bearer YOUR_CRON_SECRET` to each job
+
+### Option B (Optional): Vercel Cron
+Only use this if your Vercel plan supports your required cron count and frequency. If deployment fails with cron/config validation errors:
+
+1. Remove cron entries from `vercel.json` (keep it as `{}`)
+2. Redeploy
+3. Use Option A external cron scheduler
 
 ---
 
