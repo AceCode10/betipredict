@@ -2,6 +2,8 @@ import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
+import { generateToken, sendVerificationEmail } from "@/lib/email"
+import { writeAuditLog } from "@/lib/audit"
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -42,6 +44,9 @@ export const authOptions: NextAuthOptions = {
           }
 
           const hashedPassword = await bcrypt.hash(password, 12)
+          const verificationToken = generateToken()
+          const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000)
+
           user = await prisma.user.create({
             data: {
               email,
@@ -49,8 +54,22 @@ export const authOptions: NextAuthOptions = {
               username: email.split('@')[0] + '_' + Date.now().toString(36),
               fullName: email.split('@')[0],
               balance: 1000,
-              isVerified: true,
+              isVerified: false,
+              verificationToken,
+              verificationTokenExpiry,
             }
+          })
+
+          // Send verification email (fire-and-forget)
+          sendVerificationEmail(email, verificationToken).catch(err =>
+            console.error('[Auth] Failed to send verification email:', err)
+          )
+
+          writeAuditLog({
+            action: 'USER_SIGNUP',
+            category: 'USER',
+            details: { email, userId: user.id },
+            actorId: user.id,
           })
         } else {
           // Sign In: verify existing account
@@ -66,6 +85,13 @@ export const authOptions: NextAuthOptions = {
           if (!isPasswordValid) {
             throw new Error('Incorrect password')
           }
+
+          writeAuditLog({
+            action: 'USER_LOGIN',
+            category: 'USER',
+            details: { email, userId: user.id },
+            actorId: user.id,
+          })
         }
 
         return {

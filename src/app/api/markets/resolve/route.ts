@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { writeAuditLog, extractRequestMeta } from '@/lib/audit'
 
 export async function POST(request: NextRequest) {
   try {
@@ -106,12 +107,24 @@ export async function POST(request: NextRequest) {
       })
     })
 
-    return NextResponse.json({
+    const result = {
       success: true,
       winningOutcome,
       payoutsProcessed: payouts.length,
       totalPaidOut: payouts.reduce((sum, p) => sum + p.amount, 0)
+    }
+
+    // Audit log
+    const meta = extractRequestMeta(request.headers)
+    writeAuditLog({
+      action: 'MARKET_RESOLVED',
+      category: 'MARKET',
+      details: { marketId, winningOutcome, payoutsProcessed: result.payoutsProcessed, totalPaidOut: result.totalPaidOut, isAdmin },
+      actorId: session.user.id,
+      ...meta,
     })
+
+    return NextResponse.json(result)
   } catch (error) {
     console.error('Error resolving market:', error)
     return NextResponse.json(

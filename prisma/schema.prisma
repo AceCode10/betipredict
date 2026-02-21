@@ -36,32 +36,36 @@ model User {
   reviewedSuggestions     MarketSuggestion[] @relation("AdminReviews")
   notifications           Notification[]
   settings                UserSettings?
+  disputes                MarketDispute[]    @relation("UserDisputes")
+  disputeResolutions      MarketDispute[]    @relation("AdminDisputeResolutions")
 
   @@map("users")
 }
 
 model Market {
-  id             String    @id @default(cuid())
-  title          String
-  description    String?
-  category       String
-  subcategory    String?
-  question       String    @unique
-  yesPrice       Float     @default(0.5)
-  noPrice        Float     @default(0.5)
-  volume         Float     @default(0)
-  liquidity      Float     @default(0)
-  status         String    @default("PENDING")
-  resolveTime    DateTime
-  resolvedAt     DateTime?
-  winningOutcome String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  title           String
+  description     String?
+  category        String
+  subcategory     String?
+  question        String    @unique
+  yesPrice        Float     @default(0.5)
+  noPrice         Float     @default(0.5)
+  volume          Float     @default(0)
+  liquidity       Float     @default(0)
+  status          String    @default("PENDING") // PENDING, ACTIVE, RESOLVED, DISPUTED, FINALIZED, CANCELLED
+  resolveTime     DateTime
+  resolvedAt      DateTime?
+  winningOutcome  String?
+  disputeDeadline DateTime? // End of challenge window (24h after resolution)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  creatorId      String
-  creator        User      @relation(fields: [creatorId], references: [id])
-  orders         Order[]
-  positions      Position[]
+  creatorId       String
+  creator         User      @relation(fields: [creatorId], references: [id])
+  orders          Order[]
+  positions       Position[]
+  disputes        MarketDispute[]
 
   @@map("markets")
 }
@@ -244,4 +248,44 @@ model UserSettings {
   user        User     @relation(fields: [userId], references: [id])
 
   @@map("user_settings")
+}
+
+// Market dispute / challenge (24h window after resolution)
+model MarketDispute {
+  id              String   @id @default(cuid())
+  reason          String   // User's reason for disputing
+  evidence        String?  // Optional evidence/link
+  status          String   @default("OPEN") // OPEN, UPHELD, REJECTED
+  adminResponse   String?  // Admin's resolution response
+  resolvedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  marketId        String
+  market          Market   @relation(fields: [marketId], references: [id])
+  disputerId      String
+  disputer        User     @relation("UserDisputes", fields: [disputerId], references: [id])
+  resolvedById    String?
+  resolvedBy      User?    @relation("AdminDisputeResolutions", fields: [resolvedById], references: [id])
+
+  @@map("market_disputes")
+}
+
+// Audit log for admin actions and financial operations
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String   // e.g. MARKET_RESOLVED, DISPUTE_RESOLVED, USER_BANNED, WITHDRAWAL_APPROVED
+  category    String   // MARKET, PAYMENT, USER, SYSTEM
+  details     String   // JSON string with action details
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  actorId     String?  // User who performed the action (null for system)
+
+  @@index([action])
+  @@index([category])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

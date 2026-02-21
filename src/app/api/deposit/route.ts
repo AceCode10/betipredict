@@ -11,6 +11,13 @@ import {
   AirtelMoneyError,
 } from '@/lib/airtel-money'
 import { checkRateLimit } from '@/lib/rate-limit'
+import {
+  getIdempotencyKeyFromRequest,
+  checkIdempotencyKey,
+  lockIdempotencyKey,
+  completeIdempotencyKey,
+  releaseIdempotencyKey,
+} from '@/lib/idempotency'
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,9 +27,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Idempotency check — prevent duplicate deposits
+    const idempotencyKey = getIdempotencyKeyFromRequest(request.headers)
+    if (idempotencyKey) {
+      const cached = checkIdempotencyKey(idempotencyKey)
+      if (cached === 'processing') {
+        return NextResponse.json({ error: 'Request is already being processed' }, { status: 409 })
+      }
+      if (cached) {
+        return NextResponse.json(cached.body, { status: cached.status })
+      }
+      if (!lockIdempotencyKey(idempotencyKey)) {
+        return NextResponse.json({ error: 'Duplicate request' }, { status: 409 })
+      }
+    }
+
     // Rate limit: 10 deposits per minute
     const rl = checkRateLimit(`deposit:${session.user.id}`, 10, 60_000)
     if (!rl.allowed) {
+      if (idempotencyKey) releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json(
         { error: 'Too many deposit attempts. Please wait.' },
         { status: 429 }
@@ -106,14 +129,16 @@ export async function POST(request: NextRequest) {
           }
         })
 
-        return NextResponse.json({
+        const successBody = {
           success: true,
           paymentId: mobilePayment.id,
           externalRef,
           status: 'PROCESSING',
           message: 'A payment prompt has been sent to your Airtel Money. Please enter your PIN to confirm.',
           expiresAt: expiresAt.toISOString(),
-        })
+        }
+        if (idempotencyKey) completeIdempotencyKey(idempotencyKey, 200, successBody)
+        return NextResponse.json(successBody)
       } catch (err: any) {
         // Mark payment as failed
         await prisma.mobilePayment.update({
@@ -151,7 +176,7 @@ export async function POST(request: NextRequest) {
       })
     ])
 
-    return NextResponse.json({
+    const directSuccessBody = {
       success: true,
       newBalance: updatedUser.balance,
       transaction: {
@@ -160,9 +185,13 @@ export async function POST(request: NextRequest) {
         type: transaction.type,
         status: transaction.status
       }
-    })
+    }
+    if (idempotencyKey) completeIdempotencyKey(idempotencyKey, 200, directSuccessBody)
+    return NextResponse.json(directSuccessBody)
   } catch (error) {
     console.error('Error processing deposit:', error)
+    const idempotencyKey = getIdempotencyKeyFromRequest(request.headers)
+    if (idempotencyKey) releaseIdempotencyKey(idempotencyKey)
     return NextResponse.json(
       { error: 'Failed to process deposit' },
       { status: 500 }

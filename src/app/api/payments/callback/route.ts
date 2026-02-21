@@ -1,21 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { mapAirtelStatus } from '@/lib/airtel-money'
+import { mapAirtelStatus, verifyWebhookSignature } from '@/lib/airtel-money'
 
 /**
  * Airtel Money Callback Webhook
  * 
  * Airtel sends POST requests here when a collection/disbursement completes.
  * This endpoint:
- * 1. Validates the callback
- * 2. Updates the MobilePayment record
- * 3. Credits user balance for successful deposits
- * 4. Creates transaction records
+ * 1. Verifies webhook signature (HMAC-SHA256)
+ * 2. Validates the callback
+ * 3. Updates the MobilePayment record
+ * 4. Credits user balance for successful deposits
+ * 5. Creates transaction records
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    console.log('[Airtel Callback] Received:', JSON.stringify(body))
+    // Read raw body for signature verification
+    const rawBody = await request.text()
+    const signature = request.headers.get('x-signature') || request.headers.get('x-callback-signature')
+
+    // Verify webhook signature
+    if (!verifyWebhookSignature(rawBody, signature)) {
+      console.error('[Airtel Callback] Invalid webhook signature — rejecting request')
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    }
+
+    const body = JSON.parse(rawBody)
+    console.log('[Airtel Callback] Received (verified):', JSON.stringify(body))
 
     // Extract transaction details from Airtel callback
     const transactionData = body?.transaction || body?.data?.transaction || {}

@@ -912,12 +912,7 @@ export default function PolymarketStyleHomePage() {
               <Logo size="sm" />
             </div>
             <div className={`flex items-center gap-4 text-xs ${textMuted}`}>
-              {isLoggedIn && (
-                <>
-                  <button onClick={() => window.location.href = '/account'} className={`hover:${textColor} transition-colors`}>My Account</button>
-                  <button onClick={() => window.location.href = '/admin'} className={`hover:${textColor} transition-colors`}>Admin</button>
-                </>
-              )}
+              <button onClick={() => window.location.href = '/account'} className={`hover:${textColor} transition-colors`}>My Account</button>
               <span>&copy; {new Date().getFullYear()} BetiPredict. All rights reserved.</span>
             </div>
           </div>

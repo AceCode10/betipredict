@@ -23,25 +23,55 @@ export async function GET(request: NextRequest) {
       totalUsers,
       totalMarkets,
       activeMarkets,
+      resolvedMarkets,
+      disputedMarkets,
       volumeResult,
       revenueResult,
-      pendingSuggestions
+      pendingSuggestions,
+      openDisputes,
+      revenueByType,
+      pendingPayments,
+      recentUsers,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.market.count(),
       prisma.market.count({ where: { status: 'ACTIVE' } }),
+      prisma.market.count({ where: { status: { in: ['RESOLVED', 'FINALIZED'] } } }),
+      prisma.market.count({ where: { status: 'DISPUTED' } }),
       prisma.market.aggregate({ _sum: { volume: true } }),
       prisma.platformRevenue.aggregate({ _sum: { amount: true } }),
-      prisma.marketSuggestion.count({ where: { status: 'PENDING' } })
+      prisma.marketSuggestion.count({ where: { status: 'PENDING' } }),
+      prisma.marketDispute.count({ where: { status: 'OPEN' } }),
+      prisma.platformRevenue.groupBy({
+        by: ['feeType'],
+        _sum: { amount: true },
+        _count: true,
+      }),
+      prisma.mobilePayment.count({ where: { status: { in: ['PENDING', 'PROCESSING'] } } }),
+      prisma.user.count({ where: { createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } } }),
     ])
+
+    const revenueBreakdown = revenueByType.reduce((acc: Record<string, { total: number; count: number }>, item: any) => {
+      acc[item.feeType] = {
+        total: item._sum.amount || 0,
+        count: item._count,
+      }
+      return acc
+    }, {})
 
     return NextResponse.json({
       totalUsers,
+      newUsersLast7Days: recentUsers,
       totalMarkets,
       activeMarkets,
+      resolvedMarkets,
+      disputedMarkets,
       totalVolume: volumeResult._sum.volume || 0,
       totalRevenue: revenueResult._sum.amount || 0,
-      pendingSuggestions
+      revenueBreakdown,
+      pendingSuggestions,
+      openDisputes,
+      pendingPayments,
     })
   } catch (error) {
     console.error('Error fetching admin stats:', error)

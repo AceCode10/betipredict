@@ -158,7 +158,12 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                   required
                   minLength={10}
                   maxLength={300}
+                  pattern="^(Will|Do|Does|Are|Is|Can|Could|Should|Would|Has|Have|Did)\\s.+\\?$"
+                  title="Question must start with words like 'Will', 'Do', 'Does', etc. and end with a question mark"
                 />
+                <p className={`text-xs ${textMuted} mt-1`}>
+                  Must be a Yes/No question starting with words like "Will", "Do", "Does", "Are", "Is", etc.
+                </p>
               </div>
 
               <div>

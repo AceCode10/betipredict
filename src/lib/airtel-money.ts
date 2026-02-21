@@ -387,6 +387,58 @@ export function mapAirtelStatus(airtelStatus: string): PaymentStatus {
   }
 }
 
+// ─── Webhook Signature Verification ─────────────────────────
+
+const WEBHOOK_SECRET = process.env.AIRTEL_MONEY_WEBHOOK_SECRET || ''
+
+/**
+ * Verify the HMAC-SHA256 signature of an Airtel Money webhook callback.
+ * Compares the signature header against a computed hash of the raw body.
+ * Uses timing-safe comparison to prevent timing attacks.
+ *
+ * @param rawBody - The raw request body as a string
+ * @param signatureHeader - The signature from the request header (X-Signature or Authorization)
+ * @returns true if signature is valid or verification is disabled (no secret configured)
+ */
+export function verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
+  // If no webhook secret is configured, skip verification (dev mode)
+  if (!WEBHOOK_SECRET) {
+    console.warn('[Airtel Webhook] No AIRTEL_MONEY_WEBHOOK_SECRET configured — skipping signature verification')
+    return true
+  }
+
+  if (!signatureHeader) {
+    console.error('[Airtel Webhook] Missing signature header')
+    return false
+  }
+
+  try {
+    const crypto = require('crypto')
+    const expectedSignature = crypto
+      .createHmac('sha256', WEBHOOK_SECRET)
+      .update(rawBody, 'utf8')
+      .digest('hex')
+
+    // Support both raw hex and "sha256=hex" formats
+    const receivedSig = signatureHeader.startsWith('sha256=')
+      ? signatureHeader.slice(7)
+      : signatureHeader
+
+    // Timing-safe comparison
+    const expected = Buffer.from(expectedSignature, 'hex')
+    const received = Buffer.from(receivedSig, 'hex')
+
+    if (expected.length !== received.length) {
+      return false
+    }
+
+    return crypto.timingSafeEqual(expected, received)
+  } catch (error) {
+    console.error('[Airtel Webhook] Signature verification error:', error)
+    return false
+  }
+}
+
 // ─── Utility ─────────────────────────────────────────────────
 
 /**

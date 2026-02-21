@@ -53,6 +53,7 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
   const [showDeposit, setShowDeposit] = useState(false)
   const [showMobileSearch, setShowMobileSearch] = useState(false)
   const [internalSearch, setInternalSearch] = useState('')
+  const [isAdmin, setIsAdmin] = useState(false)
   
   // Use external search if provided, otherwise internal
   const searchQuery = externalSearch !== undefined ? externalSearch : internalSearch
@@ -66,8 +67,21 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
     if (session?.user?.id) {
       fetchUserData()
       fetchNotifications()
+      checkAdminStatus()
     }
   }, [session?.user?.id])
+
+  const checkAdminStatus = async () => {
+    if (!session?.user?.email) return
+    try {
+      const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+      const adminStatus = adminEmails.includes(session.user.email.toLowerCase())
+      setIsAdmin(adminStatus)
+    } catch (error) {
+      console.error('Error checking admin status:', error)
+      setIsAdmin(false)
+    }
+  }
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -184,20 +198,14 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className={`bg-transparent border-none outline-none text-sm ${textColor} placeholder:${textMuted} ml-2 w-full`}
                   />
-                  <kbd className={`hidden lg:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono ${isDarkMode ? 'bg-[#252840] text-gray-500 border-gray-600' : 'bg-gray-200 text-gray-400 border-gray-300'} border rounded ml-2`}>/</kbd>
+                  <kbd className={`hidden lg:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono ${isDarkMode ? 'bg-[#252840] text-gray-500 border-gray-600' : 'bg-gray-200 text-gray-400 border-gray-300'} border rounded ml-2`}>Ctrl+K</kbd>
                 </div>
               </form>
             </div>
 
             {/* Right Side */}
             <div className="flex items-center gap-2 md:gap-4 ml-auto">
-              {/* Mobile Search Toggle */}
-              <button
-                onClick={() => setShowMobileSearch(!showMobileSearch)}
-                className={`md:hidden p-2 rounded-lg ${hoverBg} ${textMuted}`}
-              >
-                {showMobileSearch ? <X className="w-5 h-5" /> : <Search className="w-5 h-5" />}
-              </button>
+              {/* Mobile Search Toggle - REMOVED to avoid duplicate search bars */}
 
               {status === 'authenticated' && session?.user ? (
                 <>
@@ -331,6 +339,15 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                               <span className="text-sm">Create Market</span>
                             </button>
                           )}
+                          {isAdmin && (
+                            <button
+                              onClick={() => { router.push('/admin'); setShowAccountMenu(false) }}
+                              className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} text-green-500`}
+                            >
+                              <Settings className="w-4 h-4" />
+                              <span className="text-sm">Admin Dashboard</span>
+                            </button>
+                          )}
                         </div>
 
                         {/* Dark Mode Toggle */}
@@ -408,31 +425,7 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
           </div>
         </div>
 
-        {/* Mobile Search Bar */}
-        {showMobileSearch && (
-          <div className={`md:hidden border-t ${borderColor} px-4 py-3`}>
-            <form onSubmit={handleSearch} className="relative">
-              <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${textMuted}`} />
-              <input
-                type="text"
-                placeholder="Search markets..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={`w-full pl-10 pr-10 py-2.5 ${isDarkMode ? 'bg-[#1e2130] border-gray-700' : 'bg-gray-100 border-gray-200'} border rounded-lg text-sm ${textColor} outline-none focus:border-green-500 transition-colors`}
-                autoFocus
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className={`absolute right-3 top-1/2 -translate-y-1/2 ${textMuted} hover:${textColor}`}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </form>
-          </div>
-        )}
+        {/* Mobile Search Bar - REMOVED to avoid duplicate search bars */}
       </header>
 
       {/* Deposit Modal */}
