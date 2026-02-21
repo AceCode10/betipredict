@@ -30,14 +30,14 @@ export async function POST(request: NextRequest) {
     // Idempotency check — prevent duplicate withdrawals
     const idempotencyKey = getIdempotencyKeyFromRequest(request.headers)
     if (idempotencyKey) {
-      const cached = checkIdempotencyKey(idempotencyKey)
+      const cached = await checkIdempotencyKey(idempotencyKey)
       if (cached === 'processing') {
         return NextResponse.json({ error: 'Request is already being processed' }, { status: 409 })
       }
       if (cached) {
         return NextResponse.json(cached.body, { status: cached.status })
       }
-      if (!lockIdempotencyKey(idempotencyKey)) {
+      if (!(await lockIdempotencyKey(idempotencyKey))) {
         return NextResponse.json({ error: 'Duplicate request' }, { status: 409 })
       }
     }
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     // Rate limit: 5 withdrawals per minute
     const rl = checkRateLimit(`withdraw:${session.user.id}`, 5, 60_000)
     if (!rl.allowed) {
-      if (idempotencyKey) releaseIdempotencyKey(idempotencyKey)
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json(
         { error: 'Too many withdrawal attempts. Please wait.' },
         { status: 429 }
@@ -198,13 +198,13 @@ export async function POST(request: NextRequest) {
           netAmount: fee.netAmount,
           message: `K${fee.netAmount.toFixed(2)} is being sent to your Airtel Money (${maskedPhone}). Fee: K${fee.feeAmount.toFixed(2)}.`,
         }
-        if (idempotencyKey) completeIdempotencyKey(idempotencyKey, 200, successBody)
+        if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, successBody)
         return NextResponse.json(successBody)
       } catch (err: any) {
-        // Disbursement failed — refund the user's balance
+        // Disbursement failed — refund the user's balance AND reverse the fee revenue
         console.error('[Withdraw] Airtel disbursement failed, refunding user:', err)
         
-        await prisma.$transaction([
+        const refundOps: any[] = [
           prisma.user.update({
             where: { id: session.user.id },
             data: { balance: { increment: amount } }
@@ -219,8 +219,26 @@ export async function POST(request: NextRequest) {
           prisma.transaction.update({
             where: { id: result.transaction.id },
             data: { status: 'FAILED' }
-          })
-        ])
+          }),
+        ]
+
+        // Reverse the platform revenue entry for the withdrawal fee
+        if (fee.feeAmount > 0) {
+          refundOps.push(
+            prisma.platformRevenue.create({
+              data: {
+                feeType: 'WITHDRAWAL_FEE_REVERSAL',
+                amount: -fee.feeAmount,
+                description: `Reversed withdrawal fee — disbursement failed for ${maskedPhone}`,
+                sourceType: 'WITHDRAWAL',
+                sourceId: result.mobilePayment.id,
+                userId: session.user.id,
+              }
+            })
+          )
+        }
+
+        await prisma.$transaction(refundOps)
 
         const errorMessage = err instanceof AirtelMoneyError
           ? err.message
@@ -262,12 +280,12 @@ export async function POST(request: NextRequest) {
         status: transaction.status
       }
     }
-    if (idempotencyKey) completeIdempotencyKey(idempotencyKey, 200, directSuccessBody)
+    if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, directSuccessBody)
     return NextResponse.json(directSuccessBody)
   } catch (error: any) {
     console.error('Error processing withdrawal:', error)
     const idempotencyKey = getIdempotencyKeyFromRequest(request.headers)
-    if (idempotencyKey) releaseIdempotencyKey(idempotencyKey)
+    if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
     const message = error?.message === 'Insufficient balance'
       ? 'Insufficient balance'
       : 'Failed to process withdrawal'

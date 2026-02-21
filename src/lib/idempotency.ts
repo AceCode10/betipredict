@@ -2,79 +2,87 @@
  * Idempotency Key Manager
  * 
  * Prevents duplicate payment processing by tracking request idempotency keys.
- * Uses in-memory store for development; replace with Redis for production.
+ * Uses PostgreSQL (via Prisma) for persistence — survives server restarts.
  * 
  * Usage:
  *   Client sends header: X-Idempotency-Key: <unique-uuid>
  *   Server checks if key was already processed and returns cached response.
  */
 
-interface IdempotencyEntry {
-  status: 'processing' | 'completed'
-  response?: { status: number; body: any }
-  createdAt: number
-}
-
-// In-memory store (replace with Redis in production)
-const idempotencyStore = new Map<string, IdempotencyEntry>()
+import { prisma } from './prisma'
 
 // TTL: 24 hours
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
 
-// Cleanup interval: every 10 minutes
-const CLEANUP_INTERVAL_MS = 10 * 60 * 1000
-let lastCleanup = Date.now()
-
-function cleanup() {
-  const now = Date.now()
-  if (now - lastCleanup < CLEANUP_INTERVAL_MS) return
-  lastCleanup = now
-  for (const [key, entry] of idempotencyStore) {
-    if (now - entry.createdAt > IDEMPOTENCY_TTL_MS) {
-      idempotencyStore.delete(key)
-    }
-  }
-}
-
 /**
  * Check if an idempotency key has already been used.
- * Returns the cached response if the key was already processed,
- * or null if this is a new request.
+ * Returns the cached response if completed, 'processing' if in-flight, or null if new.
  */
-export function checkIdempotencyKey(key: string): { status: number; body: any } | 'processing' | null {
-  cleanup()
-  const entry = idempotencyStore.get(key)
+export async function checkIdempotencyKey(key: string): Promise<{ status: number; body: any } | 'processing' | null> {
+  const entry = await prisma.idempotencyKey.findUnique({ where: { key } })
   if (!entry) return null
+  // Expired entries are treated as new
+  if (entry.expiresAt < new Date()) {
+    await prisma.idempotencyKey.delete({ where: { key } }).catch(() => {})
+    return null
+  }
   if (entry.status === 'processing') return 'processing'
-  return entry.response || null
+  if (entry.httpStatus != null && entry.responseBody) {
+    try {
+      return { status: entry.httpStatus, body: JSON.parse(entry.responseBody) }
+    } catch {
+      return null
+    }
+  }
+  return null
 }
 
 /**
  * Mark an idempotency key as being processed (lock).
+ * Uses a unique constraint to prevent races.
  */
-export function lockIdempotencyKey(key: string): boolean {
-  cleanup()
-  if (idempotencyStore.has(key)) return false
-  idempotencyStore.set(key, { status: 'processing', createdAt: Date.now() })
-  return true
+export async function lockIdempotencyKey(key: string): Promise<boolean> {
+  try {
+    await prisma.idempotencyKey.create({
+      data: {
+        key,
+        status: 'processing',
+        expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
+      }
+    })
+    return true
+  } catch {
+    // Unique constraint violation → key already exists
+    return false
+  }
 }
 
 /**
  * Complete an idempotency key with the response to cache.
  */
-export function completeIdempotencyKey(key: string, status: number, body: any): void {
-  idempotencyStore.set(key, {
-    status: 'completed',
-    response: { status, body },
-    createdAt: Date.now(),
+export async function completeIdempotencyKey(key: string, status: number, body: any): Promise<void> {
+  await prisma.idempotencyKey.upsert({
+    where: { key },
+    update: {
+      status: 'completed',
+      httpStatus: status,
+      responseBody: JSON.stringify(body),
+    },
+    create: {
+      key,
+      status: 'completed',
+      httpStatus: status,
+      responseBody: JSON.stringify(body),
+      expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
+    },
   })
 }
 
 /**
  * Release an idempotency key (e.g., on error, allow retry).
  */
-export function releaseIdempotencyKey(key: string): void {
-  idempotencyStore.delete(key)
+export async function releaseIdempotencyKey(key: string): Promise<void> {
+  await prisma.idempotencyKey.delete({ where: { key } }).catch(() => {})
 }
 
 /**

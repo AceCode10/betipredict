@@ -30,14 +30,14 @@ export async function POST(request: NextRequest) {
     // Idempotency check — prevent duplicate deposits
     const idempotencyKey = getIdempotencyKeyFromRequest(request.headers)
     if (idempotencyKey) {
-      const cached = checkIdempotencyKey(idempotencyKey)
+      const cached = await checkIdempotencyKey(idempotencyKey)
       if (cached === 'processing') {
         return NextResponse.json({ error: 'Request is already being processed' }, { status: 409 })
       }
       if (cached) {
         return NextResponse.json(cached.body, { status: cached.status })
       }
-      if (!lockIdempotencyKey(idempotencyKey)) {
+      if (!(await lockIdempotencyKey(idempotencyKey))) {
         return NextResponse.json({ error: 'Duplicate request' }, { status: 409 })
       }
     }
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     // Rate limit: 10 deposits per minute
     const rl = checkRateLimit(`deposit:${session.user.id}`, 10, 60_000)
     if (!rl.allowed) {
-      if (idempotencyKey) releaseIdempotencyKey(idempotencyKey)
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
       return NextResponse.json(
         { error: 'Too many deposit attempts. Please wait.' },
         { status: 429 }
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
           message: 'A payment prompt has been sent to your Airtel Money. Please enter your PIN to confirm.',
           expiresAt: expiresAt.toISOString(),
         }
-        if (idempotencyKey) completeIdempotencyKey(idempotencyKey, 200, successBody)
+        if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, successBody)
         return NextResponse.json(successBody)
       } catch (err: any) {
         // Mark payment as failed
@@ -186,12 +186,12 @@ export async function POST(request: NextRequest) {
         status: transaction.status
       }
     }
-    if (idempotencyKey) completeIdempotencyKey(idempotencyKey, 200, directSuccessBody)
+    if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, directSuccessBody)
     return NextResponse.json(directSuccessBody)
   } catch (error) {
     console.error('Error processing deposit:', error)
     const idempotencyKey = getIdempotencyKeyFromRequest(request.headers)
-    if (idempotencyKey) releaseIdempotencyKey(idempotencyKey)
+    if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
     return NextResponse.json(
       { error: 'Failed to process deposit' },
       { status: 500 }

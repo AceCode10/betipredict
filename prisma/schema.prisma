@@ -38,6 +38,7 @@ model User {
   settings                UserSettings?
   disputes                MarketDispute[]    @relation("UserDisputes")
   disputeResolutions      MarketDispute[]    @relation("AdminDisputeResolutions")
+  chatMessages            ChatMessage[]
 
   @@map("users")
 }
@@ -66,6 +67,7 @@ model Market {
   orders          Order[]
   positions       Position[]
   disputes        MarketDispute[]
+  chatMessages    ChatMessage[]
 
   @@map("markets")
 }
@@ -269,6 +271,35 @@ model MarketDispute {
   resolvedBy      User?    @relation("AdminDisputeResolutions", fields: [resolvedById], references: [id])
 
   @@map("market_disputes")
+}
+
+// Idempotency keys for payment deduplication (DB-backed, survives restarts)
+model IdempotencyKey {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  status      String   @default("processing") // processing, completed
+  httpStatus  Int?
+  responseBody String?  // JSON-serialized cached response
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime // TTL: 24h from creation
+
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+// Market chat messages
+model ChatMessage {
+  id          String   @id @default(cuid())
+  content     String
+  createdAt   DateTime @default(now())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  marketId    String
+  market      Market   @relation(fields: [marketId], references: [id])
+
+  @@index([marketId, createdAt])
+  @@map("chat_messages")
 }
 
 // Audit log for admin actions and financial operations

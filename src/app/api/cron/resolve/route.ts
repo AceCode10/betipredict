@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { MarketResolver } from '@/lib/market-resolution'
 import crypto from 'crypto'
 
 // Automatic market resolution endpoint
 // Called by a cron service (e.g., Vercel Cron, external scheduler)
 // Security: requires CRON_SECRET header to prevent unauthorized calls
+//
+// This cron does TWO things:
+// 1. Resolves active markets past their resolveTime (opens 24h dispute window)
+// 2. Finalizes resolved markets past their dispute deadline (processes payouts)
 
 const CRON_SECRET = process.env.CRON_SECRET || ''
 
@@ -13,7 +18,6 @@ function verifyCronAuth(request: NextRequest): boolean {
   const authHeader = request.headers.get('authorization')
   if (!authHeader) return false
   const token = authHeader.replace('Bearer ', '')
-  // Constant-time comparison to prevent timing attacks
   try {
     return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(CRON_SECRET))
   } catch {
@@ -22,33 +26,24 @@ function verifyCronAuth(request: NextRequest): boolean {
 }
 
 export async function POST(request: NextRequest) {
-  // Verify cron authentication
   if (!verifyCronAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const results: { marketId: string; outcome: string; payouts: number; error?: string }[] = []
+  const resolved: { marketId: string; outcome: string; error?: string }[] = []
+  const finalized: { marketId: string; outcome: string; feesCollected?: number; error?: string }[] = []
 
   try {
-    // 1. Find all active markets past their resolve time
+    // ─── Phase 1: Resolve active markets past their resolve time ───
     const marketsToResolve = await prisma.market.findMany({
       where: {
         status: 'ACTIVE',
         resolveTime: { lte: new Date() },
       },
-      include: {
-        positions: { where: { isClosed: false } },
-      },
     })
 
-    if (marketsToResolve.length === 0) {
-      return NextResponse.json({ message: 'No markets to resolve', resolved: 0 })
-    }
-
-    // 2. For each market, try to determine the outcome from sports API
     for (const market of marketsToResolve) {
       try {
-        // Check if this market is linked to a scheduled game
         const linkedGame = await prisma.scheduledGame.findFirst({
           where: { marketId: market.id },
         })
@@ -56,10 +51,8 @@ export async function POST(request: NextRequest) {
         let winningOutcome: 'YES' | 'NO' | null = null
 
         if (linkedGame && linkedGame.externalId) {
-          // Try to fetch real result from football-data.org
           winningOutcome = await fetchMatchResult(linkedGame.externalId, market)
 
-          // Update the scheduled game record
           if (winningOutcome) {
             await prisma.scheduledGame.update({
               where: { id: linkedGame.id },
@@ -67,109 +60,43 @@ export async function POST(request: NextRequest) {
                 status: 'FINISHED',
                 winner: winningOutcome === 'YES' ? 'HOME_TEAM' : 'AWAY_TEAM',
               },
-            }).catch(() => {}) // Non-critical update
+            }).catch(() => {})
           }
         }
 
-        // If we couldn't determine from API, check if the market is significantly past resolve time
-        // (more than 4 hours past) — in that case, leave it for manual resolution
         if (!winningOutcome) {
           const hoursPast = (Date.now() - new Date(market.resolveTime).getTime()) / 3600000
-          if (hoursPast < 4) {
-            // Not enough time past — skip, will retry on next cron run
-            continue
-          }
-          // If significantly past and no API result, skip — needs manual resolution
-          results.push({ marketId: market.id, outcome: 'PENDING', payouts: 0, error: 'No result available from API' })
+          if (hoursPast < 4) continue
+          resolved.push({ marketId: market.id, outcome: 'PENDING', error: 'No result available from API' })
           continue
         }
 
-        // 3. Execute resolution in a transaction
-        await prisma.$transaction(async (tx) => {
-          // Update market
-          await tx.market.update({
-            where: { id: market.id },
-            data: {
-              status: 'RESOLVED',
-              winningOutcome,
-              resolvedAt: new Date(),
-            },
-          })
-
-          // Process payouts for winners
-          let totalPaid = 0
-          const winningPositions = market.positions.filter(p => p.outcome === winningOutcome)
-
-          for (const pos of winningPositions) {
-            const payout = pos.size // Each winning share pays K1
-            totalPaid += payout
-
-            await tx.user.update({
-              where: { id: pos.userId },
-              data: { balance: { increment: payout } },
-            })
-
-            await tx.transaction.create({
-              data: {
-                type: 'TRADE',
-                amount: payout,
-                description: `Payout: ${winningOutcome} wins in "${market.title}"`,
-                status: 'COMPLETED',
-                userId: pos.userId,
-                metadata: JSON.stringify({ marketId: market.id, winningOutcome, type: 'AUTO_PAYOUT' }),
-              },
-            })
-
-            // Send notification
-            await tx.notification.create({
-              data: {
-                type: pos.outcome === winningOutcome ? 'BET_WON' : 'BET_LOST',
-                title: pos.outcome === winningOutcome ? 'You won!' : 'Market resolved',
-                message: pos.outcome === winningOutcome
-                  ? `Your ${pos.outcome} bet on "${market.title}" won! Payout: K${payout.toFixed(2)}`
-                  : `"${market.title}" resolved to ${winningOutcome}. Your ${pos.outcome} position lost.`,
-                userId: pos.userId,
-              },
-            })
-          }
-
-          // Notify losers too
-          const losingPositions = market.positions.filter(p => p.outcome !== winningOutcome)
-          for (const pos of losingPositions) {
-            await tx.notification.create({
-              data: {
-                type: 'BET_LOST',
-                title: 'Market resolved',
-                message: `"${market.title}" resolved to ${winningOutcome}. Your ${pos.outcome} position lost.`,
-                userId: pos.userId,
-              },
-            })
-          }
-
-          // Close all positions
-          await tx.position.updateMany({
-            where: { marketId: market.id },
-            data: { isClosed: true },
-          })
-
-          // Cancel open orders
-          await tx.order.updateMany({
-            where: { marketId: market.id, status: 'OPEN' },
-            data: { status: 'CANCELLED' },
-          })
-
-          results.push({ marketId: market.id, outcome: winningOutcome!, payouts: totalPaid })
-        })
+        // Use MarketResolver: sets status=RESOLVED, opens 24h dispute window, NO payouts yet
+        await MarketResolver.resolveMarket(market.id, winningOutcome)
+        resolved.push({ marketId: market.id, outcome: winningOutcome })
       } catch (err: any) {
         console.error(`[cron] Failed to resolve market ${market.id}:`, err)
-        results.push({ marketId: market.id, outcome: 'ERROR', payouts: 0, error: err.message })
+        resolved.push({ marketId: market.id, outcome: 'ERROR', error: err.message })
+      }
+    }
+
+    // ─── Phase 2: Finalize resolved markets past dispute deadline ───
+    const marketsToFinalize = await MarketResolver.getMarketsReadyForFinalization()
+
+    for (const market of marketsToFinalize) {
+      try {
+        const result = await MarketResolver.finalizeMarket(market.id)
+        finalized.push({ marketId: market.id, outcome: result.finalized, feesCollected: result.feesCollected })
+      } catch (err: any) {
+        console.error(`[cron] Failed to finalize market ${market.id}:`, err)
+        finalized.push({ marketId: market.id, outcome: 'ERROR', error: err.message })
       }
     }
 
     return NextResponse.json({
-      message: `Processed ${marketsToResolve.length} markets`,
-      resolved: results.filter(r => !r.error).length,
-      results,
+      message: `Resolved ${resolved.filter(r => !r.error).length}, finalized ${finalized.filter(f => !f.error).length}`,
+      resolved,
+      finalized,
     })
   } catch (error: any) {
     console.error('[cron] Resolution error:', error)

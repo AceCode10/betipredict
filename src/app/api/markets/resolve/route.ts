@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { MarketResolver } from '@/lib/market-resolution'
 import { writeAuditLog, extractRequestMeta } from '@/lib/audit'
 
 export async function POST(request: NextRequest) {
@@ -12,13 +13,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { marketId, winningOutcome } = await request.json()
+    const { marketId, winningOutcome, action } = await request.json()
 
     if (!marketId || typeof marketId !== 'string') {
       return NextResponse.json({ error: 'Invalid market ID' }, { status: 400 })
-    }
-    if (!['YES', 'NO', 'DRAW', 'VOID'].includes(winningOutcome)) {
-      return NextResponse.json({ error: 'Invalid outcome. Must be YES, NO, DRAW, or VOID' }, { status: 400 })
     }
 
     // Get market
@@ -39,96 +37,122 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Only admins or the market creator can resolve this market' }, { status: 403 })
     }
 
-    if (market.status === 'RESOLVED') {
-      return NextResponse.json({ error: 'Market already resolved' }, { status: 400 })
+    const meta = extractRequestMeta(request.headers)
+
+    // ─── Finalize action: process payouts for resolved markets past dispute window ───
+    if (action === 'FINALIZE') {
+      if (market.status !== 'RESOLVED') {
+        return NextResponse.json({ error: 'Market must be in RESOLVED state to finalize' }, { status: 400 })
+      }
+      const result = await MarketResolver.finalizeMarket(marketId)
+
+      writeAuditLog({
+        action: 'MARKET_FINALIZED',
+        category: 'MARKET',
+        details: { marketId, outcome: result.finalized, feesCollected: result.feesCollected, isAdmin },
+        actorId: session.user.id,
+        ...meta,
+      })
+
+      return NextResponse.json({
+        success: true,
+        action: 'FINALIZED',
+        winningOutcome: result.finalized,
+        feesCollected: result.feesCollected,
+      })
     }
 
-    // Get all positions for this market
-    const positions = await prisma.position.findMany({
-      where: { marketId, isClosed: false }
-    })
-
-    // Calculate payouts
-    const payouts: { userId: string; amount: number }[] = []
-
+    // ─── VOID action: immediate refund (no dispute window) ───
     if (winningOutcome === 'VOID') {
-      // Refund all positions at cost basis
+      if (market.status !== 'ACTIVE' && market.status !== 'RESOLVED') {
+        return NextResponse.json({ error: 'Market cannot be voided in its current state' }, { status: 400 })
+      }
+
+      const positions = await prisma.position.findMany({
+        where: { marketId, isClosed: false }
+      })
+
+      const payouts: { userId: string; amount: number }[] = []
       for (const pos of positions) {
         const refund = pos.size * pos.averagePrice
         payouts.push({ userId: pos.userId, amount: refund })
       }
-    } else {
-      // Pay winners: winning shares pay out at 1.0 per share
-      for (const pos of positions) {
-        if (pos.outcome === winningOutcome) {
-          payouts.push({ userId: pos.userId, amount: pos.size })
-        }
-        // Losers get nothing — their cost was already deducted
-      }
-    }
 
-    // Execute resolution in a transaction
-    await prisma.$transaction(async (tx) => {
-      // Update market status
-      await tx.market.update({
-        where: { id: marketId },
-        data: {
-          status: 'RESOLVED',
-          winningOutcome,
-          resolvedAt: new Date()
+      await prisma.$transaction(async (tx) => {
+        await tx.market.update({
+          where: { id: marketId },
+          data: { status: 'FINALIZED', winningOutcome: 'VOID', resolvedAt: new Date() }
+        })
+        for (const payout of payouts) {
+          await tx.user.update({
+            where: { id: payout.userId },
+            data: { balance: { increment: payout.amount } }
+          })
+          await tx.transaction.create({
+            data: {
+              type: 'TRADE',
+              amount: payout.amount,
+              description: `Refund for voided market: ${market.title}`,
+              status: 'COMPLETED',
+              userId: payout.userId,
+              metadata: JSON.stringify({ marketId, winningOutcome: 'VOID', type: 'REFUND' })
+            }
+          })
         }
+        await tx.position.updateMany({
+          where: { marketId },
+          data: { isClosed: true }
+        })
       })
 
-      // Process payouts
-      for (const payout of payouts) {
-        await tx.user.update({
-          where: { id: payout.userId },
-          data: { balance: { increment: payout.amount } }
-        })
-
-        await tx.transaction.create({
-          data: {
-            type: 'TRADE',
-            amount: payout.amount,
-            description: winningOutcome === 'VOID'
-              ? `Refund for voided market: ${market.title}`
-              : `Payout for winning bet on ${market.title}`,
-            status: 'COMPLETED',
-            userId: payout.userId,
-            metadata: JSON.stringify({ marketId, winningOutcome, type: 'PAYOUT' })
-          }
-        })
-      }
-
-      // Close all positions
-      await tx.position.updateMany({
-        where: { marketId },
-        data: { isClosed: true }
+      writeAuditLog({
+        action: 'MARKET_VOIDED',
+        category: 'MARKET',
+        details: { marketId, payoutsProcessed: payouts.length, totalRefunded: payouts.reduce((s, p) => s + p.amount, 0), isAdmin },
+        actorId: session.user.id,
+        ...meta,
       })
-    })
 
-    const result = {
-      success: true,
-      winningOutcome,
-      payoutsProcessed: payouts.length,
-      totalPaidOut: payouts.reduce((sum, p) => sum + p.amount, 0)
+      return NextResponse.json({
+        success: true,
+        action: 'VOIDED',
+        winningOutcome: 'VOID',
+        payoutsProcessed: payouts.length,
+        totalPaidOut: payouts.reduce((s, p) => s + p.amount, 0),
+      })
     }
 
-    // Audit log
-    const meta = extractRequestMeta(request.headers)
+    // ─── Standard resolve: uses dispute-window flow ───
+    if (!['YES', 'NO'].includes(winningOutcome)) {
+      return NextResponse.json({ error: 'Invalid outcome. Must be YES, NO, or VOID' }, { status: 400 })
+    }
+
+    if (market.status !== 'ACTIVE') {
+      return NextResponse.json({ error: 'Only active markets can be resolved' }, { status: 400 })
+    }
+
+    // Phase 1: resolve with 24h dispute window (no immediate payouts)
+    const result = await MarketResolver.resolveMarket(marketId, winningOutcome as 'YES' | 'NO')
+
     writeAuditLog({
       action: 'MARKET_RESOLVED',
       category: 'MARKET',
-      details: { marketId, winningOutcome, payoutsProcessed: result.payoutsProcessed, totalPaidOut: result.totalPaidOut, isAdmin },
+      details: { marketId, winningOutcome, disputeDeadline: result.disputeDeadline, isAdmin },
       actorId: session.user.id,
       ...meta,
     })
 
-    return NextResponse.json(result)
-  } catch (error) {
+    return NextResponse.json({
+      success: true,
+      action: 'RESOLVED',
+      winningOutcome,
+      disputeDeadline: result.disputeDeadline,
+      message: `Market resolved to ${winningOutcome}. Payouts will process after the 24h dispute window.`,
+    })
+  } catch (error: any) {
     console.error('Error resolving market:', error)
     return NextResponse.json(
-      { error: 'Failed to resolve market' },
+      { error: error.message || 'Failed to resolve market' },
       { status: 500 }
     )
   }

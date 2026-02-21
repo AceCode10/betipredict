@@ -155,9 +155,9 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // If withdrawal failed, refund user and notify
+    // If withdrawal failed, refund user, reverse fee revenue, and notify
     if (newStatus === 'FAILED' && mobilePayment.type === 'WITHDRAWAL') {
-      await prisma.$transaction([
+      const refundOps: any[] = [
         // Refund user balance (full amount including fee)
         prisma.user.update({
           where: { id: mobilePayment.userId },
@@ -181,16 +181,35 @@ export async function POST(request: NextRequest) {
             userId: mobilePayment.userId,
             metadata: JSON.stringify({ paymentId: mobilePayment.id }),
           }
-        })
-      ])
+        }),
+      ]
 
-      console.log(`[Airtel Callback] Withdrawal failed, refunded K${mobilePayment.amount} for user ${mobilePayment.userId}`)
+      // Reverse the platform revenue entry for the withdrawal fee
+      if (mobilePayment.feeAmount > 0) {
+        refundOps.push(
+          prisma.platformRevenue.create({
+            data: {
+              feeType: 'WITHDRAWAL_FEE_REVERSAL',
+              amount: -mobilePayment.feeAmount,
+              description: `Reversed withdrawal fee — Airtel callback reported failure for ${mobilePayment.phoneNumber}`,
+              sourceType: 'WITHDRAWAL',
+              sourceId: mobilePayment.id,
+              userId: mobilePayment.userId,
+            }
+          })
+        )
+      }
+
+      await prisma.$transaction(refundOps)
+
+      console.log(`[Airtel Callback] Withdrawal failed, refunded K${mobilePayment.amount} (fee K${mobilePayment.feeAmount} reversed) for user ${mobilePayment.userId}`)
     }
 
     return NextResponse.json({ status: 'ok' })
   } catch (error) {
     console.error('[Airtel Callback] Error processing callback:', error)
-    // Return 200 to prevent Airtel from retrying (we log the error)
-    return NextResponse.json({ status: 'ok' })
+    // Return 500 so Airtel retries the callback — we must not silently swallow errors
+    // that could leave payments in an inconsistent state
+    return NextResponse.json({ error: 'Internal processing error' }, { status: 500 })
   }
 }

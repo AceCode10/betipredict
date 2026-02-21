@@ -11,6 +11,8 @@ import { Logo } from '@/components/Logo'
 import { CreateMarketModal } from '@/components/CreateMarketModal'
 import { WithdrawModal } from '@/components/WithdrawModal'
 import { LiveBetToast, type LiveTradeToast } from '@/components/LiveBetToast'
+import { LiveMatchBanner } from '@/components/LiveMatchBanner'
+import { MarketChat } from '@/components/MarketChat'
 import { useMarketStream, type LiveTrade, type MarketPriceUpdate } from '@/lib/useMarketStream'
 import { useTheme } from '@/contexts/ThemeContext'
 import { 
@@ -56,135 +58,6 @@ const SPORTS_CATEGORIES = [
   { value: 'other-sports', label: 'Other Sports' },
 ]
 
-// Sports betting markets with Zambian currency (Kwacha K and Ngwee n)
-const SPORTS_MARKETS = [
-  {
-    id: '1',
-    title: 'Will Manchester United beat Liverpool?',
-    description: 'Premier League - Old Trafford',
-    category: 'premier-league',
-    question: 'Manchester United vs Liverpool',
-    resolveTime: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-    yesPrice: 0.45,
-    noPrice: 0.55,
-    volume: 25000000, // K25M volume
-    liquidity: 5000000, // K5M liquidity
-    status: 'ACTIVE',
-    trend: 'up',
-    change: '+2.3%',
-    image: '/images/premier-league.jpg',
-    subtitle: 'Premier League',
-    league: 'Premier League',
-    matchDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-    homeTeam: 'Manchester United',
-    awayTeam: 'Liverpool'
-  },
-  {
-    id: '2',
-    title: 'Will Real Madrid beat Barcelona?',
-    description: 'La Liga - El Clásico',
-    category: 'la-liga',
-    question: 'Real Madrid vs Barcelona',
-    resolveTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-    yesPrice: 0.62,
-    noPrice: 0.38,
-    volume: 45000000, // K45M volume
-    liquidity: 8000000, // K8M liquidity
-    status: 'ACTIVE',
-    trend: 'down',
-    change: '-1.8%',
-    image: '/images/laliga.jpg',
-    subtitle: 'La Liga',
-    league: 'La Liga',
-    matchDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-    homeTeam: 'Real Madrid',
-    awayTeam: 'Barcelona'
-  },
-  {
-    id: '3',
-    title: 'Will ZESCO United win?',
-    description: 'Zambia Super League - Home match',
-    category: 'zambia-super-league',
-    question: 'ZESCO United vs Power Dynamos',
-    resolveTime: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(),
-    yesPrice: 0.68,
-    noPrice: 0.32,
-    volume: 8500000, // K8.5M volume
-    liquidity: 2000000, // K2M liquidity
-    status: 'ACTIVE',
-    trend: 'up',
-    change: '+4.2%',
-    image: '/images/zambia-league.jpg',
-    subtitle: 'Zambia Super League',
-    league: 'Zambia Super League',
-    matchDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-    homeTeam: 'ZESCO United',
-    awayTeam: 'Power Dynamos'
-  },
-  {
-    id: '4',
-    title: 'Will Bayern Munich win?',
-    description: 'Bundesliga - Allianz Arena',
-    category: 'bundesliga',
-    question: 'Bayern Munich vs Borussia Dortmund',
-    resolveTime: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString(),
-    yesPrice: 0.71,
-    noPrice: 0.29,
-    volume: 32000000, // K32M volume
-    liquidity: 6500000, // K6.5M liquidity
-    status: 'ACTIVE',
-    trend: 'up',
-    change: '+1.5%',
-    image: '/images/bundesliga.jpg',
-    subtitle: 'Bundesliga',
-    league: 'Bundesliga',
-    matchDate: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-    homeTeam: 'Bayern Munich',
-    awayTeam: 'Borussia Dortmund'
-  },
-  {
-    id: '5',
-    title: 'Will AC Milan beat Inter?',
-    description: 'Serie A - San Siro Derby',
-    category: 'serie-a',
-    question: 'AC Milan vs Inter Milan',
-    resolveTime: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-    yesPrice: 0.48,
-    noPrice: 0.52,
-    volume: 28000000, // K28M volume
-    liquidity: 4500000, // K4.5M liquidity
-    status: 'ACTIVE',
-    trend: 'down',
-    change: '-2.1%',
-    image: '/images/seriea.jpg',
-    subtitle: 'Serie A',
-    league: 'Serie A',
-    matchDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-    homeTeam: 'AC Milan',
-    awayTeam: 'Inter Milan'
-  },
-  {
-    id: '6',
-    title: 'Will PSG win?',
-    description: 'Ligue 1 - Parc des Princes',
-    category: 'ligue-1',
-    question: 'PSG vs Marseille',
-    resolveTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-    yesPrice: 0.78,
-    noPrice: 0.22,
-    volume: 18000000, // K18M volume
-    liquidity: 3200000, // K3.2M liquidity
-    status: 'ACTIVE',
-    trend: 'up',
-    change: '+3.6%',
-    image: '/images/ligue1.jpg',
-    subtitle: 'Ligue 1',
-    league: 'Ligue 1',
-    matchDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-    homeTeam: 'PSG',
-    awayTeam: 'Marseille'
-  },
-]
 
 const STATS = [
   { label: '24h Volume', value: 'K156.8M', change: '+18%', icon: BarChart3 },
@@ -273,25 +146,16 @@ export default function PolymarketStyleHomePage() {
     }
   }, [error])
 
-  // Load markets from API, merge with fallback data
+  // Load markets from API
   const loadMarkets = useCallback(async (showLoader = true) => {
     if (showLoader) setLoading(true)
     try {
       const response = await fetch('/api/markets')
       if (!response.ok) throw new Error('Failed to load markets')
       const apiMarkets = await response.json()
-      
-      if (apiMarkets.length > 0) {
-        // Merge: API markets first, then fill with fallback if needed
-        const apiIds = new Set(apiMarkets.map((m: any) => m.id))
-        const fallback = SPORTS_MARKETS.filter(m => !apiIds.has(m.id))
-        setMarkets([...apiMarkets, ...fallback])
-      } else {
-        setMarkets(SPORTS_MARKETS)
-      }
+      setMarkets(apiMarkets)
     } catch (loadError) {
-      console.error('Failed to load markets, using fallback data.', loadError)
-      if (markets.length === 0) setMarkets(SPORTS_MARKETS)
+      console.error('Failed to load markets:', loadError)
     } finally {
       setLoading(false)
     }
@@ -594,6 +458,13 @@ export default function PolymarketStyleHomePage() {
             </button>
           ))}
         </div>
+
+        {/* Live Matches Banner */}
+        <LiveMatchBanner
+          onMarketClick={(marketId) => {
+            setShowChart({ marketId, outcome: 'YES' })
+          }}
+        />
 
         {/* Markets Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -899,6 +770,9 @@ export default function PolymarketStyleHomePage() {
                   </p>
                 </div>
               </div>
+
+              {/* Market Chat */}
+              <MarketChat marketId={market.id} isOpen={true} />
             </div>
           </div>
         )

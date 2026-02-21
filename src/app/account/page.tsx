@@ -60,25 +60,13 @@ export default function AccountPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  const handleDeposit = async (amount: number) => {
-    const res = await fetch('/api/deposit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, method: 'direct' })
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Deposit failed')
+  const handleDeposit = async () => {
+    // DepositModal handles the API call internally — just refresh data
     await loadData()
   }
 
-  const handleWithdraw = async (amount: number) => {
-    const res = await fetch('/api/withdraw', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, method: 'direct' })
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Withdrawal failed')
+  const handleWithdraw = async () => {
+    // WithdrawModal handles the API call internally — just refresh data
     await loadData()
   }
 
