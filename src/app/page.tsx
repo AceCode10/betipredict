@@ -84,6 +84,7 @@ export default function PolymarketStyleHomePage() {
   const [positionFilter, setPositionFilter] = useState<string>('All')
   const [loadingHolders, setLoadingHolders] = useState(false)
   const [activityFeed, setActivityFeed] = useState<any[]>([])
+  const [liveMarketIds, setLiveMarketIds] = useState<Set<string>>(new Set())
   
   const contractService = useContractService()
   const isLoggedIn = sessionStatus === 'authenticated' && !!session?.user
@@ -422,14 +423,13 @@ export default function PolymarketStyleHomePage() {
       if (data.newYesPrice && data.newNoPrice) {
         setMarkets(prev => prev.map(m =>
           m.id === market.id
-            ? { ...m, yesPrice: data.newYesPrice, noPrice: data.newNoPrice, volume: (m.volume || 0) + amount * (outcome === 'YES' ? market.yesPrice : market.noPrice) }
+            ? { ...m, yesPrice: data.newYesPrice, noPrice: data.newNoPrice, volume: (m.volume || 0) + amount }
             : m
         ))
       }
 
       await loadBalance()
       setDetailAmount('')
-      setShowChart(null)
     } catch (err: any) {
       setError(err.message || 'Failed to place trade')
     } finally {
@@ -546,11 +546,12 @@ export default function PolymarketStyleHomePage() {
           onMarketClick={(marketId, outcome) => {
             setShowChart({ marketId, outcome: outcome || 'YES' })
           }}
+          onLiveMarketIds={(ids) => setLiveMarketIds(new Set(ids))}
         />
 
-        {/* Markets Grid */}
+        {/* Markets Grid — exclude markets already shown in the Live banner */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {filteredMarkets.map((market) => {
+          {filteredMarkets.filter(m => !liveMarketIds.has(m.id)).map((market) => {
             const yesPercent = Math.round(market.yesPrice * 100)
             const noPercent = Math.round(market.noPrice * 100)
             const cardBg = isDarkMode ? 'bg-[#1e2130]' : 'bg-white'
@@ -717,7 +718,7 @@ export default function PolymarketStyleHomePage() {
         </div>
 
         {/* Empty State */}
-        {filteredMarkets.length === 0 && !loading && (
+        {filteredMarkets.filter(m => !liveMarketIds.has(m.id)).length === 0 && !loading && (
           <div className="text-center py-16">
             <div className={`${textMuted} text-5xl mb-4`}>⚽</div>
             <p className={`${textMuted} text-sm`}>No markets found in this category</p>
@@ -1063,7 +1064,7 @@ export default function PolymarketStyleHomePage() {
                       onClick={() => { setTradeSide('BUY'); setDetailAmount('') }}
                       className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${
                         tradeSide === 'BUY'
-                          ? isDarkMode ? 'bg-white/10 text-white' : 'bg-gray-900 text-white'
+                          ? 'bg-green-500/15 text-green-500 ring-1 ring-green-500/30'
                           : `${textMuted} hover:${textColor}`
                       }`}
                     >
@@ -1073,7 +1074,7 @@ export default function PolymarketStyleHomePage() {
                       onClick={() => { setTradeSide('SELL'); setDetailAmount('') }}
                       className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${
                         tradeSide === 'SELL'
-                          ? isDarkMode ? 'bg-white/10 text-white' : 'bg-gray-900 text-white'
+                          ? 'bg-red-500/15 text-red-500 ring-1 ring-red-500/30'
                           : `${textMuted} hover:${textColor}`
                       }`}
                     >
@@ -1197,14 +1198,14 @@ export default function PolymarketStyleHomePage() {
                     className={`w-full py-3 text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 ${
                       tradeSide === 'SELL'
                         ? 'bg-red-500 hover:bg-red-600 text-white'
-                        : 'bg-blue-500 hover:bg-blue-600 text-white'
+                        : 'bg-green-500 hover:bg-green-600 text-white'
                     }`}
                   >
                     {placingBets ? 'Processing...' : !isLoggedIn ? 'Sign In to Trade' : amt > 0 ? 'Trade' : 'Enter amount'}
                   </button>
 
                   <p className={`text-[10px] ${textMuted} text-center mt-2`}>
-                    By trading, you agree to the Terms of Use.
+                    By trading, you agree to the <a href="/terms" className="underline hover:text-green-500 transition-colors">Terms of Use</a>.
                   </p>
                 </div>
               </div>

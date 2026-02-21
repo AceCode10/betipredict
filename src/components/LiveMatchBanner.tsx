@@ -29,6 +29,7 @@ interface LiveMatchBannerProps {
   category?: string
   onMarketClick?: (marketId: string, outcome?: 'YES' | 'NO') => void
   onBet?: (marketId: string, outcome: 'YES' | 'NO') => void
+  onLiveMarketIds?: (ids: string[]) => void
 }
 
 // Map competition codes/names to UI category slugs
@@ -68,7 +69,7 @@ function getCompetitionShort(code: string, name: string): string {
   return map[code] || code || name.split(' ').map(w => w[0]).join('').substring(0, 3).toUpperCase()
 }
 
-export function LiveMatchBanner({ category = 'all', onMarketClick, onBet }: LiveMatchBannerProps) {
+export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLiveMarketIds }: LiveMatchBannerProps) {
   const { isDarkMode } = useTheme()
   const [matches, setMatches] = useState<LiveMatch[]>([])
   const [loading, setLoading] = useState(true)
@@ -122,6 +123,13 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet }: Live
   }, [fetchLiveMatches])
 
   const filteredMatches = matches.filter(m => matchesCategoryFilter(m, category))
+
+  // Report live market IDs to parent so it can hide duplicate market cards
+  const liveIdKey = filteredMatches.filter(m => m.marketId).map(m => m.marketId!).join(',')
+  useEffect(() => {
+    const ids = filteredMatches.filter(m => m.marketId).map(m => m.marketId!)
+    onLiveMarketIds?.(ids)
+  }, [liveIdKey])
 
   if (loading || filteredMatches.length === 0) return null
 
@@ -268,6 +276,12 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet }: Live
                   <span>{formatVolume(match.volume)} Vol.</span>
                 ) : (
                   <span>K0 Vol.</span>
+                )}
+                {match.liquidity != null && match.liquidity > 0 && (
+                  <>
+                    <span className={isDarkMode ? 'text-gray-700' : 'text-gray-300'}>·</span>
+                    <span>{formatVolume(match.liquidity)} Liq.</span>
+                  </>
                 )}
                 <span className={isDarkMode ? 'text-gray-700' : 'text-gray-300'}>·</span>
                 <span>{shortComp}</span>

@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
           where: { id: marketId },
           data: {
             volume: { increment: grossAmount },
-            liquidity: { increment: kwachaToSpend },
+            liquidity: newPool.yesShares + newPool.noShares,
             yesPrice: Math.max(0.01, Math.min(0.99, newPrices.yesPrice)),
             noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice)),
             poolYesShares: newPool.yesShares,
@@ -308,13 +308,11 @@ export async function POST(request: NextRequest) {
         })
 
         // 6. Update market prices, liquidity, and persist CPMM pool state
-        const freshMarket = await tx.market.findUnique({ where: { id: marketId }, select: { liquidity: true } })
-        const currentLiquidity = freshMarket?.liquidity || 0
         const updatedMarket = await tx.market.update({
           where: { id: marketId },
           data: {
             volume: { increment: grossProceeds },
-            liquidity: Math.max(0, currentLiquidity - grossProceeds),
+            liquidity: sellPool.yesShares + sellPool.noShares,
             yesPrice: Math.max(0.01, Math.min(0.99, newPrices.yesPrice)),
             noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice)),
             poolYesShares: sellPool.yesShares,

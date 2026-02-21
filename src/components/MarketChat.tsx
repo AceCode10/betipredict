@@ -304,7 +304,7 @@ export function MarketChat({ marketId, isOpen }: MarketChatProps) {
                 disabled={!input.trim() || sending}
                 className={`px-4 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
                   input.trim()
-                    ? 'bg-blue-500 text-white hover:bg-blue-600'
+                    ? 'bg-green-500 text-white hover:bg-green-600'
                     : isDarkMode ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}
               >

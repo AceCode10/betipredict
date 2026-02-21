@@ -197,7 +197,7 @@ export function PriceChart({ marketId, outcome, currentPrice, onClose }: PriceCh
             onClick={() => setRange(r.key)}
             className={`px-2.5 py-1 text-[11px] font-semibold rounded transition-colors ${
               range === r.key
-                ? 'bg-blue-500/15 text-blue-400'
+                ? 'bg-green-500/15 text-green-400'
                 : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
             }`}
           >
