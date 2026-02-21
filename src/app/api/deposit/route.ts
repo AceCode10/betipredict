@@ -4,12 +4,19 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { FEES } from '@/lib/fees'
 import {
-  initiateCollection,
+  initiateCollection as airtelInitiateCollection,
   generateTransactionRef,
   isAirtelMoneyConfigured,
   normalizeZambianPhone,
   AirtelMoneyError,
 } from '@/lib/airtel-money'
+import {
+  initiateCollection as mtnInitiateCollection,
+  isMtnMoneyConfigured,
+  normalizeMtnZambianPhone,
+  generateMtnTransactionRef,
+  MtnMoneyError,
+} from '@/lib/mtn-money'
 import { checkRateLimit } from '@/lib/rate-limit'
 import {
   getIdempotencyKeyFromRequest,
@@ -83,12 +90,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    // Validate phone number is required for all mobile money deposits
+    if (!phoneNumber) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+      return NextResponse.json({ error: 'Phone number is required for mobile money deposits' }, { status: 400 })
+    }
+
+    // Mask phone for storage (097****567)
+    const maskedPhone = phoneNumber.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2')
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000) // 5 minute expiry
+
     // ─── Airtel Money Flow ───────────────────────────────────────
-    if (method === 'airtel_money' && isAirtelMoneyConfigured()) {
-      // Validate phone number
-      if (!phoneNumber) {
+    if (method === 'airtel_money') {
+      if (!isAirtelMoneyConfigured()) {
         if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
-        return NextResponse.json({ error: 'Phone number is required for Airtel Money deposits' }, { status: 400 })
+        return NextResponse.json({ error: 'Airtel Money is not configured. Please contact support.' }, { status: 503 })
       }
 
       let normalizedPhone: string
@@ -99,17 +115,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: e.message || 'Invalid phone number' }, { status: 400 })
       }
 
-      // Mask phone for storage (097****567)
-      const maskedPhone = phoneNumber.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2')
       const externalRef = generateTransactionRef('DEP')
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000) // 5 minute expiry
 
-      // Create pending mobile payment record
       const mobilePayment = await prisma.mobilePayment.create({
         data: {
           type: 'DEPOSIT',
           amount: amount,
-          feeAmount: 0, // No fee on deposits
+          feeAmount: 0,
           netAmount: amount,
           phoneNumber: maskedPhone,
           provider: 'AIRTEL_MONEY',
@@ -120,15 +132,13 @@ export async function POST(request: NextRequest) {
         }
       })
 
-      // Initiate Airtel Money collection (USSD push)
       try {
-        const airtelResponse = await initiateCollection({
+        const airtelResponse = await airtelInitiateCollection({
           phoneNumber,
-          amount: Math.round(amount), // Airtel expects whole numbers
+          amount: Math.round(amount),
           reference: externalRef,
         })
 
-        // Update payment with Airtel's transaction ID
         await prisma.mobilePayment.update({
           where: { id: mobilePayment.id },
           data: {
@@ -149,7 +159,6 @@ export async function POST(request: NextRequest) {
         if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, successBody)
         return NextResponse.json(successBody)
       } catch (err: any) {
-        // Mark payment as failed
         await prisma.mobilePayment.update({
           where: { id: mobilePayment.id },
           data: {
@@ -161,42 +170,89 @@ export async function POST(request: NextRequest) {
         const errorMessage = err instanceof AirtelMoneyError
           ? err.message
           : 'Failed to initiate Airtel Money payment. Please try again.'
-        
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
         return NextResponse.json({ error: errorMessage }, { status: 502 })
       }
     }
 
-    // ─── Direct/Fallback Deposit (dev mode or non-Airtel) ────
-    const [updatedUser, transaction] = await prisma.$transaction([
-      prisma.user.update({
-        where: { id: session.user.id },
-        data: { balance: { increment: amount } }
-      }),
-      prisma.transaction.create({
+    // ─── MTN MoMo Flow ───────────────────────────────────────────
+    if (method === 'mtn_money') {
+      if (!isMtnMoneyConfigured()) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+        return NextResponse.json({ error: 'MTN MoMo is not configured. Please contact support.' }, { status: 503 })
+      }
+
+      let normalizedPhone: string
+      try {
+        normalizedPhone = normalizeMtnZambianPhone(phoneNumber)
+      } catch (e: any) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+        return NextResponse.json({ error: e.message || 'Invalid phone number' }, { status: 400 })
+      }
+
+      const externalRef = generateMtnTransactionRef('DEP')
+
+      const mobilePayment = await prisma.mobilePayment.create({
         data: {
           type: 'DEPOSIT',
           amount: amount,
           feeAmount: 0,
-          description: `Deposit K${amount.toFixed(2)} via ${method || 'direct'}`,
-          status: 'COMPLETED',
+          netAmount: amount,
+          phoneNumber: maskedPhone,
+          provider: 'MTN_MONEY',
+          externalRef,
+          status: 'PENDING',
+          expiresAt,
           userId: session.user.id,
-          metadata: JSON.stringify({ method: method || 'direct', originalAmount: amount })
         }
       })
-    ])
 
-    const directSuccessBody = {
-      success: true,
-      newBalance: updatedUser.balance,
-      transaction: {
-        id: transaction.id,
-        amount: transaction.amount,
-        type: transaction.type,
-        status: transaction.status
+      try {
+        const mtnResponse = await mtnInitiateCollection({
+          phoneNumber,
+          amount: Math.round(amount),
+          reference: externalRef,
+        })
+
+        await prisma.mobilePayment.update({
+          where: { id: mobilePayment.id },
+          data: {
+            externalId: mtnResponse.referenceId || null,
+            status: 'PROCESSING',
+            statusMessage: 'Payment prompt sent to your phone. Please confirm.',
+          }
+        })
+
+        const successBody = {
+          success: true,
+          paymentId: mobilePayment.id,
+          externalRef,
+          status: 'PROCESSING',
+          message: 'A payment prompt has been sent to your MTN MoMo. Please enter your PIN to confirm.',
+          expiresAt: expiresAt.toISOString(),
+        }
+        if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, successBody)
+        return NextResponse.json(successBody)
+      } catch (err: any) {
+        await prisma.mobilePayment.update({
+          where: { id: mobilePayment.id },
+          data: {
+            status: 'FAILED',
+            statusMessage: err.message || 'Failed to initiate payment',
+          }
+        })
+
+        const errorMessage = err instanceof MtnMoneyError
+          ? err.message
+          : 'Failed to initiate MTN MoMo payment. Please try again.'
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+        return NextResponse.json({ error: errorMessage }, { status: 502 })
       }
     }
-    if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, directSuccessBody)
-    return NextResponse.json(directSuccessBody)
+
+    // ─── Unsupported method ──────────────────────────────────────
+    if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+    return NextResponse.json({ error: 'Unsupported payment method. Please use Airtel Money or MTN MoMo.' }, { status: 400 })
   } catch (error) {
     console.error('Error processing deposit:', error)
     if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)

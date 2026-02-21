@@ -5,6 +5,7 @@ import { X, Smartphone, CheckCircle2, Loader2, AlertCircle } from 'lucide-react'
 import { formatZambianCurrency } from '@/utils/currency'
 
 type DepositStep = 'input' | 'processing' | 'success' | 'failed'
+type MobileProvider = 'airtel_money' | 'mtn_money'
 
 interface DepositModalProps {
   isOpen: boolean
@@ -13,9 +14,15 @@ interface DepositModalProps {
   currentBalance: number
 }
 
+const PROVIDERS = [
+  { id: 'airtel_money' as MobileProvider, name: 'Airtel Money', color: 'text-red-500', bg: 'bg-red-500/10 border-red-500/30', activeBg: 'bg-red-500/20 border-red-500', prefix: '097 / 077', hint: 'Airtel Zambia number (097X, 077X)' },
+  { id: 'mtn_money' as MobileProvider, name: 'MTN MoMo', color: 'text-yellow-500', bg: 'bg-yellow-500/10 border-yellow-500/30', activeBg: 'bg-yellow-500/20 border-yellow-500', prefix: '096 / 076', hint: 'MTN Zambia number (096X, 076X)' },
+]
+
 export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: DepositModalProps) {
   const [amount, setAmount] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
+  const [provider, setProvider] = useState<MobileProvider>('airtel_money')
   const [step, setStep] = useState<DepositStep>('input')
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState('')
@@ -24,7 +31,6 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
   const [statusMessage, setStatusMessage] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Clean up polling on unmount or close
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
@@ -43,6 +49,9 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
 
   if (!isOpen) return null
 
+  const selectedProvider = PROVIDERS.find(p => p.id === provider)!
+  const providerLabel = provider === 'airtel_money' ? 'Airtel Money' : 'MTN MoMo'
+
   const handleClose = () => {
     resetState()
     onClose()
@@ -50,14 +59,14 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
 
   const pollPaymentStatus = (pId: string) => {
     let attempts = 0
-    const maxAttempts = 60 // 5 minutes at 5s intervals
+    const maxAttempts = 60
 
     pollRef.current = setInterval(async () => {
       attempts++
       if (attempts > maxAttempts) {
         if (pollRef.current) clearInterval(pollRef.current)
         setStep('failed')
-        setError('Payment timed out. Please check your Airtel Money and try again.')
+        setError(`Payment timed out. Please check your ${providerLabel} and try again.`)
         return
       }
 
@@ -71,7 +80,6 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('success')
           setSuccess(`Successfully deposited ${formatZambianCurrency(data.netAmount || parseFloat(amount))}`)
-          // Trigger parent data refresh
           onDeposit(data.netAmount || parseFloat(amount)).catch(() => {})
         } else if (data.status === 'FAILED' || data.status === 'CANCELLED') {
           if (pollRef.current) clearInterval(pollRef.current)
@@ -101,13 +109,15 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
       return
     }
 
-    // Validate phone number if provided
-    if (phoneNumber) {
-      const digits = phoneNumber.replace(/\D/g, '')
-      if (digits.length < 9 || digits.length > 13) {
-        setError('Please enter a valid Zambian phone number (e.g., 0971234567)')
-        return
-      }
+    if (!phoneNumber) {
+      setError('Please enter your mobile money number')
+      return
+    }
+
+    const digits = phoneNumber.replace(/\D/g, '')
+    if (digits.length < 9 || digits.length > 13) {
+      setError('Please enter a valid Zambian phone number')
+      return
     }
 
     setError('')
@@ -115,31 +125,28 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
     setIsProcessing(true)
 
     try {
-      // Call the deposit API
       const res = await fetch('/api/deposit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: depositAmount,
-          phoneNumber: phoneNumber || undefined,
-          method: phoneNumber ? 'airtel_money' : 'direct',
+          phoneNumber,
+          method: provider,
         })
       })
 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Deposit failed')
 
-      // If Airtel Money flow (async), start polling
       if (data.paymentId && data.status === 'PROCESSING') {
         setPaymentId(data.paymentId)
         setStep('processing')
-        setStatusMessage(data.message || 'Check your phone for the Airtel Money prompt...')
+        setStatusMessage(data.message || `Check your phone for the ${providerLabel} prompt...`)
         pollPaymentStatus(data.paymentId)
       } else {
-        // Direct deposit (instant)
         setStep('success')
         setSuccess(`Successfully deposited ${formatZambianCurrency(depositAmount)}`)
-        await onDeposit(depositAmount, phoneNumber || undefined)
+        await onDeposit(depositAmount, phoneNumber)
         setTimeout(handleClose, 2000)
       }
     } catch (err: any) {
@@ -160,7 +167,7 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <Smartphone className="w-5 h-5 text-green-500" />
-            Deposit via Airtel Money
+            Deposit via Mobile Money
           </h2>
           <button onClick={handleClose} className="text-gray-400 hover:text-white p-1">
             <X className="w-5 h-5" />
@@ -176,21 +183,43 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
               <div className="text-xl font-bold text-white">{formatZambianCurrency(currentBalance)}</div>
             </div>
 
+            {/* Provider Selection */}
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Payment Provider</label>
+              <div className="grid grid-cols-2 gap-2">
+                {PROVIDERS.map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => { setProvider(p.id); setError('') }}
+                    className={`flex flex-col items-center gap-1 px-3 py-3 rounded-lg border text-sm font-semibold transition-all ${
+                      provider === p.id
+                        ? `${p.activeBg} ${p.color}`
+                        : 'border-gray-700 text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    <span className={p.color}>{p.name}</span>
+                    <span className="text-[10px] text-gray-500 font-normal">{p.prefix}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Phone Number Input */}
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Airtel Money Number</label>
+              <label className="block text-sm text-gray-400 mb-1">{providerLabel} Number</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">+260</span>
                 <input
                   type="tel"
                   value={phoneNumber}
                   onChange={(e) => { setPhoneNumber(e.target.value.replace(/[^\d]/g, '').slice(0, 10)); setError('') }}
-                  placeholder="97XXXXXXX"
+                  placeholder={provider === 'airtel_money' ? '97XXXXXXX' : '96XXXXXXX'}
                   className="w-full pl-14 pr-3 py-3 text-lg font-medium bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-green-500"
                   maxLength={10}
                 />
               </div>
-              <p className="text-[10px] text-gray-500 mt-1">Enter your Airtel Money number to receive a payment prompt</p>
+              <p className="text-[10px] text-gray-500 mt-1">{selectedProvider.hint}</p>
             </div>
 
             {/* Amount Input */}
@@ -250,7 +279,7 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
             {/* Deposit Button */}
             <button
               onClick={handleDeposit}
-              disabled={isProcessing || !amount || parseFloat(amount) <= 0}
+              disabled={isProcessing || !amount || parseFloat(amount) <= 0 || !phoneNumber}
               className="w-full py-3 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {isProcessing ? (
@@ -258,15 +287,13 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Initiating...
                 </>
-              ) : phoneNumber ? (
-                'Deposit via Airtel Money'
               ) : (
-                'Deposit'
+                `Deposit via ${providerLabel}`
               )}
             </button>
 
             <p className="text-[10px] text-gray-600 text-center">
-              No fees on deposits. A USSD prompt will be sent to your phone. By depositing, you agree to the Terms of Use.
+              No fees on deposits. A payment prompt will be sent to your phone. By depositing, you agree to the Terms of Use.
             </p>
           </div>
         )}
@@ -279,7 +306,7 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
             </div>
             <h3 className="text-lg font-semibold text-white">Confirm on Your Phone</h3>
             <p className="text-sm text-gray-400">
-              {statusMessage || 'A payment prompt has been sent to your Airtel Money. Enter your PIN to confirm.'}
+              {statusMessage || `A payment prompt has been sent to your ${providerLabel}. Enter your PIN to confirm.`}
             </p>
             <div className="bg-[#232637] rounded-lg p-3 space-y-1">
               <div className="flex justify-between text-sm">
@@ -289,6 +316,10 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400">Phone</span>
                 <span className="text-white font-medium">+260{phoneNumber}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">Provider</span>
+                <span className={`font-medium ${selectedProvider.color}`}>{providerLabel}</span>
               </div>
             </div>
             <div className="flex items-center justify-center gap-2 text-xs text-gray-500">

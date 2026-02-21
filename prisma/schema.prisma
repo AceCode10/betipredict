@@ -39,6 +39,7 @@ model User {
   disputes                MarketDispute[]    @relation("UserDisputes")
   disputeResolutions      MarketDispute[]    @relation("AdminDisputeResolutions")
   chatMessages            ChatMessage[]
+  chatMessageLikes        ChatMessageLike[]
 
   @@map("users")
 }
@@ -292,6 +293,10 @@ model IdempotencyKey {
 model ChatMessage {
   id          String   @id @default(cuid())
   content     String
+  parentId    String?  // Reply to another message
+  parent      ChatMessage?  @relation("ChatReplies", fields: [parentId], references: [id])
+  replies     ChatMessage[] @relation("ChatReplies")
+  likes       ChatMessageLike[]
   createdAt   DateTime @default(now())
 
   userId      String
@@ -300,7 +305,22 @@ model ChatMessage {
   market      Market   @relation(fields: [marketId], references: [id])
 
   @@index([marketId, createdAt])
+  @@index([parentId])
   @@map("chat_messages")
+}
+
+// Chat message likes
+model ChatMessageLike {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  messageId   String
+  message     ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@map("chat_message_likes")
 }
 
 // Audit log for admin actions and financial operations

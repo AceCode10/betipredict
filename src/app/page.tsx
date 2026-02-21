@@ -59,11 +59,6 @@ const SPORTS_CATEGORIES = [
 ]
 
 
-const STATS = [
-  { label: '24h Volume', value: 'K156.8M', change: '+18%', icon: BarChart3 },
-  { label: 'Active Markets', value: '24', change: '+3', icon: TrendingUp },
-  { label: 'Active Traders', value: '2,847', change: '+156', icon: Users },
-]
 
 export default function PolymarketStyleHomePage() {
   const { data: session, status: sessionStatus } = useSession()
@@ -203,7 +198,7 @@ export default function PolymarketStyleHomePage() {
   const filteredMarkets = normalizedMarkets.filter(market => {
     let matchesCategory = category === 'all'
     if (!matchesCategory) {
-      // Direct slug match (for hardcoded fallback markets)
+      // Direct slug match
       if (market.category === category) {
         matchesCategory = true
       } else {

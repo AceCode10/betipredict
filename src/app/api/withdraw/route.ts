@@ -4,12 +4,19 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { calculateWithdrawalFee, FEES } from '@/lib/fees'
 import {
-  initiateDisbursement,
+  initiateDisbursement as airtelInitiateDisbursement,
   generateTransactionRef,
   isAirtelMoneyConfigured,
   normalizeZambianPhone,
   AirtelMoneyError,
 } from '@/lib/airtel-money'
+import {
+  initiateDisbursement as mtnInitiateDisbursement,
+  isMtnMoneyConfigured,
+  normalizeMtnZambianPhone,
+  generateMtnTransactionRef,
+  MtnMoneyError,
+} from '@/lib/mtn-money'
 import { checkRateLimit } from '@/lib/rate-limit'
 import {
   getIdempotencyKeyFromRequest,
@@ -92,207 +99,200 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient balance' }, { status: 400 })
     }
 
-    // ─── Airtel Money Disbursement Flow ──────────────────────
-    if (method === 'airtel_money' && isAirtelMoneyConfigured()) {
-      if (!phoneNumber) {
-        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
-        return NextResponse.json({ error: 'Phone number is required for Airtel Money withdrawals' }, { status: 400 })
-      }
+    // Validate phone number is required
+    if (!phoneNumber) {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+      return NextResponse.json({ error: 'Phone number is required for mobile money withdrawals' }, { status: 400 })
+    }
 
-      let normalizedPhone: string
-      try {
-        normalizedPhone = normalizeZambianPhone(phoneNumber)
-      } catch (e: any) {
+    const maskedPhone = phoneNumber.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2')
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
+
+    // Determine provider and validate phone
+    let providerName: string
+    let externalRef: string
+
+    if (method === 'airtel_money') {
+      if (!isAirtelMoneyConfigured()) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+        return NextResponse.json({ error: 'Airtel Money is not configured. Please contact support.' }, { status: 503 })
+      }
+      try { normalizeZambianPhone(phoneNumber) } catch (e: any) {
         if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
         return NextResponse.json({ error: e.message || 'Invalid phone number' }, { status: 400 })
       }
-
-      const maskedPhone = phoneNumber.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2')
-      const externalRef = generateTransactionRef('WDR')
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
-
-      // Deduct balance first (atomically), then initiate disbursement
-      const result = await prisma.$transaction(async (tx) => {
-        // Re-check balance inside transaction
-        const freshUser = await tx.user.findUnique({ where: { id: session.user.id } })
-        if (!freshUser || freshUser.balance < amount) {
-          throw new Error('Insufficient balance')
-        }
-
-        // Deduct full amount from user balance
-        const updatedUser = await tx.user.update({
-          where: { id: session.user.id },
-          data: { balance: { decrement: amount } }
-        })
-
-        // Create mobile payment record
-        const mobilePayment = await tx.mobilePayment.create({
-          data: {
-            type: 'WITHDRAWAL',
-            amount: amount,
-            feeAmount: fee.feeAmount,
-            netAmount: fee.netAmount, // Amount user receives after fee
-            phoneNumber: maskedPhone,
-            provider: 'AIRTEL_MONEY',
-            externalRef,
-            status: 'PENDING',
-            expiresAt,
-            userId: session.user.id,
-          }
-        })
-
-        // Create transaction record
-        const transaction = await tx.transaction.create({
-          data: {
-            type: 'WITHDRAWAL',
-            amount: -amount,
-            feeAmount: fee.feeAmount,
-            description: `Withdrawal K${fee.netAmount.toFixed(2)} to Airtel Money ${maskedPhone} (fee: K${fee.feeAmount.toFixed(2)})`,
-            status: 'PROCESSING',
-            userId: session.user.id,
-            metadata: JSON.stringify({
-              method: 'airtel_money',
-              phoneNumber: maskedPhone,
-              grossAmount: amount,
-              fee: fee.feeAmount,
-              netAmount: fee.netAmount,
-              externalRef,
-              paymentId: mobilePayment.id,
-            })
-          }
-        })
-
-        // Record platform revenue from withdrawal fee
-        if (fee.feeAmount > 0) {
-          await tx.platformRevenue.create({
-            data: {
-              feeType: 'WITHDRAWAL_FEE',
-              amount: fee.feeAmount,
-              description: `Withdrawal fee from ${maskedPhone}`,
-              sourceType: 'WITHDRAWAL',
-              sourceId: mobilePayment.id,
-              userId: session.user.id,
-            }
-          })
-        }
-
-        return { updatedUser, mobilePayment, transaction }
-      })
-
-      // Initiate Airtel Money disbursement (outside transaction to avoid long DB locks)
-      try {
-        const airtelResponse = await initiateDisbursement({
-          phoneNumber,
-          amount: Math.round(fee.netAmount), // Send net amount to user
-          reference: externalRef,
-        })
-
-        // Update payment status
-        await prisma.mobilePayment.update({
-          where: { id: result.mobilePayment.id },
-          data: {
-            externalId: airtelResponse.data?.transaction?.id || null,
-            status: 'PROCESSING',
-            statusMessage: 'Disbursement initiated. Funds are being sent to your Airtel Money.',
-          }
-        })
-
-        const successBody = {
-          success: true,
-          paymentId: result.mobilePayment.id,
-          externalRef,
-          status: 'PROCESSING',
-          newBalance: result.updatedUser.balance,
-          grossAmount: amount,
-          fee: fee.feeAmount,
-          netAmount: fee.netAmount,
-          message: `K${fee.netAmount.toFixed(2)} is being sent to your Airtel Money (${maskedPhone}). Fee: K${fee.feeAmount.toFixed(2)}.`,
-        }
-        if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, successBody)
-        return NextResponse.json(successBody)
-      } catch (err: any) {
-        // Disbursement failed — refund the user's balance AND reverse the fee revenue
-        console.error('[Withdraw] Airtel disbursement failed, refunding user:', err)
-        
-        const refundOps: any[] = [
-          prisma.user.update({
-            where: { id: session.user.id },
-            data: { balance: { increment: amount } }
-          }),
-          prisma.mobilePayment.update({
-            where: { id: result.mobilePayment.id },
-            data: {
-              status: 'FAILED',
-              statusMessage: err.message || 'Disbursement failed',
-              settledAt: new Date(), // Mark as settled to prevent double-refund from late callback
-            }
-          }),
-          prisma.transaction.update({
-            where: { id: result.transaction.id },
-            data: { status: 'FAILED' }
-          }),
-        ]
-
-        // Reverse the platform revenue entry for the withdrawal fee
-        if (fee.feeAmount > 0) {
-          refundOps.push(
-            prisma.platformRevenue.create({
-              data: {
-                feeType: 'WITHDRAWAL_FEE_REVERSAL',
-                amount: -fee.feeAmount,
-                description: `Reversed withdrawal fee — disbursement failed for ${maskedPhone}`,
-                sourceType: 'WITHDRAWAL',
-                sourceId: result.mobilePayment.id,
-                userId: session.user.id,
-              }
-            })
-          )
-        }
-
-        await prisma.$transaction(refundOps)
-
-        const errorMessage = err instanceof AirtelMoneyError
-          ? err.message
-          : 'Failed to send Airtel Money withdrawal. Your balance has been refunded.'
-
-        return NextResponse.json({ error: errorMessage }, { status: 502 })
+      providerName = 'AIRTEL_MONEY'
+      externalRef = generateTransactionRef('WDR')
+    } else if (method === 'mtn_money') {
+      if (!isMtnMoneyConfigured()) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+        return NextResponse.json({ error: 'MTN MoMo is not configured. Please contact support.' }, { status: 503 })
       }
+      try { normalizeMtnZambianPhone(phoneNumber) } catch (e: any) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+        return NextResponse.json({ error: e.message || 'Invalid phone number' }, { status: 400 })
+      }
+      providerName = 'MTN_MONEY'
+      externalRef = generateMtnTransactionRef('WDR')
+    } else {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+      return NextResponse.json({ error: 'Unsupported payment method. Please use Airtel Money or MTN MoMo.' }, { status: 400 })
     }
 
-    // ─── Direct/Fallback Withdrawal (dev mode) ───────────────
-    const [updatedUser, transaction] = await prisma.$transaction([
-      prisma.user.update({
+    const providerLabel = method === 'airtel_money' ? 'Airtel Money' : 'MTN MoMo'
+
+    // Deduct balance first (atomically), then initiate disbursement
+    const result = await prisma.$transaction(async (tx) => {
+      const freshUser = await tx.user.findUnique({ where: { id: session.user.id } })
+      if (!freshUser || freshUser.balance < amount) {
+        throw new Error('Insufficient balance')
+      }
+
+      const updatedUser = await tx.user.update({
         where: { id: session.user.id },
         data: { balance: { decrement: amount } }
-      }),
-      prisma.transaction.create({
+      })
+
+      const mobilePayment = await tx.mobilePayment.create({
+        data: {
+          type: 'WITHDRAWAL',
+          amount: amount,
+          feeAmount: fee.feeAmount,
+          netAmount: fee.netAmount,
+          phoneNumber: maskedPhone,
+          provider: providerName,
+          externalRef,
+          status: 'PENDING',
+          expiresAt,
+          userId: session.user.id,
+        }
+      })
+
+      const transaction = await tx.transaction.create({
         data: {
           type: 'WITHDRAWAL',
           amount: -amount,
           feeAmount: fee.feeAmount,
-          description: `Withdrawal K${fee.netAmount.toFixed(2)} via ${method} (fee: K${fee.feeAmount.toFixed(2)})`,
-          status: 'COMPLETED',
+          description: `Withdrawal K${fee.netAmount.toFixed(2)} to ${providerLabel} ${maskedPhone} (fee: K${fee.feeAmount.toFixed(2)})`,
+          status: 'PROCESSING',
           userId: session.user.id,
-          metadata: JSON.stringify({ method, grossAmount: amount, fee: fee.feeAmount, netAmount: fee.netAmount })
+          metadata: JSON.stringify({
+            method,
+            phoneNumber: maskedPhone,
+            grossAmount: amount,
+            fee: fee.feeAmount,
+            netAmount: fee.netAmount,
+            externalRef,
+            paymentId: mobilePayment.id,
+          })
         }
       })
-    ])
 
-    const directSuccessBody = {
-      success: true,
-      newBalance: updatedUser.balance,
-      grossAmount: amount,
-      fee: fee.feeAmount,
-      netAmount: fee.netAmount,
-      transaction: {
-        id: transaction.id,
-        amount: transaction.amount,
-        type: transaction.type,
-        status: transaction.status
+      if (fee.feeAmount > 0) {
+        await tx.platformRevenue.create({
+          data: {
+            feeType: 'WITHDRAWAL_FEE',
+            amount: fee.feeAmount,
+            description: `Withdrawal fee from ${maskedPhone}`,
+            sourceType: 'WITHDRAWAL',
+            sourceId: mobilePayment.id,
+            userId: session.user.id,
+          }
+        })
       }
+
+      return { updatedUser, mobilePayment, transaction }
+    })
+
+    // Initiate disbursement (outside transaction to avoid long DB locks)
+    try {
+      let disbursementExternalId: string | null = null
+
+      if (method === 'airtel_money') {
+        const airtelResponse = await airtelInitiateDisbursement({
+          phoneNumber,
+          amount: Math.round(fee.netAmount),
+          reference: externalRef,
+        })
+        disbursementExternalId = airtelResponse.data?.transaction?.id || null
+      } else {
+        const mtnResponse = await mtnInitiateDisbursement({
+          phoneNumber,
+          amount: Math.round(fee.netAmount),
+          reference: externalRef,
+        })
+        disbursementExternalId = mtnResponse.referenceId || null
+      }
+
+      await prisma.mobilePayment.update({
+        where: { id: result.mobilePayment.id },
+        data: {
+          externalId: disbursementExternalId,
+          status: 'PROCESSING',
+          statusMessage: `Disbursement initiated. Funds are being sent to your ${providerLabel}.`,
+        }
+      })
+
+      const successBody = {
+        success: true,
+        paymentId: result.mobilePayment.id,
+        externalRef,
+        status: 'PROCESSING',
+        newBalance: result.updatedUser.balance,
+        grossAmount: amount,
+        fee: fee.feeAmount,
+        netAmount: fee.netAmount,
+        message: `K${fee.netAmount.toFixed(2)} is being sent to your ${providerLabel} (${maskedPhone}). Fee: K${fee.feeAmount.toFixed(2)}.`,
+      }
+      if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, successBody)
+      return NextResponse.json(successBody)
+    } catch (err: any) {
+      // Disbursement failed — refund the user's balance AND reverse the fee revenue
+      console.error(`[Withdraw] ${providerLabel} disbursement failed, refunding user:`, err)
+      
+      const refundOps: any[] = [
+        prisma.user.update({
+          where: { id: session.user.id },
+          data: { balance: { increment: amount } }
+        }),
+        prisma.mobilePayment.update({
+          where: { id: result.mobilePayment.id },
+          data: {
+            status: 'FAILED',
+            statusMessage: err.message || 'Disbursement failed',
+            settledAt: new Date(),
+          }
+        }),
+        prisma.transaction.update({
+          where: { id: result.transaction.id },
+          data: { status: 'FAILED' }
+        }),
+      ]
+
+      if (fee.feeAmount > 0) {
+        refundOps.push(
+          prisma.platformRevenue.create({
+            data: {
+              feeType: 'WITHDRAWAL_FEE_REVERSAL',
+              amount: -fee.feeAmount,
+              description: `Reversed withdrawal fee — disbursement failed for ${maskedPhone}`,
+              sourceType: 'WITHDRAWAL',
+              sourceId: result.mobilePayment.id,
+              userId: session.user.id,
+            }
+          })
+        )
+      }
+
+      await prisma.$transaction(refundOps)
+
+      const errorMessage = (err instanceof AirtelMoneyError || err instanceof MtnMoneyError)
+        ? err.message
+        : `Failed to send ${providerLabel} withdrawal. Your balance has been refunded.`
+
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+      return NextResponse.json({ error: errorMessage }, { status: 502 })
     }
-    if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, directSuccessBody)
-    return NextResponse.json(directSuccessBody)
   } catch (error: any) {
     console.error('Error processing withdrawal:', error)
     if (idempotencyKey) {

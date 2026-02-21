@@ -5,10 +5,16 @@ import { X, Smartphone, CheckCircle2, Loader2, AlertCircle, ArrowDownToLine } fr
 import { formatZambianCurrency } from '@/utils/currency'
 
 type WithdrawStep = 'input' | 'processing' | 'success' | 'failed'
+type MobileProvider = 'airtel_money' | 'mtn_money'
 
 // Fee constants (mirrored from server for display only)
 const WITHDRAW_FEE_RATE = 0.015 // 1.5%
 const WITHDRAW_FEE_MIN = 5 // K5
+
+const PROVIDERS = [
+  { id: 'airtel_money' as MobileProvider, name: 'Airtel Money', color: 'text-red-500', activeBg: 'bg-red-500/20 border-red-500', prefix: '097 / 077', hint: 'Airtel Zambia number (097X, 077X)' },
+  { id: 'mtn_money' as MobileProvider, name: 'MTN MoMo', color: 'text-yellow-500', activeBg: 'bg-yellow-500/20 border-yellow-500', prefix: '096 / 076', hint: 'MTN Zambia number (096X, 076X)' },
+]
 
 interface WithdrawModalProps {
   isOpen: boolean
@@ -20,6 +26,7 @@ interface WithdrawModalProps {
 export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: WithdrawModalProps) {
   const [amount, setAmount] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
+  const [provider, setProvider] = useState<MobileProvider>('airtel_money')
   const [step, setStep] = useState<WithdrawStep>('input')
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState('')
@@ -60,6 +67,9 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
 
   if (!isOpen) return null
 
+  const selectedProvider = PROVIDERS.find(p => p.id === provider)!
+  const providerLabel = provider === 'airtel_money' ? 'Airtel Money' : 'MTN MoMo'
+
   const handleClose = () => {
     resetState()
     onClose()
@@ -86,7 +96,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
         if (data.status === 'COMPLETED') {
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('success')
-          setSuccess(`K${(data.netAmount || feeInfo?.net || 0).toFixed(2)} sent to your Airtel Money!`)
+          setSuccess(`K${(data.netAmount || feeInfo?.net || 0).toFixed(2)} sent to your ${providerLabel}!`)
           // Trigger parent data refresh
           onWithdraw(parseFloat(amount), phoneNumber || undefined).catch(() => {})
         } else if (data.status === 'FAILED' || data.status === 'CANCELLED') {
@@ -123,12 +133,15 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
       return
     }
 
-    if (phoneNumber) {
-      const digits = phoneNumber.replace(/\D/g, '')
-      if (digits.length < 9 || digits.length > 13) {
-        setError('Please enter a valid Zambian phone number (e.g., 0971234567)')
-        return
-      }
+    if (!phoneNumber) {
+      setError('Please enter your mobile money number')
+      return
+    }
+
+    const digits = phoneNumber.replace(/\D/g, '')
+    if (digits.length < 9 || digits.length > 13) {
+      setError('Please enter a valid Zambian phone number')
+      return
     }
 
     setError('')
@@ -141,27 +154,25 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: withdrawAmount,
-          phoneNumber: phoneNumber || undefined,
-          method: phoneNumber ? 'airtel_money' : 'direct',
+          phoneNumber,
+          method: provider,
         })
       })
 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Withdrawal failed')
 
-      // If Airtel Money flow (async), start polling
       if (data.paymentId && data.status === 'PROCESSING') {
         setPaymentId(data.paymentId)
         setFeeInfo({ fee: data.fee, net: data.netAmount })
         setStep('processing')
-        setStatusMessage(data.message || 'Sending to your Airtel Money...')
+        setStatusMessage(data.message || `Sending to your ${providerLabel}...`)
         pollPaymentStatus(data.paymentId)
       } else {
-        // Direct withdrawal (instant)
         setFeeInfo({ fee: data.fee || 0, net: data.netAmount || withdrawAmount })
         setStep('success')
         setSuccess(`Successfully withdrew ${formatZambianCurrency(data.netAmount || withdrawAmount)} (fee: ${formatZambianCurrency(data.fee || 0)})`)
-        await onWithdraw(withdrawAmount, phoneNumber || undefined)
+        await onWithdraw(withdrawAmount, phoneNumber)
         setTimeout(handleClose, 2500)
       }
     } catch (err: any) {
@@ -182,7 +193,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <ArrowDownToLine className="w-5 h-5 text-orange-500" />
-            Withdraw to Airtel Money
+            Withdraw via Mobile Money
           </h2>
           <button onClick={handleClose} className="text-gray-400 hover:text-white p-1">
             <X className="w-5 h-5" />
@@ -198,21 +209,43 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
               <div className="text-xl font-bold text-white">{formatZambianCurrency(currentBalance)}</div>
             </div>
 
+            {/* Provider Selection */}
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Payment Provider</label>
+              <div className="grid grid-cols-2 gap-2">
+                {PROVIDERS.map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => { setProvider(p.id); setError('') }}
+                    className={`flex flex-col items-center gap-1 px-3 py-3 rounded-lg border text-sm font-semibold transition-all ${
+                      provider === p.id
+                        ? `${p.activeBg} ${p.color}`
+                        : 'border-gray-700 text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    <span className={p.color}>{p.name}</span>
+                    <span className="text-[10px] text-gray-500 font-normal">{p.prefix}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Phone Number Input */}
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Airtel Money Number</label>
+              <label className="block text-sm text-gray-400 mb-1">{providerLabel} Number</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">+260</span>
                 <input
                   type="tel"
                   value={phoneNumber}
                   onChange={(e) => { setPhoneNumber(e.target.value.replace(/[^\d]/g, '').slice(0, 10)); setError('') }}
-                  placeholder="97XXXXXXX"
+                  placeholder={provider === 'airtel_money' ? '97XXXXXXX' : '96XXXXXXX'}
                   className="w-full pl-14 pr-3 py-3 text-lg font-medium bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-orange-500"
                   maxLength={10}
                 />
               </div>
-              <p className="text-[10px] text-gray-500 mt-1">Funds will be sent to this Airtel Money number</p>
+              <p className="text-[10px] text-gray-500 mt-1">{selectedProvider.hint}</p>
             </div>
 
             {/* Amount Input */}
@@ -288,7 +321,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
             {/* Withdraw Button */}
             <button
               onClick={handleWithdraw}
-              disabled={isProcessing || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > currentBalance}
+              disabled={isProcessing || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > currentBalance || !phoneNumber}
               className="w-full py-3 bg-orange-500 text-white font-semibold rounded-lg hover:bg-orange-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {isProcessing ? (
@@ -296,15 +329,13 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Processing...
                 </>
-              ) : phoneNumber ? (
-                'Withdraw to Airtel Money'
               ) : (
-                'Withdraw'
+                `Withdraw to ${providerLabel}`
               )}
             </button>
 
             <p className="text-[10px] text-gray-600 text-center">
-              1.5% withdrawal fee (min K5). Funds sent directly to your Airtel Money wallet.
+              1.5% withdrawal fee (min K5). Funds sent directly to your mobile money wallet.
             </p>
           </div>
         )}
@@ -315,7 +346,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
             <div className="w-16 h-16 rounded-full bg-orange-500/10 flex items-center justify-center mx-auto">
               <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
             </div>
-            <h3 className="text-lg font-semibold text-white">Sending to Airtel Money</h3>
+            <h3 className="text-lg font-semibold text-white">Sending to {providerLabel}</h3>
             <p className="text-sm text-gray-400">
               {statusMessage || 'Your withdrawal is being processed...'}
             </p>

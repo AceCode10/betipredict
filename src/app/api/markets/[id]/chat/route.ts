@@ -5,9 +5,45 @@ import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
 
 /**
- * GET  /api/markets/[id]/chat - Fetch chat messages for a market
- * POST /api/markets/[id]/chat - Send a chat message
+ * GET  /api/markets/[id]/chat - Fetch comments for a market (Polymarket-style)
+ * POST /api/markets/[id]/chat - Post a comment or reply
+ * PUT  /api/markets/[id]/chat - Like/unlike a comment
  */
+
+const commentSelect = (userId?: string) => ({
+  id: true,
+  content: true,
+  parentId: true,
+  createdAt: true,
+  user: {
+    select: {
+      id: true,
+      username: true,
+      avatar: true,
+    }
+  },
+  _count: {
+    select: { likes: true, replies: true }
+  },
+  likes: userId ? {
+    where: { userId },
+    select: { id: true },
+  } : false as const,
+})
+
+function formatComment(msg: any) {
+  return {
+    id: msg.id,
+    content: msg.content,
+    parentId: msg.parentId,
+    createdAt: msg.createdAt,
+    user: msg.user,
+    likeCount: msg._count?.likes ?? 0,
+    replyCount: msg._count?.replies ?? 0,
+    isLiked: Array.isArray(msg.likes) ? msg.likes.length > 0 : false,
+    replies: msg.replies?.map(formatComment) ?? [],
+  }
+}
 
 export async function GET(
   request: NextRequest,
@@ -15,39 +51,45 @@ export async function GET(
 ) {
   try {
     const { id: marketId } = await params
+    const session = await getServerSession(authOptions)
+    const userId = session?.user?.id
     const cursor = request.nextUrl.searchParams.get('cursor') || undefined
-    const limit = Math.min(parseInt(request.nextUrl.searchParams.get('limit') || '50'), 100)
+    const limit = Math.min(parseInt(request.nextUrl.searchParams.get('limit') || '30'), 100)
+    const sort = request.nextUrl.searchParams.get('sort') || 'newest'
 
+    const orderBy = sort === 'oldest'
+      ? { createdAt: 'asc' as const }
+      : { createdAt: 'desc' as const }
+
+    // Fetch top-level comments only (parentId is null)
     const messages = await prisma.chatMessage.findMany({
-      where: { marketId },
-      orderBy: { createdAt: 'desc' },
+      where: { marketId, parentId: null },
+      orderBy,
       take: limit,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       select: {
-        id: true,
-        content: true,
-        createdAt: true,
-        user: {
-          select: {
-            id: true,
-            username: true,
-            avatar: true,
-          }
-        }
-      }
+        ...commentSelect(userId),
+        replies: {
+          orderBy: { createdAt: 'asc' },
+          take: 3,
+          select: commentSelect(userId),
+        },
+      },
     })
 
-    // nextCursor should be the oldest message ID (last in desc order = messages[length-1])
-    // so the next page fetches messages older than this cursor
     const nextCursor = messages.length === limit ? messages[messages.length - 1]?.id : null
 
+    // Get total comment count for this market
+    const totalCount = await prisma.chatMessage.count({ where: { marketId } })
+
     return NextResponse.json({
-      messages: messages.reverse(), // Return in chronological order
+      comments: messages.map(formatComment),
       nextCursor,
+      totalCount,
     })
   } catch (error) {
-    console.error('[Chat] Error fetching messages:', error)
-    return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 })
+    console.error('[Chat] Error fetching comments:', error)
+    return NextResponse.json({ error: 'Failed to fetch comments' }, { status: 500 })
   }
 }
 
@@ -71,12 +113,13 @@ export async function POST(
 
     const body = await request.json()
     const content = typeof body.content === 'string' ? body.content.trim() : ''
+    const parentId = typeof body.parentId === 'string' ? body.parentId : null
 
     if (!content || content.length === 0) {
-      return NextResponse.json({ error: 'Message cannot be empty' }, { status: 400 })
+      return NextResponse.json({ error: 'Comment cannot be empty' }, { status: 400 })
     }
     if (content.length > 500) {
-      return NextResponse.json({ error: 'Message too long (max 500 characters)' }, { status: 400 })
+      return NextResponse.json({ error: 'Comment too long (max 500 characters)' }, { status: 400 })
     }
 
     // Verify market exists
@@ -88,29 +131,78 @@ export async function POST(
       return NextResponse.json({ error: 'Market not found' }, { status: 404 })
     }
 
+    // If replying, verify parent exists and belongs to same market
+    if (parentId) {
+      const parent = await prisma.chatMessage.findUnique({
+        where: { id: parentId },
+        select: { marketId: true }
+      })
+      if (!parent || parent.marketId !== marketId) {
+        return NextResponse.json({ error: 'Parent comment not found' }, { status: 404 })
+      }
+    }
+
     const message = await prisma.chatMessage.create({
       data: {
         content,
+        parentId,
         userId: session.user.id,
         marketId,
       },
-      select: {
-        id: true,
-        content: true,
-        createdAt: true,
-        user: {
-          select: {
-            id: true,
-            username: true,
-            avatar: true,
-          }
+      select: commentSelect(session.user.id),
+    })
+
+    return NextResponse.json({ comment: formatComment(message) })
+  } catch (error) {
+    console.error('[Chat] Error posting comment:', error)
+    return NextResponse.json({ error: 'Failed to post comment' }, { status: 500 })
+  }
+}
+
+// PUT: Like/unlike a comment
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const messageId = typeof body.messageId === 'string' ? body.messageId : ''
+
+    if (!messageId) {
+      return NextResponse.json({ error: 'Message ID required' }, { status: 400 })
+    }
+
+    // Check if already liked
+    const existing = await prisma.chatMessageLike.findUnique({
+      where: {
+        userId_messageId: {
+          userId: session.user.id,
+          messageId,
         }
       }
     })
 
-    return NextResponse.json({ message })
+    if (existing) {
+      // Unlike
+      await prisma.chatMessageLike.delete({ where: { id: existing.id } })
+      return NextResponse.json({ liked: false })
+    } else {
+      // Like
+      await prisma.chatMessageLike.create({
+        data: {
+          userId: session.user.id,
+          messageId,
+        }
+      })
+      return NextResponse.json({ liked: true })
+    }
   } catch (error) {
-    console.error('[Chat] Error sending message:', error)
-    return NextResponse.json({ error: 'Failed to send message' }, { status: 500 })
+    console.error('[Chat] Error toggling like:', error)
+    return NextResponse.json({ error: 'Failed to toggle like' }, { status: 500 })
   }
 }
