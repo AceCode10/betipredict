@@ -28,11 +28,12 @@ export type AuditAction =
   | 'USER_LOGIN'
   | 'USER_BANNED'
   | 'ADMIN_ACTION'
+  | 'ADMIN_BALANCE_ADJUSTMENT'
   | 'CRON_RESOLUTION'
   | 'CRON_FINALIZATION'
   | 'CRON_RECONCILIATION'
 
-export type AuditCategory = 'MARKET' | 'PAYMENT' | 'USER' | 'SYSTEM' | 'TRADE'
+export type AuditCategory = 'MARKET' | 'PAYMENT' | 'USER' | 'SYSTEM' | 'TRADE' | 'FINANCIAL'
 
 interface AuditLogEntry {
   action: AuditAction

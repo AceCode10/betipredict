@@ -7,6 +7,10 @@ export const metadata: Metadata = {
   title: "BetiPredict — Sports Prediction Market",
   description: "Trade on sports outcomes with Zambian Kwacha. Bet on football matches, predict results, and win big on Africa's prediction market platform.",
   keywords: ["prediction market", "sports betting", "Zambia", "football", "Kwacha", "BetiPredict"],
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon.svg" }],
+  },
   openGraph: {
     title: "BetiPredict — Sports Prediction Market",
     description: "Trade on sports outcomes with Zambian Kwacha. Africa's prediction market platform.",

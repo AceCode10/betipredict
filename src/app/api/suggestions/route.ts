@@ -132,6 +132,11 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json()
     const { suggestionId, action, rejectionReason } = body
+    // Admin edits — optional overrides applied before creating the market
+    const adminEdits = body.edits as {
+      title?: string; question?: string; description?: string;
+      category?: string; resolveTime?: string;
+    } | undefined
 
     if (!suggestionId || !action || !['APPROVED', 'REJECTED'].includes(action)) {
       return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
@@ -149,10 +154,23 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Suggestion already reviewed' }, { status: 400 })
     }
 
-    // Update suggestion
+    // Apply admin edits to the suggestion record so there's an audit trail
+    const finalTitle = adminEdits?.title?.trim() || suggestion.title
+    const finalQuestion = adminEdits?.question?.trim() || suggestion.question
+    const finalDescription = adminEdits?.description?.trim() || suggestion.description
+    const finalCategory = adminEdits?.category?.trim() || suggestion.category
+    const finalResolveTime = adminEdits?.resolveTime
+      ? new Date(adminEdits.resolveTime)
+      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+
+    // Update suggestion with admin edits + status change
     const updated = await prisma.marketSuggestion.update({
       where: { id: suggestionId },
       data: {
+        title: finalTitle,
+        question: finalQuestion,
+        description: finalDescription,
+        category: finalCategory,
         status: action,
         rejectionReason: action === 'REJECTED' ? rejectionReason : null,
         reviewedById: session.user.id,
@@ -160,17 +178,17 @@ export async function PUT(request: NextRequest) {
       }
     })
 
-    // If approved, create the market
+    // If approved, create the market with (possibly edited) fields
     if (action === 'APPROVED') {
       const market = await prisma.market.create({
         data: {
-          title: suggestion.title,
-          description: suggestion.description,
-          category: suggestion.category,
-          question: suggestion.question,
-          creatorId: suggestion.suggesterId, // Original suggester becomes creator
+          title: finalTitle,
+          description: finalDescription,
+          category: finalCategory,
+          question: finalQuestion,
+          creatorId: suggestion.suggesterId,
           status: 'ACTIVE',
-          resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 days
+          resolveTime: finalResolveTime,
         }
       })
 
@@ -186,7 +204,7 @@ export async function PUT(request: NextRequest) {
           userId: suggestion.suggesterId,
           type: 'SUGGESTION_APPROVED',
           title: 'Market Suggestion Approved!',
-          message: `Your suggestion "${suggestion.title}" has been approved and is now live.`,
+          message: `Your suggestion "${finalTitle}" has been approved and is now live.`,
           metadata: JSON.stringify({ marketId: market.id }),
         }
       })

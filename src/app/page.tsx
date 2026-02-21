@@ -555,22 +555,46 @@ export default function PolymarketStyleHomePage() {
                 }
               }}
             >
-              {/* Card Header: icon + title */}
-              <div className="flex items-start gap-3 mb-4">
+              {/* Card Header: icon + title + percentage badge */}
+              <div className="flex items-start gap-3 mb-3">
                 <div className={`w-9 h-9 rounded-full ${subtleBg} flex items-center justify-center flex-shrink-0 text-base ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>
                   ⚽
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <h3 className={`text-[15px] font-semibold ${textColor} leading-snug line-clamp-2 group-hover:text-green-500 transition-colors`}>
                     {market.question || market.title}
                   </h3>
-                  {isYesNo && (
-                    <span className={`inline-block mt-1 text-lg font-bold ${textColor}`}>{yesPercent}%</span>
-                  )}
                 </div>
+                {isYesNo && (
+                  <div className="flex-shrink-0 flex flex-col items-center">
+                    <span className={`text-xl font-bold ${yesPercent >= 50 ? 'text-green-500' : 'text-red-400'}`}>{yesPercent}%</span>
+                    <span className={`text-[10px] ${textMuted}`}>chance</span>
+                  </div>
+                )}
               </div>
 
-              {/* Option rows — different layout for yes/no vs match-winner */}
+              {/* Yes/No progress bar */}
+              {isYesNo && (
+                <div className="mb-3">
+                  <div className={`w-full h-2 rounded-full ${isDarkMode ? 'bg-gray-700/50' : 'bg-gray-200'} overflow-hidden`}>
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${yesPercent}%`,
+                        background: yesPercent >= 50
+                          ? `linear-gradient(90deg, #22c55e ${Math.max(0, yesPercent - 20)}%, #4ade80 100%)`
+                          : `linear-gradient(90deg, #ef4444 0%, #f87171 ${yesPercent + 20}%)`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[10px] text-green-500 font-medium">Yes {yesPercent}%</span>
+                    <span className="text-[10px] text-red-400 font-medium">No {noPercent}%</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Match-winner option rows */}
               {!isYesNo && (
                 <div className="space-y-1.5 mb-4">
                   <div className="flex items-center justify-between gap-2">

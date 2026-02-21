@@ -67,7 +67,31 @@ interface Stats {
   revenueBreakdown: Record<string, { total: number; count: number }>
 }
 
-type TabType = 'suggestions' | 'markets' | 'disputes' | 'users' | 'audit' | 'sync' | 'stats'
+interface PaymentEntry {
+  id: string
+  type: string
+  amount: number
+  feeAmount: number
+  netAmount: number
+  phoneNumber: string
+  provider: string
+  status: string
+  statusMessage: string | null
+  createdAt: string
+  completedAt: string | null
+  user: { id: string; username: string; fullName: string; email: string; balance: number }
+}
+
+interface PaymentSummary {
+  totalDeposited: number
+  depositCount: number
+  totalWithdrawn: number
+  withdrawalCount: number
+  pendingCount: number
+  processingCount: number
+}
+
+type TabType = 'suggestions' | 'markets' | 'disputes' | 'users' | 'payments' | 'audit' | 'sync' | 'stats'
 
 export default function AdminPage() {
   const { data: session, status } = useSession()
@@ -80,6 +104,8 @@ export default function AdminPage() {
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
+  const [payments, setPayments] = useState<PaymentEntry[]>([])
+  const [paymentSummary, setPaymentSummary] = useState<PaymentSummary | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -91,6 +117,14 @@ export default function AdminPage() {
   const [disputeNewOutcome, setDisputeNewOutcome] = useState<string>('YES')
   const [showDisputeModal, setShowDisputeModal] = useState<{ id: string; action: 'UPHOLD' | 'REJECT' } | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  // Edit suggestion modal state
+  const [showEditModal, setShowEditModal] = useState<Suggestion | null>(null)
+  const [editFields, setEditFields] = useState({ title: '', question: '', description: '', category: '', resolveTime: '' })
+  // User balance adjustment modal state
+  const [showAdjustModal, setShowAdjustModal] = useState<AdminUser | null>(null)
+  const [adjustType, setAdjustType] = useState<'CREDIT' | 'DEBIT'>('CREDIT')
+  const [adjustAmount, setAdjustAmount] = useState('')
+  const [adjustReason, setAdjustReason] = useState('')
 
   const bgColor = isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'
   const surfaceColor = isDarkMode ? 'bg-[#1c2030]' : 'bg-white'
@@ -142,10 +176,102 @@ export default function AdminPage() {
         const data = await auditRes.json()
         setAuditLogs(data.logs || [])
       }
+
+      // Fetch payments data
+      try {
+        const paymentsRes = await fetch('/api/admin/wallet')
+        if (paymentsRes.ok) {
+          const data = await paymentsRes.json()
+          setPayments(data.payments || [])
+          setPaymentSummary(data.summary || null)
+        }
+      } catch {}
     } catch (err) {
       console.error('Failed to load data:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const openEditModal = (suggestion: Suggestion) => {
+    setEditFields({
+      title: suggestion.title,
+      question: suggestion.question,
+      description: suggestion.description || '',
+      category: suggestion.category,
+      resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+    })
+    setShowEditModal(suggestion)
+  }
+
+  const handleEditApprove = async () => {
+    if (!showEditModal) return
+    setProcessing(showEditModal.id)
+    setMessage(null)
+
+    try {
+      const res = await fetch('/api/suggestions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          suggestionId: showEditModal.id,
+          action: 'APPROVED',
+          edits: {
+            title: editFields.title,
+            question: editFields.question,
+            description: editFields.description,
+            category: editFields.category,
+            resolveTime: editFields.resolveTime || undefined,
+          }
+        })
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to approve')
+
+      setMessage({ type: 'success', text: 'Suggestion approved with edits and market created!' })
+      setShowEditModal(null)
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setProcessing(null)
+    }
+  }
+
+  const handleAdjustBalance = async () => {
+    if (!showAdjustModal) return
+    const amt = parseFloat(adjustAmount)
+    if (!amt || amt <= 0) { setMessage({ type: 'error', text: 'Enter a valid amount' }); return }
+    if (!adjustReason.trim()) { setMessage({ type: 'error', text: 'Reason is required' }); return }
+
+    setProcessing(showAdjustModal.id)
+    setMessage(null)
+
+    try {
+      const res = await fetch('/api/admin/wallet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: showAdjustModal.id,
+          amount: amt,
+          type: adjustType,
+          reason: adjustReason.trim(),
+        })
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to adjust balance')
+
+      setMessage({ type: 'success', text: `${adjustType === 'CREDIT' ? 'Credited' : 'Debited'} K${amt.toFixed(2)}. New balance: ${formatZambianCurrency(data.newBalance)}` })
+      setShowAdjustModal(null)
+      setAdjustAmount('')
+      setAdjustReason('')
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setProcessing(null)
     }
   }
 
@@ -365,6 +491,17 @@ export default function AdminPage() {
               Users
             </button>
             <button
+              onClick={() => setActiveTab('payments')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                activeTab === 'payments'
+                  ? 'border-green-500 text-green-500'
+                  : `border-transparent ${textMuted} hover:${textColor}`
+              }`}
+            >
+              <DollarSign className="w-4 h-4" />
+              Payments
+            </button>
+            <button
               onClick={() => setActiveTab('audit')}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'audit'
@@ -471,6 +608,14 @@ export default function AdminPage() {
                           <CheckCircle className="w-4 h-4" />
                         )}
                         Approve
+                      </button>
+                      <button
+                        onClick={() => openEditModal(suggestion)}
+                        disabled={processing === suggestion.id}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-lg hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+                      >
+                        <Settings className="w-4 h-4" />
+                        Edit & Approve
                       </button>
                       <button
                         onClick={() => setShowRejectModal(suggestion.id)}
@@ -731,12 +876,95 @@ export default function AdminPage() {
                         <span>Joined {new Date(u.createdAt).toLocaleDateString()}</span>
                       </div>
                     </div>
-                    <div className="text-right flex-shrink-0">
+                    <div className="text-right flex-shrink-0 flex flex-col items-end gap-1">
                       <p className={`text-sm font-semibold ${textColor}`}>{formatZambianCurrency(u.balance)}</p>
-                      <p className={`text-[10px] ${textMuted}`}>balance</p>
+                      <button
+                        onClick={() => { setShowAdjustModal(u); setAdjustType('CREDIT'); setAdjustAmount(''); setAdjustReason('') }}
+                        className="text-[10px] text-blue-400 hover:text-blue-300 font-medium"
+                      >
+                        Adjust Balance
+                      </button>
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Payments Tab */}
+        {activeTab === 'payments' && (
+          <div>
+            {/* Summary Cards */}
+            {paymentSummary && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-3`}>
+                  <p className={`text-[10px] ${textMuted} uppercase`}>Total Deposited</p>
+                  <p className={`text-lg font-bold text-green-400`}>{formatZambianCurrency(paymentSummary.totalDeposited)}</p>
+                  <p className={`text-[10px] ${textMuted}`}>{paymentSummary.depositCount} deposits</p>
+                </div>
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-3`}>
+                  <p className={`text-[10px] ${textMuted} uppercase`}>Total Withdrawn</p>
+                  <p className={`text-lg font-bold text-orange-400`}>{formatZambianCurrency(paymentSummary.totalWithdrawn)}</p>
+                  <p className={`text-[10px] ${textMuted}`}>{paymentSummary.withdrawalCount} withdrawals</p>
+                </div>
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-3`}>
+                  <p className={`text-[10px] ${textMuted} uppercase`}>Pending</p>
+                  <p className={`text-lg font-bold text-yellow-400`}>{paymentSummary.pendingCount}</p>
+                </div>
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-3`}>
+                  <p className={`text-[10px] ${textMuted} uppercase`}>Processing</p>
+                  <p className={`text-lg font-bold text-blue-400`}>{paymentSummary.processingCount}</p>
+                </div>
+              </div>
+            )}
+
+            <h2 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>
+              Recent Payments ({payments.length})
+            </h2>
+            {payments.length === 0 ? (
+              <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
+                <DollarSign className={`w-12 h-12 mx-auto mb-3 ${textMuted} opacity-50`} />
+                <p className={`${textMuted} text-sm`}>No payments found.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {payments.map((p) => {
+                  const statusColor = p.status === 'COMPLETED' ? 'text-green-400 bg-green-500/20' :
+                    p.status === 'FAILED' ? 'text-red-400 bg-red-500/20' :
+                    p.status === 'PROCESSING' ? 'text-blue-400 bg-blue-500/20' :
+                    'text-yellow-400 bg-yellow-500/20'
+                  return (
+                    <div key={p.id} className={`${surfaceColor} border ${borderColor} rounded-xl p-3`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${p.type === 'DEPOSIT' ? 'bg-green-500/20 text-green-400' : 'bg-orange-500/20 text-orange-400'}`}>
+                            {p.type}
+                          </span>
+                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${statusColor}`}>
+                            {p.status}
+                          </span>
+                          <span className={`text-[10px] ${textMuted}`}>{p.provider === 'MTN_MOMO' ? 'MTN' : 'Airtel'}</span>
+                        </div>
+                        <span className={`text-sm font-bold ${textColor}`}>{formatZambianCurrency(p.amount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className={`text-xs ${textMuted}`}>
+                          <span className="font-medium">{p.user?.fullName || p.user?.username}</span>
+                          <span className="mx-1">•</span>
+                          <span>+260{p.phoneNumber}</span>
+                          {p.feeAmount > 0 && <span className="mx-1">• Fee: {formatZambianCurrency(p.feeAmount)}</span>}
+                        </div>
+                        <span className={`text-[10px] ${textMuted}`}>
+                          {new Date(p.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+                      {p.statusMessage && (
+                        <p className={`text-[10px] ${textMuted} mt-1 truncate`}>{p.statusMessage}</p>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -981,6 +1209,161 @@ export default function AdminPage() {
                 }`}
               >
                 {processing === showDisputeModal.id ? 'Processing...' : showDisputeModal.action === 'UPHOLD' ? 'Confirm Uphold' : 'Confirm Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit & Approve Suggestion Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 py-8 overflow-y-auto">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowEditModal(null)} />
+          <div className={`relative ${surfaceColor} rounded-xl shadow-2xl w-full max-w-lg p-6 my-auto`}>
+            <h3 className={`text-lg font-semibold ${textColor} mb-1`}>Edit & Approve Suggestion</h3>
+            <p className={`text-xs ${textMuted} mb-4`}>
+              Submitted by {showEditModal.suggester.username || showEditModal.suggester.fullName}
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Title</label>
+                <input
+                  value={editFields.title}
+                  onChange={(e) => setEditFields({ ...editFields, title: e.target.value })}
+                  className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`}
+                />
+              </div>
+              <div>
+                <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Question</label>
+                <input
+                  value={editFields.question}
+                  onChange={(e) => setEditFields({ ...editFields, question: e.target.value })}
+                  className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`}
+                />
+              </div>
+              <div>
+                <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Description</label>
+                <textarea
+                  value={editFields.description}
+                  onChange={(e) => setEditFields({ ...editFields, description: e.target.value })}
+                  rows={3}
+                  className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm resize-none`}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Category</label>
+                  <input
+                    value={editFields.category}
+                    onChange={(e) => setEditFields({ ...editFields, category: e.target.value })}
+                    className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`}
+                  />
+                </div>
+                <div>
+                  <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Resolution Date</label>
+                  <input
+                    type="datetime-local"
+                    value={editFields.resolveTime}
+                    onChange={(e) => setEditFields({ ...editFields, resolveTime: e.target.value })}
+                    className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setShowEditModal(null)}
+                className={`flex-1 py-2.5 text-sm font-medium border ${borderColor} rounded-lg ${textMuted}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditApprove}
+                disabled={!editFields.title.trim() || !editFields.question.trim() || processing === showEditModal.id}
+                className="flex-1 py-2.5 text-sm font-medium bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {processing === showEditModal.id ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Approving...</>
+                ) : (
+                  <><CheckCircle className="w-4 h-4" /> Approve with Edits</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Balance Adjustment Modal */}
+      {showAdjustModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowAdjustModal(null)} />
+          <div className={`relative ${surfaceColor} rounded-xl shadow-2xl w-full max-w-md p-6`}>
+            <h3 className={`text-lg font-semibold ${textColor} mb-1`}>Adjust Balance</h3>
+            <p className={`text-xs ${textMuted} mb-4`}>
+              {showAdjustModal.fullName} (@{showAdjustModal.username}) — Current: {formatZambianCurrency(showAdjustModal.balance)}
+            </p>
+
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setAdjustType('CREDIT')}
+                className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  adjustType === 'CREDIT' ? 'bg-green-500 text-white' : `${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} ${textMuted}`
+                }`}
+              >
+                + Credit
+              </button>
+              <button
+                onClick={() => setAdjustType('DEBIT')}
+                className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  adjustType === 'DEBIT' ? 'bg-red-500 text-white' : `${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} ${textMuted}`
+                }`}
+              >
+                − Debit
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Amount (K)</label>
+                <input
+                  type="number"
+                  value={adjustAmount}
+                  onChange={(e) => setAdjustAmount(e.target.value)}
+                  placeholder="0.00"
+                  min="0.01"
+                  step="0.01"
+                  className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`}
+                />
+              </div>
+              <div>
+                <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Reason (required)</label>
+                <textarea
+                  value={adjustReason}
+                  onChange={(e) => setAdjustReason(e.target.value)}
+                  placeholder="e.g. Refund for failed deposit, promotional credit, correction..."
+                  rows={2}
+                  className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm resize-none`}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => setShowAdjustModal(null)}
+                className={`flex-1 py-2 text-sm font-medium border ${borderColor} rounded-lg ${textMuted}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAdjustBalance}
+                disabled={!adjustAmount || !adjustReason.trim() || processing === showAdjustModal.id}
+                className={`flex-1 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 ${
+                  adjustType === 'CREDIT' ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'
+                }`}
+              >
+                {processing === showAdjustModal.id ? 'Processing...' : `${adjustType === 'CREDIT' ? 'Credit' : 'Debit'} K${adjustAmount || '0'}`}
               </button>
             </div>
           </div>

@@ -160,9 +160,9 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
   const quickAmounts = [10, 50, 100, 500, 1000, 5000]
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
       <div className="absolute inset-0 bg-black/60" onClick={step === 'input' ? handleClose : undefined} />
-      <div className="relative bg-[#1c2030] border border-gray-700 rounded-xl w-full max-w-md shadow-2xl">
+      <div className="relative bg-[#1c2030] border border-gray-700 rounded-xl w-full max-w-md shadow-2xl my-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
