@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { initializePool } from '@/lib/cpmm'
 
 const FOOTBALL_DATA_API_KEY = process.env.FOOTBALL_DATA_API_KEY || ''
 
@@ -86,6 +87,9 @@ export async function GET(request: NextRequest) {
       }
       const marketMap = new Map(markets.map(m => [m.id, m]))
 
+      // Auto-create markets for live matches that don't have one
+      let systemUser: { id: string } | null = null
+
       for (const match of liveMatches) {
         const marketId = gameToMarket.get(match.id)
         if (marketId) {
@@ -97,6 +101,92 @@ export async function GET(request: NextRequest) {
             match.noPrice = market.noPrice
             match.volume = market.volume || null
             match.liquidity = market.liquidity || null
+          }
+        } else {
+          // No linked market — auto-create one for this live match
+          try {
+            if (!systemUser) {
+              systemUser = await prisma.user.findFirst({ where: { email: 'system@betipredict.com' }, select: { id: true } })
+              if (!systemUser) {
+                const crypto = await import('crypto')
+                systemUser = await prisma.user.create({
+                  data: {
+                    email: 'system@betipredict.com',
+                    username: 'BetiPredict',
+                    fullName: 'BetiPredict System',
+                    password: crypto.randomBytes(32).toString('hex'),
+                    isVerified: true,
+                    balance: 0,
+                  },
+                  select: { id: true },
+                })
+              }
+            }
+
+            const title = `${match.homeTeam} vs ${match.awayTeam}`
+            const question = `Who will win: ${match.homeTeam} vs ${match.awayTeam}?`
+            const initialLiquidity = 10000
+            const pool = initializePool(initialLiquidity, 0.5)
+
+            const newMarket = await prisma.$transaction(async (tx) => {
+              const m = await tx.market.create({
+                data: {
+                  title,
+                  description: `${match.competition} - Live Match`,
+                  category: 'Sports',
+                  subcategory: match.competition,
+                  question,
+                  resolveTime: new Date(Date.now() + 4 * 60 * 60 * 1000), // 4h from now
+                  creatorId: systemUser!.id,
+                  status: 'ACTIVE',
+                  yesPrice: 0.5,
+                  noPrice: 0.5,
+                  liquidity: initialLiquidity,
+                  volume: 0,
+                  homeTeam: match.homeTeam,
+                  awayTeam: match.awayTeam,
+                  league: match.competition,
+                  poolYesShares: pool.yesShares,
+                  poolNoShares: pool.noShares,
+                  poolK: pool.k,
+                },
+              })
+
+              // Create or update ScheduledGame record to link it
+              const existingGame = await tx.scheduledGame.findUnique({ where: { externalId: match.id } })
+              if (existingGame) {
+                await tx.scheduledGame.update({ where: { id: existingGame.id }, data: { marketId: m.id, status: 'IN_PLAY' } })
+              } else {
+                await tx.scheduledGame.create({
+                  data: {
+                    externalId: match.id,
+                    competition: match.competition,
+                    competitionCode: match.competitionCode,
+                    homeTeam: match.homeTeam,
+                    awayTeam: match.awayTeam,
+                    homeTeamCrest: match.homeTeamCrest,
+                    awayTeamCrest: match.awayTeamCrest,
+                    utcDate: new Date(),
+                    status: 'IN_PLAY',
+                    homeScore: match.homeScore,
+                    awayScore: match.awayScore,
+                    marketId: m.id,
+                  },
+                })
+              }
+
+              return m
+            })
+
+            match.marketId = newMarket.id
+            match.marketTitle = newMarket.title
+            match.yesPrice = newMarket.yesPrice
+            match.noPrice = newMarket.noPrice
+            match.volume = 0
+            match.liquidity = initialLiquidity
+            console.log(`[Live Matches] Auto-created market for live match: ${title}`)
+          } catch (createErr) {
+            console.error(`[Live Matches] Failed to auto-create market for match ${match.id}:`, createErr)
           }
         }
       }

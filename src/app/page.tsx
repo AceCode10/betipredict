@@ -572,8 +572,16 @@ export default function PolymarketStyleHomePage() {
             >
               {/* Card Header: icon + title + circular progress */}
               <div className="flex items-start gap-3 mb-3">
-                <div className={`w-9 h-9 rounded-full ${subtleBg} flex items-center justify-center flex-shrink-0 text-base ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>
-                  ⚽
+                <div className="relative flex-shrink-0">
+                  <div className={`w-9 h-9 rounded-full ${subtleBg} flex items-center justify-center text-base ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>
+                    ⚽
+                  </div>
+                  {market.isLive && (
+                    <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-500 items-center justify-center text-[6px] font-bold text-white">L</span>
+                    </span>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className={`text-[15px] font-semibold ${textColor} leading-snug line-clamp-2 group-hover:text-green-500 transition-colors`}>

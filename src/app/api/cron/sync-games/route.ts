@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAllUpcomingMatches } from '@/lib/sports-api'
+import { initializePool } from '@/lib/cpmm'
 import crypto from 'crypto'
 
 // Auto-sync sports games from the API and create markets for them
@@ -88,8 +89,11 @@ export async function GET(request: NextRequest) {
         const title = `${match.homeTeam.name} vs ${match.awayTeam.name}`
         const question = `Who will win: ${match.homeTeam.name} vs ${match.awayTeam.name}?`
 
+        const initialLiquidity = 10000
+        const pool = initializePool(initialLiquidity, 0.5)
+
         const market = await prisma.$transaction(async (tx) => {
-          // Create the market
+          // Create the market with initialized CPMM pool state
           const newMarket = await tx.market.create({
             data: {
               title,
@@ -102,11 +106,14 @@ export async function GET(request: NextRequest) {
               status: 'ACTIVE',
               yesPrice: 0.5,
               noPrice: 0.5,
-              liquidity: 10000, // K10,000 initial liquidity
+              liquidity: initialLiquidity,
               volume: 0,
               homeTeam: match.homeTeam.name,
               awayTeam: match.awayTeam.name,
               league: match.competition.name,
+              poolYesShares: pool.yesShares,
+              poolNoShares: pool.noShares,
+              poolK: pool.k,
             }
           })
 

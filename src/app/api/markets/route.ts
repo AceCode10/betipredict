@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { initializeDatabase } from '@/lib/db-init'
 import { checkRateLimit, getClientIp, sanitizeString } from '@/lib/rate-limit'
 import { FEES } from '@/lib/fees'
+import { initializePool } from '@/lib/cpmm'
 
 export async function GET(request: NextRequest) {
   try {
@@ -47,7 +48,24 @@ export async function GET(request: NextRequest) {
       skip: offset
     })
 
-    return NextResponse.json(markets)
+    // Enrich with live status from ScheduledGame
+    const marketIds = markets.map(m => m.id)
+    const liveGames = marketIds.length > 0
+      ? await prisma.scheduledGame.findMany({
+          where: { marketId: { in: marketIds }, status: { in: ['IN_PLAY', 'LIVE'] } },
+          select: { marketId: true, homeScore: true, awayScore: true },
+        })
+      : []
+    const liveMap = new Map(liveGames.map(g => [g.marketId, g]))
+
+    const enriched = markets.map(m => ({
+      ...m,
+      isLive: liveMap.has(m.id),
+      liveHomeScore: liveMap.get(m.id)?.homeScore ?? null,
+      liveAwayScore: liveMap.get(m.id)?.awayScore ?? null,
+    }))
+
+    return NextResponse.json(enriched)
   } catch (error) {
     console.error('Error fetching markets:', error)
     return NextResponse.json(
@@ -147,6 +165,7 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      const pool = initializePool(FEES.DEFAULT_INITIAL_LIQUIDITY, 0.5)
       const newMarket = await tx.market.create({
         data: {
           title: title.trim(),
@@ -158,6 +177,11 @@ export async function POST(request: NextRequest) {
           creatorId: session.user.id,
           status: 'ACTIVE',
           liquidity: FEES.DEFAULT_INITIAL_LIQUIDITY,
+          yesPrice: 0.5,
+          noPrice: 0.5,
+          poolYesShares: pool.yesShares,
+          poolNoShares: pool.noShares,
+          poolK: pool.k,
         },
         include: {
           creator: {

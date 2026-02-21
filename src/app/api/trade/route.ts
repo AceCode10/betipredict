@@ -6,6 +6,7 @@ import { TradeRequest } from '@/types'
 import { initializePool, calculateSharesForAmount, calculateBuyCost, calculateSellProceeds, getPrices } from '@/lib/cpmm'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 import { calculateTradeFee, FEES } from '@/lib/fees'
+import { sendTradeConfirmation } from '@/lib/email'
 
 export async function POST(request: NextRequest) {
   try {
@@ -191,6 +192,13 @@ export async function POST(request: NextRequest) {
         return { updatedUser, order, updatedMarket, shares, avgPrice, newPrices }
       })
 
+      // Fire-and-forget trade confirmation email
+      if (user.email) {
+        sendTradeConfirmation(user.email, {
+          side: 'BUY', outcome, amount: grossAmount, shares: result.shares, market: market.title,
+        }).catch(() => {})
+      }
+
       return NextResponse.json({
         success: true,
         order: result.order,
@@ -317,6 +325,13 @@ export async function POST(request: NextRequest) {
 
         return { updatedUser, order, updatedMarket, newPrices }
       })
+
+      // Fire-and-forget trade confirmation email
+      if (user.email) {
+        sendTradeConfirmation(user.email, {
+          side: 'SELL', outcome, amount: grossProceeds, shares: sharesToSell, market: market.title,
+        }).catch(() => {})
+      }
 
       return NextResponse.json({
         success: true,

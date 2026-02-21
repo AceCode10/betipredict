@@ -72,6 +72,7 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet }: Live
   const { isDarkMode } = useTheme()
   const [matches, setMatches] = useState<LiveMatch[]>([])
   const [loading, setLoading] = useState(true)
+  const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set())
 
   const fetchLiveMatches = useCallback(async () => {
     try {
@@ -86,6 +87,33 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet }: Live
       setLoading(false)
     }
   }, [])
+
+  // Fetch watchlist to highlight bookmarked markets
+  useEffect(() => {
+    fetch('/api/user/watchlist')
+      .then(r => r.ok ? r.json() : { watchlist: [] })
+      .then(data => setWatchedIds(new Set((data.watchlist || []).map((m: any) => m.id))))
+      .catch(() => {})
+  }, [])
+
+  const toggleWatchlist = async (marketId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      const res = await fetch('/api/user/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ marketId }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setWatchedIds(prev => {
+          const next = new Set(prev)
+          data.watched ? next.add(marketId) : next.delete(marketId)
+          return next
+        })
+      }
+    } catch {}
+  }
 
   useEffect(() => {
     fetchLiveMatches()
@@ -244,7 +272,18 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet }: Live
                 <span className={isDarkMode ? 'text-gray-700' : 'text-gray-300'}>·</span>
                 <span>{shortComp}</span>
                 <div className="ml-auto flex-shrink-0">
-                  <Bookmark className={`w-3.5 h-3.5 ${isDarkMode ? 'text-gray-600 hover:text-gray-400' : 'text-gray-300 hover:text-gray-500'} cursor-pointer transition-colors`} />
+                  {hasMkt ? (
+                    <Bookmark
+                      className={`w-3.5 h-3.5 cursor-pointer transition-colors ${
+                        watchedIds.has(match.marketId!)
+                          ? 'text-yellow-500 fill-yellow-500'
+                          : isDarkMode ? 'text-gray-600 hover:text-gray-400' : 'text-gray-300 hover:text-gray-500'
+                      }`}
+                      onClick={(e) => toggleWatchlist(match.marketId!, e)}
+                    />
+                  ) : (
+                    <Bookmark className={`w-3.5 h-3.5 ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`} />
+                  )}
                 </div>
               </div>
             </div>

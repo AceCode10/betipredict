@@ -368,21 +368,21 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                         {/* More Options */}
                         <div className={`border-t ${borderColor} py-1`}>
                           <button
-                            onClick={() => { setShowAccountMenu(false) }}
+                            onClick={() => { router.push('/account'); setShowAccountMenu(false) }}
                             className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} ${textMuted}`}
                           >
                             <Settings className="w-4 h-4" />
                             <span className="text-sm">Settings</span>
                           </button>
                           <button
-                            onClick={() => { setShowAccountMenu(false) }}
+                            onClick={() => { window.open('mailto:support@betipredict.com', '_blank'); setShowAccountMenu(false) }}
                             className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} ${textMuted}`}
                           >
                             <HelpCircle className="w-4 h-4" />
                             <span className="text-sm">Help Center</span>
                           </button>
                           <button
-                            onClick={() => { setShowAccountMenu(false) }}
+                            onClick={() => { router.push('/terms'); setShowAccountMenu(false) }}
                             className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} ${textMuted}`}
                           >
                             <FileText className="w-4 h-4" />
