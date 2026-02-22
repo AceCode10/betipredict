@@ -76,18 +76,18 @@ export async function POST(request: NextRequest) {
     stats.strategy = 'finished-check'
 
     // Find markets that should be resolved but aren't
-    const recentlyFinishedIds = todayFinished.map(m => m.id)
+    const recentlyFinishedIds = todayFinished.map(m => Number(m.id))
     const pendingGames = await prisma.scheduledGame.findMany({
       where: {
         status: { in: ['IN_PLAY', 'LIVE'] },
-        externalId: { in: recentlyFinishedIds.map(id => id.toString()) },
+        externalId: { in: recentlyFinishedIds },
         marketId: { not: null }
       }
     })
 
     // Resolve any missed matches immediately
     for (const game of pendingGames) {
-      const matchData = todayFinished.find(m => m.id === String(game.externalId!))
+      const matchData = todayFinished.find(m => Number(m.id) === game.externalId)
       if (matchData && matchData.score?.winner) {
         try {
           let winningOutcome: 'YES' | 'NO' | null = null
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
             winningOutcome = 'NO'
           }
 
-          if (winningOutcome) {
+          if (winningOutcome && game.marketId) {
             await prisma.scheduledGame.update({
               where: { id: game.id },
               data: { status: 'FINISHED', winner: matchData.score.winner }
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
             console.log(`[adaptive-resolve] Caught missed match: ${game.homeTeam} vs ${game.awayTeam}`)
           }
         } catch (err: any) {
-          console.error(`[adaptive-resolve] Failed to resolve missed match ${game.marketId}:`, err)
+          console.error(`[adaptive-resolve] Failed to resolve missed match ${game.marketId ?? game.id}:`, err)
         }
       }
     }
@@ -123,18 +123,18 @@ export async function POST(request: NextRequest) {
         const liveGames = await prisma.scheduledGame.findMany({
           where: {
             status: { in: ['IN_PLAY', 'LIVE'] },
-            externalId: { in: matchesToCheck.map(id => id.toString()) },
+            externalId: { in: matchesToCheck },
             marketId: { not: null }
           }
         })
 
         if (liveGames.length > 0) {
-          const matchIdsToCheck = liveGames.map(g => parseInt(g.externalId!))
+          const matchIdsToCheck = liveGames.map(g => g.externalId)
           const statusResults = await checkMatchesForResolution(matchIdsToCheck)
           stats.apiCallsUsed += matchIdsToCheck.length
 
           for (const result of statusResults) {
-            const game = liveGames.find(g => parseInt(g.externalId!) === result.matchId)
+            const game = liveGames.find(g => g.externalId === result.matchId)
             if (!game || !game.marketId) continue
 
             if (result.isFinished && result.winner) {
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
                   winningOutcome = 'NO'
                 }
 
-                if (winningOutcome) {
+                if (winningOutcome && game.marketId) {
                   await prisma.scheduledGame.update({
                     where: { id: game.id },
                     data: { status: 'FINISHED', winner: result.winner }

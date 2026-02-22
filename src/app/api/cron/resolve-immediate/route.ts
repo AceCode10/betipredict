@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     })
 
     // ─── Phase 2: Batch check real-time status ───
-    const matchIds = liveGames.map(game => parseInt(game.externalId!)).filter(Boolean)
+    const matchIds = liveGames.map(game => game.externalId).filter((id): id is number => id != null)
     if (matchIds.length === 0) {
       return NextResponse.json({ message: 'No live games to check', resolved: [] })
     }
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 
     // ─── Phase 3: Resolve finished matches immediately ───
     for (const result of statusResults) {
-      const game = liveGames.find(g => parseInt(g.externalId!) === result.matchId)
+      const game = liveGames.find(g => g.externalId === result.matchId)
       if (!game || !game.marketId) continue
 
       if (result.isFinished && result.winner) {

@@ -127,6 +127,9 @@ export class MarketResolver {
       let totalFeesCollected = 0
 
       for (const position of winningPositions) {
+        // Skip already-closed positions (guard against partial re-runs)
+        if (position.isClosed) continue
+
         const grossPayout = position.size * 1.0
         const { feeAmount, netAmount } = calculateResolutionFee(grossPayout)
         totalFeesCollected += feeAmount

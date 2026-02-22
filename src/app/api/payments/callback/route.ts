@@ -148,6 +148,15 @@ export async function POST(request: NextRequest) {
 
     if (mtnReferenceId) {
       // ─── MTN MoMo callback ───
+      // Verify MTN callback authenticity: check that the reference ID matches a known payment
+      const knownPayment = await prisma.mobilePayment.findFirst({
+        where: { externalRef: mtnReferenceId, provider: 'MTN_MONEY' },
+        select: { id: true },
+      })
+      if (!knownPayment) {
+        console.warn('[MTN Callback] Unknown reference ID — possible spoofed callback:', mtnReferenceId)
+        return NextResponse.json({ status: 'ok' })
+      }
       return await handleMtnCallback(body, mtnReferenceId)
     } else {
       // ─── Airtel Money callback ───

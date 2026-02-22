@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const liveGames = await prisma.scheduledGame.findMany({
       where: {
         status: { in: ['IN_PLAY', 'LIVE'] },
-        externalId: { in: matchesToCheck.map(id => id.toString()) },
+        externalId: { in: matchesToCheck },
         marketId: { not: null }
       },
       select: { 
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Phase 3: Batch check with rate limiting ───
-    const matchIdsToCheck = liveGames.map(game => parseInt(game.externalId!))
+    const matchIdsToCheck = liveGames.map(game => game.externalId).filter((id): id is number => id != null)
     const statusResults = await checkMatchesForResolution(matchIdsToCheck)
     apiCallsUsed.individual = matchIdsToCheck.length
     apiCallsUsed.total += matchIdsToCheck.length
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
     // ─── Phase 4: Resolve finished matches ───
     for (const result of statusResults) {
-      const game = liveGames.find(g => parseInt(g.externalId!) === result.matchId)
+      const game = liveGames.find(g => g.externalId === result.matchId)
       if (!game || !game.marketId) continue
 
       if (result.isFinished && result.winner) {

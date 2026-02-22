@@ -55,16 +55,11 @@ export async function POST(request: NextRequest) {
 
     console.log(`[webhook] Match ${payload.matchId} status: ${payload.status}`)
 
-    // Find associated game and market
+    // Find associated game
     const game = await prisma.scheduledGame.findFirst({
       where: {
-        externalId: payload.matchId.toString(),
+        externalId: payload.matchId,
         marketId: { not: null }
-      },
-      include: {
-        market: {
-          select: { id: true, status: true }
-        }
       }
     })
 
@@ -73,8 +68,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'No associated market' })
     }
 
-    // Only process if market is still active
-    if (game.market?.status !== 'ACTIVE') {
+    // Check if market is still active
+    const market = await prisma.market.findUnique({
+      where: { id: game.marketId },
+      select: { status: true }
+    })
+
+    if (market?.status !== 'ACTIVE') {
       console.log(`[webhook] Market ${game.marketId} already processed`)
       return NextResponse.json({ message: 'Market already resolved' })
     }

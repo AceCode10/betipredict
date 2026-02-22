@@ -144,7 +144,7 @@ export function middleware(request: NextRequest) {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https: blob:",
       "font-src 'self' data:",
-      "connect-src 'self' https://api.football-data.org https://openapiuat.airtel.africa https://openapi.airtel.africa",
+      "connect-src 'self' https://api.football-data.org https://openapiuat.airtel.africa https://openapi.airtel.africa https://sandbox.momodeveloper.mtn.com https://proxy.momoapi.mtn.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
