@@ -67,6 +67,11 @@ export async function POST(request: NextRequest) {
     strategy: ''
   }
 
+  // Global deadline: return before cron-job.org 30s timeout
+  const DEADLINE_MS = 25_000
+  const startTime = Date.now()
+  const isOverDeadline = () => Date.now() - startTime > DEADLINE_MS
+
   try {
     console.log(`[adaptive-resolve] Starting adaptive cycle (peak: ${stats.peakTime}, interval: ${stats.intervalMinutes}min)`)
 
@@ -114,7 +119,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Strategy 2: Proactive checking during peak times ───
-    if (stats.peakTime && stats.apiCallsUsed < 8) { // Leave room for error margin
+    if (stats.peakTime && stats.apiCallsUsed < 8 && !isOverDeadline()) { // Leave room for error margin
       stats.strategy = 'proactive-check'
       const matchesToCheck = await getMatchesToCheckNow()
       stats.apiCallsUsed += 1
@@ -134,6 +139,7 @@ export async function POST(request: NextRequest) {
           stats.apiCallsUsed += matchIdsToCheck.length
 
           for (const result of statusResults) {
+            if (isOverDeadline()) break
             const game = liveGames.find(g => g.externalId === result.matchId)
             if (!game || !game.marketId) continue
 

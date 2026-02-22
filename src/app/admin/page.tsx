@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Trophy, Loader2, MessageSquare, BarChart3, RefreshCw, DollarSign, Users, Settings, Shield, Clock, FileText, Gavel } from 'lucide-react'
+import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Trophy, Loader2, MessageSquare, BarChart3, RefreshCw, DollarSign, Users, Settings, Shield, Clock, FileText, Gavel, Wallet, Search, X, Zap } from 'lucide-react'
 import { formatZambianCurrency } from '@/utils/currency'
 import { useTheme } from '@/contexts/ThemeContext'
 
@@ -91,7 +91,7 @@ interface PaymentSummary {
   processingCount: number
 }
 
-type TabType = 'suggestions' | 'markets' | 'disputes' | 'users' | 'payments' | 'audit' | 'sync' | 'stats'
+type TabType = 'suggestions' | 'markets' | 'disputes' | 'users' | 'payments' | 'audit' | 'sync' | 'stats' | 'admin-wallet'
 
 export default function AdminPage() {
   const { data: session, status } = useSession()
@@ -125,6 +125,15 @@ export default function AdminPage() {
   const [adjustType, setAdjustType] = useState<'CREDIT' | 'DEBIT'>('CREDIT')
   const [adjustAmount, setAdjustAmount] = useState('')
   const [adjustReason, setAdjustReason] = useState('')
+  // Search/filter state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  // Admin wallet state
+  const [adminDepositAmount, setAdminDepositAmount] = useState('')
+  const [adminWithdrawAmount, setAdminWithdrawAmount] = useState('')
+  const [adminWalletPhone, setAdminWalletPhone] = useState('')
+  const [adminWalletProvider, setAdminWalletProvider] = useState<'AIRTEL' | 'MTN'>('AIRTEL')
+  const [adminWalletProcessing, setAdminWalletProcessing] = useState(false)
 
   const bgColor = isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'
   const surfaceColor = isDarkMode ? 'bg-[#1c2030]' : 'bg-white'
@@ -345,6 +354,77 @@ export default function AdminPage() {
     }
   }
 
+  const earlyFinalizeMarket = async (marketId: string) => {
+    setResolving(marketId)
+    setMessage(null)
+
+    try {
+      const res = await fetch('/api/markets/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ marketId, action: 'EARLY_FINALIZE' })
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to early-finalize')
+
+      setMessage({ type: 'success', text: `Market early-finalized! Payouts processed. Fees: ${formatZambianCurrency(data.feesCollected || 0)}` })
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setResolving(null)
+    }
+  }
+
+  const handleAdminDeposit = async () => {
+    const amt = parseFloat(adminDepositAmount)
+    if (!amt || amt <= 0) { setMessage({ type: 'error', text: 'Enter a valid amount' }); return }
+    if (!adminWalletPhone.trim()) { setMessage({ type: 'error', text: 'Enter phone number' }); return }
+    setAdminWalletProcessing(true)
+    setMessage(null)
+    try {
+      const res = await fetch('/api/deposit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: amt, phoneNumber: adminWalletPhone.trim(), provider: adminWalletProvider === 'MTN' ? 'MTN_MOMO' : 'AIRTEL_MONEY' })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Deposit failed')
+      setMessage({ type: 'success', text: `Deposit of ${formatZambianCurrency(amt)} initiated. Check payment status.` })
+      setAdminDepositAmount('')
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setAdminWalletProcessing(false)
+    }
+  }
+
+  const handleAdminWithdraw = async () => {
+    const amt = parseFloat(adminWithdrawAmount)
+    if (!amt || amt <= 0) { setMessage({ type: 'error', text: 'Enter a valid amount' }); return }
+    if (!adminWalletPhone.trim()) { setMessage({ type: 'error', text: 'Enter phone number' }); return }
+    setAdminWalletProcessing(true)
+    setMessage(null)
+    try {
+      const res = await fetch('/api/withdraw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: amt, phoneNumber: adminWalletPhone.trim(), provider: adminWalletProvider === 'MTN' ? 'MTN_MOMO' : 'AIRTEL_MONEY' })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Withdrawal failed')
+      setMessage({ type: 'success', text: `Withdrawal of ${formatZambianCurrency(amt)} initiated (fee: ${formatZambianCurrency(data.fee || 0)}).` })
+      setAdminWithdrawAmount('')
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setAdminWalletProcessing(false)
+    }
+  }
+
   const handleDispute = async () => {
     if (!showDisputeModal) return
     setProcessing(showDisputeModal.id)
@@ -422,174 +502,165 @@ export default function AdminPage() {
     )
   }
 
-  const activeMarkets = markets.filter((m: any) => m.status === 'ACTIVE' || m.status === 'PENDING')
-  const resolvedMarkets = markets.filter((m: any) => m.status === 'RESOLVED')
-  const finalizedMarkets = markets.filter((m: any) => m.status === 'FINALIZED')
+  const q = searchQuery.toLowerCase()
+  const matchSearch = (text: string | null | undefined) => !q || (text || '').toLowerCase().includes(q)
+
+  const activeMarkets = markets.filter((m: any) => (m.status === 'ACTIVE' || m.status === 'PENDING') && matchSearch(m.title))
+  const resolvedMarkets = markets.filter((m: any) => m.status === 'RESOLVED' && matchSearch(m.title))
+  const finalizedMarkets = markets.filter((m: any) => m.status === 'FINALIZED' && matchSearch(m.title))
+  const filteredSuggestions = suggestions.filter(s => matchSearch(s.title) || matchSearch(s.question) || matchSearch(s.suggester?.username))
+  const filteredDisputes = disputes.filter(d => matchSearch(d.market?.title) || matchSearch(d.reason) || matchSearch(d.disputer?.username))
+  const filteredUsers = adminUsers.filter(u => matchSearch(u.fullName) || matchSearch(u.username) || matchSearch(u.email))
+  const filteredPayments = payments.filter(p => matchSearch(p.user?.fullName) || matchSearch(p.user?.username) || matchSearch(p.type) || matchSearch(p.status) || matchSearch(p.provider))
+  const filteredAuditLogs = auditLogs.filter(l => matchSearch(l.action) || matchSearch(l.category) || matchSearch(l.details))
+
+  const sidebarItems: { id: TabType; label: string; icon: any; badge?: number }[] = [
+    { id: 'stats', label: 'Overview', icon: BarChart3 },
+    { id: 'suggestions', label: 'Suggestions', icon: MessageSquare, badge: suggestions.length },
+    { id: 'markets', label: 'Markets', icon: Trophy, badge: activeMarkets.length + resolvedMarkets.length },
+    { id: 'disputes', label: 'Disputes', icon: Gavel, badge: disputes.length },
+    { id: 'users', label: 'Users', icon: Users },
+    { id: 'payments', label: 'Payments', icon: DollarSign },
+    { id: 'admin-wallet', label: 'My Wallet', icon: Wallet },
+    { id: 'sync', label: 'Sync Games', icon: RefreshCw },
+    { id: 'audit', label: 'Audit Log', icon: FileText },
+  ]
 
   return (
-    <div className={`min-h-screen ${bgColor}`}>
-      {/* Header */}
-      <header className={`sticky top-0 z-40 border-b ${borderColor} ${isDarkMode ? 'bg-[#171924]' : 'bg-white'}`}>
-        <div className="max-w-[1000px] mx-auto px-4">
-          <div className="flex items-center h-14 gap-4">
-            <button onClick={() => router.push('/')} className={`${textMuted} hover:${textColor}`}>
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h1 className={`text-lg font-bold ${textColor}`}>Admin Dashboard</h1>
-            {!isAdmin && (
-              <span className="px-2 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
-                Limited Access
-              </span>
-            )}
-          </div>
+    <div className={`min-h-screen ${bgColor} flex`}>
+      {/* Sidebar */}
+      <aside className={`${sidebarOpen ? 'w-56' : 'w-16'} flex-shrink-0 ${isDarkMode ? 'bg-[#171924]' : 'bg-white'} border-r ${borderColor} flex flex-col transition-all duration-200 fixed h-full z-30`}>
+        {/* Sidebar Header */}
+        <div className={`flex items-center ${sidebarOpen ? 'justify-between px-4' : 'justify-center'} h-14 border-b ${borderColor}`}>
+          {sidebarOpen && (
+            <div className="flex items-center gap-2">
+              <button onClick={() => router.push('/')} className={`${textMuted} hover:${textColor}`}>
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <h1 className={`text-sm font-bold ${textColor}`}>Admin</h1>
+              {!isAdmin && <span className="px-1.5 py-0.5 text-[9px] bg-yellow-500/20 text-yellow-400 rounded">Limited</span>}
+            </div>
+          )}
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className={`p-1.5 rounded-lg ${isDarkMode ? 'hover:bg-[#1e2130]' : 'hover:bg-gray-100'} ${textMuted}`}>
+            <Settings className="w-4 h-4" />
+          </button>
         </div>
-      </header>
 
-      {/* Tabs */}
-      <div className={`border-b ${borderColor} ${isDarkMode ? 'bg-[#171924]' : 'bg-white'}`}>
-        <div className="max-w-[1000px] mx-auto px-4">
-          <div className="flex gap-1 overflow-x-auto no-scrollbar">
-            <button
-              onClick={() => setActiveTab('suggestions')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === 'suggestions'
-                  ? 'border-green-500 text-green-500'
-                  : `border-transparent ${textMuted} hover:${textColor}`
-              }`}
-            >
-              <MessageSquare className="w-4 h-4" />
-              Suggestions ({suggestions.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('markets')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === 'markets'
-                  ? 'border-green-500 text-green-500'
-                  : `border-transparent ${textMuted} hover:${textColor}`
-              }`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              Resolve ({activeMarkets.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('disputes')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === 'disputes'
-                  ? 'border-green-500 text-green-500'
-                  : `border-transparent ${textMuted} hover:${textColor}`
-              }`}
-            >
-              <Gavel className="w-4 h-4" />
-              Disputes ({disputes.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('users')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === 'users'
-                  ? 'border-green-500 text-green-500'
-                  : `border-transparent ${textMuted} hover:${textColor}`
-              }`}
-            >
-              <Users className="w-4 h-4" />
-              Users
-            </button>
-            <button
-              onClick={() => setActiveTab('payments')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === 'payments'
-                  ? 'border-green-500 text-green-500'
-                  : `border-transparent ${textMuted} hover:${textColor}`
-              }`}
-            >
-              <DollarSign className="w-4 h-4" />
-              Payments
-            </button>
-            <button
-              onClick={() => setActiveTab('audit')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === 'audit'
-                  ? 'border-green-500 text-green-500'
-                  : `border-transparent ${textMuted} hover:${textColor}`
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              Audit Log
-            </button>
-            <button
-              onClick={() => setActiveTab('sync')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === 'sync'
-                  ? 'border-green-500 text-green-500'
-                  : `border-transparent ${textMuted} hover:${textColor}`
-              }`}
-            >
-              <RefreshCw className="w-4 h-4" />
-              Sync Games
-            </button>
-            <button
-              onClick={() => setActiveTab('stats')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === 'stats'
-                  ? 'border-green-500 text-green-500'
-                  : `border-transparent ${textMuted} hover:${textColor}`
-              }`}
-            >
-              <DollarSign className="w-4 h-4" />
-              Stats
-            </button>
-          </div>
-        </div>
-      </div>
+        {/* Sidebar Nav */}
+        <nav className="flex-1 py-2 overflow-y-auto">
+          {sidebarItems.map(item => {
+            const Icon = item.icon
+            const isActive = activeTab === item.id
+            return (
+              <button
+                key={item.id}
+                onClick={() => { setActiveTab(item.id); setSearchQuery('') }}
+                className={`w-full flex items-center gap-3 ${sidebarOpen ? 'px-4' : 'justify-center px-2'} py-2.5 text-sm transition-colors ${
+                  isActive
+                    ? `${isDarkMode ? 'bg-green-500/10 text-green-400 border-r-2 border-green-500' : 'bg-green-50 text-green-700 border-r-2 border-green-500'}`
+                    : `${textMuted} ${isDarkMode ? 'hover:bg-[#1e2130] hover:text-white' : 'hover:bg-gray-100 hover:text-gray-900'}`
+                }`}
+                title={!sidebarOpen ? item.label : undefined}
+              >
+                <Icon className="w-4 h-4 flex-shrink-0" />
+                {sidebarOpen && (
+                  <>
+                    <span className="flex-1 text-left truncate">{item.label}</span>
+                    {item.badge != null && item.badge > 0 && (
+                      <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded-full ${isActive ? 'bg-green-500/20' : isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                        {item.badge}
+                      </span>
+                    )}
+                  </>
+                )}
+              </button>
+            )
+          })}
+        </nav>
+      </aside>
 
-      <main className="max-w-[1100px] mx-auto px-4 py-6 space-y-6">
-        {/* Quick Stats Bar */}
-        {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
-            {[
-              { label: 'Users', value: stats.totalUsers, color: 'text-blue-400' },
-              { label: 'Active Markets', value: stats.activeMarkets, color: 'text-green-400' },
-              { label: 'Volume', value: formatZambianCurrency(stats.totalVolume), color: 'text-cyan-400' },
-              { label: 'Revenue', value: formatZambianCurrency(stats.totalRevenue), color: 'text-yellow-400' },
-              { label: 'Pending', value: stats.pendingSuggestions + stats.openDisputes, color: 'text-orange-400' },
-              { label: 'New (7d)', value: stats.newUsersLast7Days, color: 'text-purple-400' },
-            ].map(s => (
-              <div key={s.label} className={`${surfaceColor} border ${borderColor} rounded-lg px-3 py-2`}>
-                <p className={`text-[10px] ${textMuted} uppercase`}>{s.label}</p>
-                <p className={`text-sm font-bold ${s.color}`}>{s.value}</p>
+      {/* Main Content */}
+      <div className={`flex-1 ${sidebarOpen ? 'ml-56' : 'ml-16'} transition-all duration-200`}>
+        {/* Top Bar with Search */}
+        <header className={`sticky top-0 z-20 ${isDarkMode ? 'bg-[#171924]' : 'bg-white'} border-b ${borderColor}`}>
+          <div className="flex items-center h-14 px-6 gap-4">
+            <h2 className={`text-lg font-bold ${textColor} capitalize`}>
+              {activeTab === 'admin-wallet' ? 'My Wallet' : activeTab.replace('-', ' ')}
+            </h2>
+            <div className="flex-1" />
+            {/* Search — shown for searchable tabs */}
+            {['suggestions', 'markets', 'disputes', 'users', 'payments', 'audit'].includes(activeTab) && (
+              <div className={`flex items-center ${isDarkMode ? 'bg-[#1e2130] border-gray-700' : 'bg-gray-100 border-gray-200'} border rounded-lg px-3 py-1.5 w-64`}>
+                <Search className={`w-4 h-4 ${textMuted} flex-shrink-0`} />
+                <input
+                  type="text"
+                  placeholder={`Search ${activeTab}...`}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className={`bg-transparent border-none outline-none text-sm ${textColor} ml-2 w-full`}
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className={textMuted}>
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-            ))}
+            )}
+            <button onClick={loadData} className={`p-2 rounded-lg ${isDarkMode ? 'hover:bg-[#1e2130]' : 'hover:bg-gray-100'} ${textMuted}`} title="Refresh">
+              <RefreshCw className="w-4 h-4" />
+            </button>
           </div>
-        )}
+        </header>
 
-        {/* Message */}
-        {message && (
-          <div className={`rounded-xl p-4 text-sm ${
-            message.type === 'success'
-              ? 'bg-green-500/10 border border-green-500/30 text-green-400'
-              : 'bg-red-500/10 border border-red-500/30 text-red-400'
-          }`}>
-            {message.text}
-          </div>
-        )}
+        <main className="px-6 py-6 space-y-6 max-w-[1100px]">
+          {/* Quick Stats Bar */}
+          {stats && activeTab === 'stats' && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {[
+                { label: 'Users', value: stats.totalUsers, color: 'text-blue-400' },
+                { label: 'Active Markets', value: stats.activeMarkets, color: 'text-green-400' },
+                { label: 'Volume', value: formatZambianCurrency(stats.totalVolume), color: 'text-cyan-400' },
+                { label: 'Revenue', value: formatZambianCurrency(stats.totalRevenue), color: 'text-yellow-400' },
+                { label: 'Pending', value: stats.pendingSuggestions + stats.openDisputes, color: 'text-orange-400' },
+                { label: 'New (7d)', value: stats.newUsersLast7Days, color: 'text-purple-400' },
+              ].map(s => (
+                <div key={s.label} className={`${surfaceColor} border ${borderColor} rounded-lg px-3 py-2`}>
+                  <p className={`text-[10px] ${textMuted} uppercase`}>{s.label}</p>
+                  <p className={`text-sm font-bold ${s.color}`}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Message */}
+          {message && (
+            <div className={`rounded-xl p-4 text-sm ${
+              message.type === 'success'
+                ? 'bg-green-500/10 border border-green-500/30 text-green-400'
+                : 'bg-red-500/10 border border-red-500/30 text-red-400'
+            }`}>
+              {message.text}
+            </div>
+          )}
 
         {/* Suggestions Tab */}
         {activeTab === 'suggestions' && (
           <div>
             <h2 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>
-              Pending Suggestions ({suggestions.length})
+              Pending Suggestions ({filteredSuggestions.length})
             </h2>
             {!isAdmin ? (
               <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
                 <p className={`${textMuted} text-sm`}>Admin access required to review suggestions.</p>
               </div>
-            ) : suggestions.length === 0 ? (
+            ) : filteredSuggestions.length === 0 ? (
               <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
                 <MessageSquare className={`w-12 h-12 mx-auto mb-3 ${textMuted} opacity-50`} />
-                <p className={`${textMuted} text-sm`}>No pending suggestions to review.</p>
+                <p className={`${textMuted} text-sm`}>{searchQuery ? 'No suggestions match your search.' : 'No pending suggestions to review.'}</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {suggestions.map((suggestion) => (
+                {filteredSuggestions.map((suggestion) => (
                   <div key={suggestion.id} className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1 min-w-0">
@@ -753,14 +824,25 @@ export default function AdminPage() {
                       </span>
                     </div>
                     <div className={`flex gap-2 mt-2 pt-2 border-t ${borderColor}`}>
-                      <button
-                        onClick={() => finalizeMarket(market.id)}
-                        disabled={resolving === market.id || !isPastDeadline}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-lg hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
-                      >
-                        {resolving === market.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
-                        Finalize & Pay Out
-                      </button>
+                      {isPastDeadline ? (
+                        <button
+                          onClick={() => finalizeMarket(market.id)}
+                          disabled={resolving === market.id}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-lg hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+                        >
+                          {resolving === market.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
+                          Finalize & Pay Out
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => earlyFinalizeMarket(market.id)}
+                          disabled={resolving === market.id}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-purple-500/10 border border-purple-500/30 text-purple-400 rounded-lg hover:bg-purple-500/20 disabled:opacity-50 transition-colors"
+                        >
+                          {resolving === market.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                          Early Finalize & Pay Out
+                        </button>
+                      )}
                       <button
                         onClick={() => resolveMarket(market.id, 'VOID')}
                         disabled={resolving === market.id}
@@ -809,16 +891,16 @@ export default function AdminPage() {
         {activeTab === 'disputes' && (
           <div>
             <h2 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>
-              Open Disputes ({disputes.length})
+              Open Disputes ({filteredDisputes.length})
             </h2>
-            {disputes.length === 0 ? (
+            {filteredDisputes.length === 0 ? (
               <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
                 <Gavel className={`w-12 h-12 mx-auto mb-3 ${textMuted} opacity-50`} />
-                <p className={`${textMuted} text-sm`}>No open disputes.</p>
+                <p className={`${textMuted} text-sm`}>{searchQuery ? 'No disputes match your search.' : 'No open disputes.'}</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {disputes.map((dispute) => (
+                {filteredDisputes.map((dispute) => (
                   <div key={dispute.id} className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1 min-w-0">
@@ -870,16 +952,16 @@ export default function AdminPage() {
         {activeTab === 'users' && (
           <div>
             <h2 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>
-              Users ({adminUsers.length})
+              Users ({filteredUsers.length})
             </h2>
-            {adminUsers.length === 0 ? (
+            {filteredUsers.length === 0 ? (
               <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
                 <Users className={`w-12 h-12 mx-auto mb-3 ${textMuted} opacity-50`} />
-                <p className={`${textMuted} text-sm`}>No users found.</p>
+                <p className={`${textMuted} text-sm`}>{searchQuery ? 'No users match your search.' : 'No users found.'}</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {adminUsers.map((u) => (
+                {filteredUsers.map((u) => (
                   <div key={u.id} className={`${surfaceColor} border ${borderColor} rounded-xl p-4 flex items-center gap-3`}>
                     <div className={`w-9 h-9 rounded-full ${isDarkMode ? 'bg-blue-500/10' : 'bg-blue-50'} flex items-center justify-center flex-shrink-0`}>
                       <span className={`text-sm font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
@@ -942,16 +1024,16 @@ export default function AdminPage() {
             )}
 
             <h2 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>
-              Recent Payments ({payments.length})
+              Recent Payments ({filteredPayments.length})
             </h2>
-            {payments.length === 0 ? (
+            {filteredPayments.length === 0 ? (
               <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
                 <DollarSign className={`w-12 h-12 mx-auto mb-3 ${textMuted} opacity-50`} />
-                <p className={`${textMuted} text-sm`}>No payments found.</p>
+                <p className={`${textMuted} text-sm`}>{searchQuery ? 'No payments match your search.' : 'No payments found.'}</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {payments.map((p) => {
+                {filteredPayments.map((p) => {
                   const statusColor = p.status === 'COMPLETED' ? 'text-green-400 bg-green-500/20' :
                     p.status === 'FAILED' ? 'text-red-400 bg-red-500/20' :
                     p.status === 'PROCESSING' ? 'text-blue-400 bg-blue-500/20' :
@@ -996,16 +1078,16 @@ export default function AdminPage() {
         {activeTab === 'audit' && (
           <div>
             <h2 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>
-              Audit Log (Recent {auditLogs.length})
+              Audit Log (Recent {filteredAuditLogs.length})
             </h2>
-            {auditLogs.length === 0 ? (
+            {filteredAuditLogs.length === 0 ? (
               <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
                 <FileText className={`w-12 h-12 mx-auto mb-3 ${textMuted} opacity-50`} />
-                <p className={`${textMuted} text-sm`}>No audit entries yet.</p>
+                <p className={`${textMuted} text-sm`}>{searchQuery ? 'No audit entries match your search.' : 'No audit entries yet.'}</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {auditLogs.map((log) => {
+                {filteredAuditLogs.map((log) => {
                   let details: any = {}
                   try { details = JSON.parse(log.details) } catch {}
                   const actionColor = log.action.includes('RESOLVED') ? 'text-blue-400' :
@@ -1165,7 +1247,105 @@ export default function AdminPage() {
             )}
           </div>
         )}
-      </main>
+        {/* Admin Wallet Tab */}
+        {activeTab === 'admin-wallet' && (
+          <div className="space-y-6">
+            <div className={`${surfaceColor} border ${borderColor} rounded-xl p-6`}>
+              <h3 className={`text-base font-semibold ${textColor} mb-4`}>Deposit Funds</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Provider</label>
+                  <div className="flex gap-2">
+                    <button onClick={() => setAdminWalletProvider('AIRTEL')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${adminWalletProvider === 'AIRTEL' ? 'bg-red-500 text-white' : `${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} ${textMuted}`}`}>Airtel</button>
+                    <button onClick={() => setAdminWalletProvider('MTN')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${adminWalletProvider === 'MTN' ? 'bg-yellow-500 text-black' : `${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} ${textMuted}`}`}>MTN</button>
+                  </div>
+                </div>
+                <div>
+                  <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Phone Number</label>
+                  <input type="text" value={adminWalletPhone} onChange={(e) => setAdminWalletPhone(e.target.value)} placeholder="e.g. 0971234567" className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`} />
+                </div>
+                <div>
+                  <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Amount (K)</label>
+                  <input type="number" value={adminDepositAmount} onChange={(e) => setAdminDepositAmount(e.target.value)} placeholder="0.00" min="5" className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`} />
+                </div>
+                <div className="flex items-end">
+                  <button onClick={handleAdminDeposit} disabled={adminWalletProcessing} className="w-full py-2 text-sm font-medium bg-green-500 hover:bg-green-600 text-white rounded-lg disabled:opacity-50 transition-colors">
+                    {adminWalletProcessing ? 'Processing...' : 'Deposit'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className={`${surfaceColor} border ${borderColor} rounded-xl p-6`}>
+              <h3 className={`text-base font-semibold ${textColor} mb-4`}>Withdraw Funds / Revenue</h3>
+              <p className={`text-xs ${textMuted} mb-4`}>Withdraw your balance or platform revenue to your mobile money wallet. Standard withdrawal fees apply.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Provider</label>
+                  <div className="flex gap-2">
+                    <button onClick={() => setAdminWalletProvider('AIRTEL')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${adminWalletProvider === 'AIRTEL' ? 'bg-red-500 text-white' : `${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} ${textMuted}`}`}>Airtel</button>
+                    <button onClick={() => setAdminWalletProvider('MTN')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${adminWalletProvider === 'MTN' ? 'bg-yellow-500 text-black' : `${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} ${textMuted}`}`}>MTN</button>
+                  </div>
+                </div>
+                <div>
+                  <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Phone Number</label>
+                  <input type="text" value={adminWalletPhone} onChange={(e) => setAdminWalletPhone(e.target.value)} placeholder="e.g. 0971234567" className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`} />
+                </div>
+                <div>
+                  <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Amount (K)</label>
+                  <input type="number" value={adminWithdrawAmount} onChange={(e) => setAdminWithdrawAmount(e.target.value)} placeholder="0.00" min="5" className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`} />
+                </div>
+                <div className="flex items-end">
+                  <button onClick={handleAdminWithdraw} disabled={adminWalletProcessing} className="w-full py-2 text-sm font-medium bg-orange-500 hover:bg-orange-600 text-white rounded-lg disabled:opacity-50 transition-colors">
+                    {adminWalletProcessing ? 'Processing...' : 'Withdraw'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Revenue Summary */}
+            {stats && (
+              <div className={`${surfaceColor} border ${borderColor} rounded-xl p-6`}>
+                <h3 className={`text-base font-semibold ${textColor} mb-4`}>Revenue Summary</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <p className={`text-[10px] ${textMuted} uppercase`}>Total Revenue</p>
+                    <p className="text-lg font-bold text-green-400">{formatZambianCurrency(stats.totalRevenue)}</p>
+                  </div>
+                  <div>
+                    <p className={`text-[10px] ${textMuted} uppercase`}>Total Volume</p>
+                    <p className={`text-lg font-bold ${textColor}`}>{formatZambianCurrency(stats.totalVolume)}</p>
+                  </div>
+                  <div>
+                    <p className={`text-[10px] ${textMuted} uppercase`}>Total Users</p>
+                    <p className={`text-lg font-bold ${textColor}`}>{stats.totalUsers}</p>
+                  </div>
+                  <div>
+                    <p className={`text-[10px] ${textMuted} uppercase`}>Active Markets</p>
+                    <p className={`text-lg font-bold ${textColor}`}>{stats.activeMarkets}</p>
+                  </div>
+                </div>
+                {stats.revenueBreakdown && Object.keys(stats.revenueBreakdown).length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-gray-700">
+                    <p className={`text-xs font-medium ${textMuted} mb-2`}>Breakdown by Fee Type</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {Object.entries(stats.revenueBreakdown).map(([type, data]: [string, any]) => (
+                        <div key={type}>
+                          <p className={`text-[10px] ${textMuted} uppercase`}>{type.replace(/_/g, ' ')}</p>
+                          <p className="text-sm font-bold text-green-400">{formatZambianCurrency(data.total)}</p>
+                          <p className={`text-[10px] ${textMuted}`}>{data.count} txns</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        </main>
+      </div>
 
       {/* Rejection Modal */}
       {showRejectModal && (

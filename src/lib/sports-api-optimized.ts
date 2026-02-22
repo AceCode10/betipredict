@@ -4,8 +4,8 @@
 const FOOTBALL_DATA_API_KEY = process.env.FOOTBALL_DATA_API_KEY || ''
 const BASE_URL = 'https://api.football-data.org/v4'
 
-// Rate limiting: 10 calls per minute = 1 call every 6 seconds
-const RATE_LIMIT_DELAY = 6000 // 6 seconds between calls
+// Rate limiting: 10 calls per minute — use 3s gap (conservative but fast enough)
+const RATE_LIMIT_DELAY = 3000 // 3 seconds between calls
 let lastCallTime = 0
 
 async function respectRateLimit(): Promise<void> {
@@ -28,10 +28,19 @@ async function fetchFromAPI(endpoint: string): Promise<any> {
 
   await respectRateLimit()
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
-    headers: { 'X-Auth-Token': FOOTBALL_DATA_API_KEY },
-    cache: 'no-store'
-  })
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8000) // 8s timeout per request
+
+  let response: Response
+  try {
+    response = await fetch(`${BASE_URL}${endpoint}`, {
+      headers: { 'X-Auth-Token': FOOTBALL_DATA_API_KEY },
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (!response.ok) {
     if (response.status === 429) {
@@ -88,7 +97,7 @@ export async function checkMatchesForResolution(matchIds: number[]): Promise<{
     // If we have more batches, wait before continuing
     if (i + batchSize < matchIds.length) {
       console.log(`[sports-api] Batch completed, waiting before next batch...`)
-      await new Promise(resolve => setTimeout(resolve, 30000)) // 30 second break between batches
+      await new Promise(resolve => setTimeout(resolve, 10000)) // 10 second break between batches
     }
   }
   

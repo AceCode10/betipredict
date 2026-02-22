@@ -39,17 +39,21 @@ export async function POST(request: NextRequest) {
 
     const meta = extractRequestMeta(request.headers)
 
-    // ─── Finalize action: process payouts for resolved markets past dispute window ───
-    if (action === 'FINALIZE') {
+    // ─── Finalize action: process payouts for resolved markets ───
+    if (action === 'FINALIZE' || action === 'EARLY_FINALIZE') {
       if (market.status !== 'RESOLVED') {
         return NextResponse.json({ error: 'Market must be in RESOLVED state to finalize' }, { status: 400 })
       }
-      const result = await MarketResolver.finalizeMarket(marketId)
+
+      // Admin early finalization: skip dispute window when outcome is clearly correct
+      const result = (action === 'EARLY_FINALIZE' && isAdmin)
+        ? await MarketResolver.earlyFinalizeMarket(marketId)
+        : await MarketResolver.finalizeMarket(marketId)
 
       writeAuditLog({
-        action: 'MARKET_FINALIZED',
+        action: action === 'EARLY_FINALIZE' ? 'MARKET_EARLY_FINALIZED' : 'MARKET_FINALIZED',
         category: 'MARKET',
-        details: { marketId, outcome: result.finalized, feesCollected: result.feesCollected, isAdmin },
+        details: { marketId, outcome: result.finalized, feesCollected: result.feesCollected, isAdmin, earlyFinalize: action === 'EARLY_FINALIZE' },
         actorId: session.user.id,
         ...meta,
       })

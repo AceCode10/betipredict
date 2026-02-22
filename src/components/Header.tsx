@@ -235,7 +235,14 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                   {/* Notifications */}
                   <div ref={notifRef} className="relative">
                     <button
-                      onClick={() => setShowNotifications(!showNotifications)}
+                      onClick={() => {
+                        const willOpen = !showNotifications
+                        setShowNotifications(willOpen)
+                        // Auto-mark all as read when opening the panel
+                        if (willOpen && unreadCount > 0) {
+                          markAllRead()
+                        }
+                      }}
                       className={`p-2 rounded-lg ${hoverBg} ${textMuted} relative`}
                     >
                       <Bell className="w-5 h-5" />

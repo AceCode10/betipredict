@@ -1,8 +1,9 @@
 import { prisma } from './prisma'
 import { calculateResolutionFee } from './fees'
 
-// Dispute window duration: 24 hours
-const DISPUTE_WINDOW_MS = 24 * 60 * 60 * 1000
+// Dispute window duration: 2 hours (Polymarket-style challenge period)
+// Sports markets with clear API-verified outcomes use short windows.
+const DISPUTE_WINDOW_MS = 2 * 60 * 60 * 1000
 
 export class MarketResolver {
   /**
@@ -51,7 +52,7 @@ export class MarketResolver {
         data: uniqueUserIds.map(userId => ({
           type: 'MARKET_RESOLVED',
           title: 'Market Resolved',
-          message: `"${market.title}" resolved to ${outcome}. Payouts will be processed after the 24h dispute window (${disputeDeadline.toISOString()}).`,
+          message: `"${market.title}" resolved to ${outcome}. Payouts will be processed after the 2h dispute window (${disputeDeadline.toLocaleString()}).`,
           userId,
           metadata: JSON.stringify({ marketId, outcome, disputeDeadline }),
         }))
@@ -223,6 +224,35 @@ export class MarketResolver {
       } catch (error) {
         console.error(`Failed to finalize market ${market.id}:`, error)
       }
+    }
+  }
+
+  /**
+   * Admin early finalization: skip the dispute window when outcome is clearly correct.
+   * Only admins should call this. Bypasses the disputeDeadline check.
+   */
+  static async earlyFinalizeMarket(marketId: string) {
+    try {
+      const market = await prisma.market.findUnique({ where: { id: marketId } })
+      if (!market) throw new Error('Market not found')
+      if (market.status !== 'RESOLVED') throw new Error('Market must be RESOLVED to early-finalize')
+
+      // Check for open disputes — cannot early-finalize if disputed
+      const openDisputes = await prisma.marketDispute.count({
+        where: { marketId, status: 'OPEN' }
+      })
+      if (openDisputes > 0) throw new Error('Cannot early-finalize: market has open disputes')
+
+      // Force the dispute deadline to now so finalizeMarket can proceed
+      await prisma.market.update({
+        where: { id: marketId },
+        data: { disputeDeadline: new Date() }
+      })
+
+      return this.finalizeMarket(marketId)
+    } catch (error) {
+      console.error('Error early-finalizing market:', error)
+      throw error
     }
   }
 

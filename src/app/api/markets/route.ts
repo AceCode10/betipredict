@@ -95,10 +95,14 @@ export async function GET(request: NextRequest) {
           matchDate: game?.utcDate ?? m.resolveTime,
         }
       })
-      // Filter: only show tradable ACTIVE markets, or non-ACTIVE markets (resolved/finalized for history)
+      // Filter: only show tradable ACTIVE markets by default.
+      // Resolved/finalized markets are only returned when explicitly requested via ?status= param.
       .filter(m => {
+        // If a specific status was requested, respect it
+        if (status) return true
+        // Default feed: only tradable ACTIVE markets
         if (m.status === 'ACTIVE') return m.isTradable
-        return true // show resolved/finalized markets for reference
+        return false
       })
 
     return NextResponse.json(enriched)

@@ -124,69 +124,97 @@ export default function AccountPage() {
 
   const displayAmount = (amt: number) => hideBalance ? '••••••' : formatZambianCurrency(amt)
 
-  const tabs: { key: TabType; label: string; icon: any }[] = [
+  const sidebarItems: { key: TabType; label: string; icon: any; badge?: string }[] = [
     { key: 'overview', label: 'Overview', icon: BarChart3 },
-    { key: 'positions', label: `Positions`, icon: Target },
+    { key: 'positions', label: 'Positions', icon: Target, badge: openPositions.length > 0 ? `${openPositions.length}` : undefined },
     { key: 'transactions', label: 'History', icon: History },
-    { key: 'settings', label: 'Settings', icon: User },
+    { key: 'settings', label: 'Profile', icon: User },
   ]
 
   return (
-    <div className="min-h-screen bg-[#0d1117]">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-gray-800/60 bg-[#0d1117]/95 backdrop-blur-md">
-        <div className="max-w-[1100px] mx-auto px-4">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
-              <button onClick={() => router.push('/')} className="text-gray-400 hover:text-white transition-colors">
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div>
-                <h1 className="text-lg font-bold text-white">My Account</h1>
-                <p className="text-xs text-gray-500">@{profile?.username || session?.user?.name}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setHideBalance(!hideBalance)} className="p-2 text-gray-500 hover:text-white transition-colors" title="Toggle balance visibility">
-                {hideBalance ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-              <button onClick={() => loadData()} className="p-2 text-gray-500 hover:text-white transition-colors" title="Refresh">
-                <RefreshCw className="w-4 h-4" />
-              </button>
-              <button onClick={() => setShowDeposit(true)} className="px-4 py-2 bg-green-500 text-white text-sm font-semibold rounded-lg hover:bg-green-600 transition-colors">
-                Deposit
-              </button>
-              <button onClick={() => setShowWithdraw(true)} className="px-4 py-2 bg-[#1c2030] border border-gray-700 text-gray-300 text-sm font-semibold rounded-lg hover:bg-[#252840] transition-colors">
-                Withdraw
-              </button>
-            </div>
+    <div className="min-h-screen bg-[#0d1117] flex">
+      {/* Sidebar */}
+      <aside className="w-56 flex-shrink-0 bg-[#161b22] border-r border-gray-800/60 flex flex-col fixed h-full z-30">
+        {/* Sidebar Header */}
+        <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-800/60">
+          <button onClick={() => router.push('/')} className="text-gray-400 hover:text-white transition-colors">
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-white truncate">{profile?.fullName || session?.user?.name}</p>
+            <p className="text-[10px] text-gray-500 truncate">@{profile?.username || 'user'}</p>
           </div>
         </div>
-      </header>
 
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-800/60 bg-[#0d1117]">
-        <div className="max-w-[1100px] mx-auto px-4">
-          <div className="flex gap-1">
-            {tabs.map(t => (
+        {/* Balance Card */}
+        <div className="px-4 py-3 border-b border-gray-800/60">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-gray-500 uppercase">Balance</span>
+            <button onClick={() => setHideBalance(!hideBalance)} className="text-gray-600 hover:text-gray-400">
+              {hideBalance ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+            </button>
+          </div>
+          <p className="text-lg font-bold text-green-400 mb-2">{displayAmount(balance)}</p>
+          <div className="flex gap-2">
+            <button onClick={() => setShowDeposit(true)} className="flex-1 py-1.5 text-xs font-medium bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">
+              Deposit
+            </button>
+            <button onClick={() => setShowWithdraw(true)} className="flex-1 py-1.5 text-xs font-medium bg-[#1c2030] border border-gray-700 text-gray-300 rounded-lg hover:bg-[#252840] transition-colors">
+              Withdraw
+            </button>
+          </div>
+        </div>
+
+        {/* Nav Items */}
+        <nav className="flex-1 py-2">
+          {sidebarItems.map(item => {
+            const Icon = item.icon
+            const isActive = tab === item.key
+            return (
               <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  tab === t.key
-                    ? 'border-green-500 text-green-400'
-                    : 'border-transparent text-gray-500 hover:text-gray-300'
+                key={item.key}
+                onClick={() => setTab(item.key)}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                  isActive
+                    ? 'bg-green-500/10 text-green-400 border-r-2 border-green-500'
+                    : 'text-gray-400 hover:bg-[#1c2030] hover:text-white'
                 }`}
               >
-                <t.icon className="w-4 h-4" />
-                {t.label}
+                <Icon className="w-4 h-4 flex-shrink-0" />
+                <span className="flex-1 text-left">{item.label}</span>
+                {item.badge && (
+                  <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded-full ${isActive ? 'bg-green-500/20' : 'bg-gray-700'}`}>
+                    {item.badge}
+                  </span>
+                )}
               </button>
-            ))}
-          </div>
-        </div>
-      </div>
+            )
+          })}
+        </nav>
 
-      <main className="max-w-[1100px] mx-auto px-4 py-6 space-y-6">
+        {/* Sidebar Footer */}
+        <div className="border-t border-gray-800/60 p-3">
+          <button onClick={() => signOut({ callbackUrl: '/' })} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 ml-56">
+        {/* Top Bar */}
+        <header className="sticky top-0 z-20 bg-[#0d1117] border-b border-gray-800/60">
+          <div className="flex items-center h-14 px-6 gap-4">
+            <h2 className="text-lg font-bold text-white capitalize">{tab === 'overview' ? 'Portfolio Overview' : tab}</h2>
+            <div className="flex-1" />
+            <button onClick={() => loadData()} className="p-2 text-gray-500 hover:text-white transition-colors" title="Refresh">
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+        </header>
+
+        <main className="px-6 py-6 space-y-6 max-w-[1100px]">
 
         {/* ═══════════════ OVERVIEW TAB ═══════════════ */}
         {tab === 'overview' && (
@@ -609,7 +637,8 @@ export default function AccountPage() {
             </div>
           </div>
         )}
-      </main>
+        </main>
+      </div>
 
       <DepositModal isOpen={showDeposit} onClose={() => setShowDeposit(false)} onDeposit={handleDeposit} currentBalance={balance} />
       <WithdrawModal isOpen={showWithdraw} onClose={() => setShowWithdraw(false)} onWithdraw={handleWithdraw} currentBalance={balance} />
