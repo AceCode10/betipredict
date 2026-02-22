@@ -297,11 +297,17 @@ export default function PolymarketStyleHomePage() {
     }
 
     const league = m.league || m.subcategory || m.category || ''
-    const matchDate = m.matchDate || (m.resolveTime ? new Date(m.resolveTime).toLocaleDateString() : '')
+    const rawDate = m.matchDate || m.resolveTime
+    const matchDate = rawDate ? new Date(rawDate).toLocaleDateString() : ''
     const trend = m.trend || (m.yesPrice > 0.5 ? 'up' : 'down')
     const change = m.change || ''
     const volume = m.volume || 0
-    return { ...m, marketType, homeTeam, awayTeam, optionA, optionB, league, matchDate, trend, change, volume }
+    const homeTeamCrest = m.homeTeamCrest || null
+    const awayTeamCrest = m.awayTeamCrest || null
+    const gameStatus = m.gameStatus || null
+    const liveHomeScore = m.liveHomeScore ?? null
+    const liveAwayScore = m.liveAwayScore ?? null
+    return { ...m, marketType, homeTeam, awayTeam, optionA, optionB, league, matchDate, trend, change, volume, homeTeamCrest, awayTeamCrest, gameStatus, liveHomeScore, liveAwayScore }
   }
 
   const normalizedMarkets = markets.map(normalizeMarket)
@@ -583,73 +589,58 @@ export default function PolymarketStyleHomePage() {
                 }
               }}
             >
-              {/* Card Header: icon + title + circular progress */}
-              <div className="flex items-start gap-3 mb-3">
-                <div className="relative flex-shrink-0">
-                  <div className={`w-9 h-9 rounded-full ${subtleBg} flex items-center justify-center text-base ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>
-                    ⚽
-                  </div>
-                  {market.isLive && (
-                    <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-500 items-center justify-center text-[6px] font-bold text-white">L</span>
-                    </span>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className={`text-[15px] font-semibold ${textColor} leading-snug line-clamp-2 group-hover:text-green-500 transition-colors`}>
-                    {market.question || market.title}
-                  </h3>
-                </div>
-                {isYesNo && (() => {
-                  // Smooth color: 0%=deep red → 50%=orange → 100%=deep green
-                  const r = yesPercent <= 50 ? 220 : Math.round(220 - (yesPercent - 50) * 4.4)
-                  const g = yesPercent <= 50 ? Math.round(50 + yesPercent * 3.1) : Math.round(205 + (yesPercent - 50) * 0.4)
-                  const b = yesPercent <= 50 ? Math.round(30 + yesPercent * 0.4) : Math.round(50 - (yesPercent - 50) * 0.6)
-                  const strokeColor = `rgb(${r},${g},${b})`
-                  const textColorPct = yesPercent >= 50 ? 'text-green-500' : yesPercent >= 30 ? 'text-orange-400' : 'text-red-400'
-                  const circumference = 2 * Math.PI * 24
-                  return (
-                  <div className="flex-shrink-0 relative">
-                    <div className="relative w-14 h-14">
-                      <svg className="transform -rotate-90 w-14 h-14">
-                        <circle cx="28" cy="28" r="24" stroke={isDarkMode ? '#374151' : '#e5e7eb'} strokeWidth="4" fill="none" />
-                        <circle
-                          cx="28" cy="28" r="24"
-                          stroke={strokeColor}
-                          strokeWidth="4"
-                          fill="none"
-                          strokeDasharray={`${circumference}`}
-                          strokeDashoffset={`${circumference * (1 - yesPercent / 100)}`}
-                          strokeLinecap="round"
-                          className="transition-all duration-500"
-                        />
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className={`text-sm font-bold ${textColorPct}`}>{yesPercent}%</span>
+              {/* ── Match-style card for sports markets ── */}
+              {!isYesNo && market.homeTeam && market.awayTeam ? (
+                <div className="space-y-3 mb-3">
+                  {/* Home team row */}
+                  <div className="flex items-center gap-3">
+                    {market.homeTeamCrest ? (
+                      <img src={market.homeTeamCrest} alt="" className="w-6 h-6 object-contain flex-shrink-0" />
+                    ) : (
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                        isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {market.homeTeam.charAt(0)}
                       </div>
-                    </div>
+                    )}
+                    {market.isLive && market.liveHomeScore != null && (
+                      <span className={`text-lg font-bold tabular-nums w-4 text-center ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                        {market.liveHomeScore}
+                      </span>
+                    )}
+                    <span className={`text-sm font-medium flex-1 truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      {market.homeTeam}
+                    </span>
+                    <span className={`text-sm font-bold tabular-nums ml-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      {yesPercent}%
+                    </span>
                   </div>
-                  )
-                })()}
-              </div>
-
-              {/* Yes/No labels below progress */}
-              {isYesNo && (
-                <div className="flex justify-between mb-3">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                    <span className="text-xs font-medium text-green-500">Yes {yesPercent}%</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-red-400" />
-                    <span className="text-xs font-medium text-red-400">No {noPercent}%</span>
+                  {/* Away team row */}
+                  <div className="flex items-center gap-3">
+                    {market.awayTeamCrest ? (
+                      <img src={market.awayTeamCrest} alt="" className="w-6 h-6 object-contain flex-shrink-0" />
+                    ) : (
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                        isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {market.awayTeam.charAt(0)}
+                      </div>
+                    )}
+                    {market.isLive && market.liveAwayScore != null && (
+                      <span className={`text-lg font-bold tabular-nums w-4 text-center ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                        {market.liveAwayScore}
+                      </span>
+                    )}
+                    <span className={`text-sm font-medium flex-1 truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      {market.awayTeam}
+                    </span>
+                    <span className={`text-sm font-bold tabular-nums ml-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      {noPercent}%
+                    </span>
                   </div>
                 </div>
-              )}
-
-              {/* Match-winner option rows */}
-              {!isYesNo && (
+              ) : !isYesNo ? (
+                /* Fallback match-winner without crest data */
                 <div className="space-y-1.5 mb-4">
                   <div className="flex items-center justify-between gap-2">
                     <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} truncate flex-1 font-medium`}>{market.optionA}</span>
@@ -660,6 +651,68 @@ export default function PolymarketStyleHomePage() {
                     <span className={`text-sm font-bold ${textColor}`}>{noPercent}%</span>
                   </div>
                 </div>
+              ) : (
+                /* ── Yes/No card header ── */
+                <>
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="relative flex-shrink-0">
+                      <div className={`w-9 h-9 rounded-full ${subtleBg} flex items-center justify-center text-base ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>
+                        ⚽
+                      </div>
+                      {market.isLive && (
+                        <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-500 items-center justify-center text-[6px] font-bold text-white">L</span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className={`text-[15px] font-semibold ${textColor} leading-snug line-clamp-2 group-hover:text-green-500 transition-colors`}>
+                        {market.question || market.title}
+                      </h3>
+                    </div>
+                    {(() => {
+                      const r = yesPercent <= 50 ? 220 : Math.round(220 - (yesPercent - 50) * 4.4)
+                      const g = yesPercent <= 50 ? Math.round(50 + yesPercent * 3.1) : Math.round(205 + (yesPercent - 50) * 0.4)
+                      const b = yesPercent <= 50 ? Math.round(30 + yesPercent * 0.4) : Math.round(50 - (yesPercent - 50) * 0.6)
+                      const strokeColor = `rgb(${r},${g},${b})`
+                      const textColorPct = yesPercent >= 50 ? 'text-green-500' : yesPercent >= 30 ? 'text-orange-400' : 'text-red-400'
+                      const circumference = 2 * Math.PI * 24
+                      return (
+                      <div className="flex-shrink-0 relative">
+                        <div className="relative w-14 h-14">
+                          <svg className="transform -rotate-90 w-14 h-14">
+                            <circle cx="28" cy="28" r="24" stroke={isDarkMode ? '#374151' : '#e5e7eb'} strokeWidth="4" fill="none" />
+                            <circle
+                              cx="28" cy="28" r="24"
+                              stroke={strokeColor}
+                              strokeWidth="4"
+                              fill="none"
+                              strokeDasharray={`${circumference}`}
+                              strokeDashoffset={`${circumference * (1 - yesPercent / 100)}`}
+                              strokeLinecap="round"
+                              className="transition-all duration-500"
+                            />
+                          </svg>
+                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className={`text-sm font-bold ${textColorPct}`}>{yesPercent}%</span>
+                          </div>
+                        </div>
+                      </div>
+                      )
+                    })()}
+                  </div>
+                  <div className="flex justify-between mb-3">
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 rounded-full bg-green-500" />
+                      <span className="text-xs font-medium text-green-500">Yes {yesPercent}%</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 rounded-full bg-red-400" />
+                      <span className="text-xs font-medium text-red-400">No {noPercent}%</span>
+                    </div>
+                  </div>
+                </>
               )}
 
               {/* Action buttons */}

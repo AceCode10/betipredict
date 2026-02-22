@@ -71,6 +71,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Market is not active for trading' }, { status: 400 })
     }
 
+    // Block trading if the market's resolve time has already passed
+    if (new Date(market.resolveTime) <= new Date()) {
+      return NextResponse.json({ error: 'This market has passed its resolve time and is no longer tradable' }, { status: 400 })
+    }
+
+    // Block trading if the linked game is already finished
+    const linkedGame = await prisma.scheduledGame.findFirst({
+      where: { marketId, status: 'FINISHED' },
+      select: { id: true },
+    })
+    if (linkedGame) {
+      return NextResponse.json({ error: 'The linked match has ended. Trading is closed.' }, { status: 400 })
+    }
+
     // Use persisted CPMM pool state if available, otherwise initialize (legacy fallback)
     let pool;
     if (market.poolYesShares != null && market.poolNoShares != null && market.poolK != null) {

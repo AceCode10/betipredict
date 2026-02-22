@@ -48,22 +48,35 @@ export async function GET(request: NextRequest) {
       skip: offset
     })
 
-    // Enrich with live status from ScheduledGame
+    // Enrich with game status + crests from ScheduledGame
     const marketIds = markets.map(m => m.id)
-    const liveGames = marketIds.length > 0
+    const linkedGames = marketIds.length > 0
       ? await prisma.scheduledGame.findMany({
-          where: { marketId: { in: marketIds }, status: { in: ['IN_PLAY', 'LIVE'] } },
-          select: { marketId: true, homeScore: true, awayScore: true },
+          where: { marketId: { in: marketIds } },
+          select: {
+            marketId: true, status: true,
+            homeScore: true, awayScore: true,
+            homeTeamCrest: true, awayTeamCrest: true,
+            utcDate: true,
+          },
         })
       : []
-    const liveMap = new Map(liveGames.map(g => [g.marketId, g]))
+    const gameMap = new Map(linkedGames.map(g => [g.marketId, g]))
 
-    const enriched = markets.map(m => ({
-      ...m,
-      isLive: liveMap.has(m.id),
-      liveHomeScore: liveMap.get(m.id)?.homeScore ?? null,
-      liveAwayScore: liveMap.get(m.id)?.awayScore ?? null,
-    }))
+    const enriched = markets.map(m => {
+      const game = gameMap.get(m.id)
+      const isLive = game ? ['IN_PLAY', 'LIVE'].includes(game.status) : false
+      return {
+        ...m,
+        isLive,
+        gameStatus: game?.status ?? null,
+        liveHomeScore: isLive ? (game?.homeScore ?? null) : null,
+        liveAwayScore: isLive ? (game?.awayScore ?? null) : null,
+        homeTeamCrest: game?.homeTeamCrest ?? null,
+        awayTeamCrest: game?.awayTeamCrest ?? null,
+        matchDate: game?.utcDate ?? m.resolveTime,
+      }
+    })
 
     return NextResponse.json(enriched)
   } catch (error) {

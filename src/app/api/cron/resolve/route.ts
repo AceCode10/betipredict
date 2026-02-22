@@ -34,6 +34,24 @@ export async function POST(request: NextRequest) {
   const finalized: { marketId: string; outcome: string; feesCollected?: number; error?: string }[] = []
 
   try {
+    // ─── Phase 0: Expire stale live games in DB ───
+    // Games stuck as IN_PLAY for >4h that the football API no longer reports as live
+    const staleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000)
+    const staleGames = await prisma.scheduledGame.findMany({
+      where: {
+        status: { in: ['IN_PLAY', 'LIVE'] },
+        utcDate: { lt: staleCutoff },
+      },
+      select: { id: true, externalId: true, marketId: true, homeTeam: true, awayTeam: true },
+    })
+
+    for (const game of staleGames) {
+      await prisma.scheduledGame.update({
+        where: { id: game.id },
+        data: { status: 'FINISHED' },
+      }).catch(() => {})
+    }
+
     // ─── Phase 1: Resolve active markets past their resolve time ───
     const marketsToResolve = await prisma.market.findMany({
       where: {
@@ -65,8 +83,9 @@ export async function POST(request: NextRequest) {
         }
 
         if (!winningOutcome) {
+          // Grace period: wait 2h past resolveTime before flagging
           const hoursPast = (Date.now() - new Date(market.resolveTime).getTime()) / 3600000
-          if (hoursPast < 4) continue
+          if (hoursPast < 2) continue
           resolved.push({ marketId: market.id, outcome: 'PENDING', error: 'No result available from API' })
           continue
         }
