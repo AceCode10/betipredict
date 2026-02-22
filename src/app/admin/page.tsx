@@ -413,8 +413,11 @@ export default function AdminPage() {
 
   if (status === 'loading' || loading) {
     return (
-      <div className="min-h-screen bg-[#131722] flex items-center justify-center">
-        <div className="text-gray-400">Loading...</div>
+      <div className={`min-h-screen ${bgColor} flex items-center justify-center`}>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+          <p className={`${textMuted} text-sm`}>Loading admin dashboard...</p>
+        </div>
       </div>
     )
   }
@@ -538,7 +541,26 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <main className="max-w-[1000px] mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-[1100px] mx-auto px-4 py-6 space-y-6">
+        {/* Quick Stats Bar */}
+        {stats && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+            {[
+              { label: 'Users', value: stats.totalUsers, color: 'text-blue-400' },
+              { label: 'Active Markets', value: stats.activeMarkets, color: 'text-green-400' },
+              { label: 'Volume', value: formatZambianCurrency(stats.totalVolume), color: 'text-cyan-400' },
+              { label: 'Revenue', value: formatZambianCurrency(stats.totalRevenue), color: 'text-yellow-400' },
+              { label: 'Pending', value: stats.pendingSuggestions + stats.openDisputes, color: 'text-orange-400' },
+              { label: 'New (7d)', value: stats.newUsersLast7Days, color: 'text-purple-400' },
+            ].map(s => (
+              <div key={s.label} className={`${surfaceColor} border ${borderColor} rounded-lg px-3 py-2`}>
+                <p className={`text-[10px] ${textMuted} uppercase`}>{s.label}</p>
+                <p className={`text-sm font-bold ${s.color}`}>{s.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Message */}
         {message && (
           <div className={`rounded-xl p-4 text-sm ${
@@ -1071,6 +1093,7 @@ export default function AdminPage() {
               Platform Statistics
             </h2>
             {stats ? (
+              <>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
                   <div className="flex items-center gap-2 mb-2">
@@ -1078,6 +1101,7 @@ export default function AdminPage() {
                     <span className={`text-xs ${textMuted}`}>Total Users</span>
                   </div>
                   <p className={`text-2xl font-bold ${textColor}`}>{stats.totalUsers.toLocaleString()}</p>
+                  <p className={`text-xs ${textMuted}`}>+{stats.newUsersLast7Days} this week</p>
                 </div>
                 <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
                   <div className="flex items-center gap-2 mb-2">
@@ -1085,13 +1109,7 @@ export default function AdminPage() {
                     <span className={`text-xs ${textMuted}`}>Total Markets</span>
                   </div>
                   <p className={`text-2xl font-bold ${textColor}`}>{stats.totalMarkets.toLocaleString()}</p>
-                </div>
-                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Trophy className="w-4 h-4 text-green-400" />
-                    <span className={`text-xs ${textMuted}`}>Active Markets</span>
-                  </div>
-                  <p className={`text-2xl font-bold ${textColor}`}>{stats.activeMarkets.toLocaleString()}</p>
+                  <p className={`text-xs ${textMuted}`}>{stats.activeMarkets} active, {stats.resolvedMarkets} resolved</p>
                 </div>
                 <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
                   <div className="flex items-center gap-2 mb-2">
@@ -1110,11 +1128,36 @@ export default function AdminPage() {
                 <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
                   <div className="flex items-center gap-2 mb-2">
                     <MessageSquare className="w-4 h-4 text-orange-400" />
-                    <span className={`text-xs ${textMuted}`}>Pending Suggestions</span>
+                    <span className={`text-xs ${textMuted}`}>Pending Actions</span>
                   </div>
-                  <p className={`text-2xl font-bold ${textColor}`}>{stats.pendingSuggestions}</p>
+                  <p className={`text-2xl font-bold ${textColor}`}>{stats.pendingSuggestions + stats.openDisputes}</p>
+                  <p className={`text-xs ${textMuted}`}>{stats.pendingSuggestions} suggestions, {stats.openDisputes} disputes</p>
+                </div>
+                <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <DollarSign className="w-4 h-4 text-blue-400" />
+                    <span className={`text-xs ${textMuted}`}>Pending Payments</span>
+                  </div>
+                  <p className={`text-2xl font-bold ${textColor}`}>{stats.pendingPayments}</p>
                 </div>
               </div>
+
+              {/* Revenue Breakdown */}
+              {stats.revenueBreakdown && Object.keys(stats.revenueBreakdown).length > 0 && (
+                <div className="mt-4">
+                  <h3 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>Revenue Breakdown</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {Object.entries(stats.revenueBreakdown).map(([type, data]: [string, any]) => (
+                      <div key={type} className={`${surfaceColor} border ${borderColor} rounded-xl p-3`}>
+                        <p className={`text-[10px] ${textMuted} uppercase`}>{type.replace(/_/g, ' ')}</p>
+                        <p className={`text-lg font-bold text-green-400`}>{formatZambianCurrency(data.total)}</p>
+                        <p className={`text-[10px] ${textMuted}`}>{data.count} transactions</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              </>
             ) : (
               <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
                 <p className={textMuted}>Loading stats...</p>
