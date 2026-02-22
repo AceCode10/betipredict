@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Fetch upcoming matches from sports API
-    const matches = await getAllUpcomingMatches(50)
+    const matches = await getAllUpcomingMatches(14)
 
     if (!matches || matches.length === 0) {
       return NextResponse.json({

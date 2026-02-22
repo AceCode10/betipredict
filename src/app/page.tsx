@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession, signIn } from 'next-auth/react'
 import { useWallet, WalletConnectButton } from '@/components/WalletConnect'
 import { useContractService } from '@/lib/contracts'
+import { useOnChainTrade } from '@/hooks/useOnChainTrade'
 import { PriceChart } from '@/components/PriceChart'
 // BetSlip removed — replaced by trading panel in market detail overlay
 import { Header } from '@/components/Header'
@@ -87,6 +88,7 @@ export default function PolymarketStyleHomePage() {
   const [liveMarketIds, setLiveMarketIds] = useState<Set<string>>(new Set())
   
   const contractService = useContractService()
+  const { isOnChain, tokenBalance, tokenSymbol, buyOnChain, sellOnChain, claimOnChain, getPosition: getOnChainPosition, estimateBuy, refreshBalance: refreshOnChainBalance, loading: onChainLoading } = useOnChainTrade()
   const isLoggedIn = sessionStatus === 'authenticated' && !!session?.user
 
   // SSE: Real-time market data stream
@@ -363,13 +365,25 @@ export default function PolymarketStyleHomePage() {
   })
 
   const handleSellFromDetail = async (market: any, outcome: 'YES' | 'NO', shares: number) => {
-    if (!isLoggedIn) { signIn(); return }
+    if (!isLoggedIn && !isOnChain) { signIn(); return }
     if (!shares || shares <= 0) return
 
     setPlacingBets(true)
     setError(null)
 
     try {
+      // On-chain selling when wallet is connected
+      if (isOnChain && market.onChainId) {
+        const sharesBigInt = BigInt(Math.floor(shares * 1e6)) // USDC 6 decimals
+        const result = await sellOnChain(market.onChainId, outcome, sharesBigInt)
+        if (!result.success) throw new Error(result.error || 'On-chain sell failed')
+        await refreshOnChainBalance()
+        setDetailAmount('')
+        fetch(`/api/markets`).then(r => r.json()).then(setMarkets).catch(() => {})
+        return
+      }
+
+      // Fallback: centralized API
       const res = await fetch('/api/trade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -409,13 +423,25 @@ export default function PolymarketStyleHomePage() {
   }
 
   const handleBuyFromDetail = async (market: any, outcome: 'YES' | 'NO', amount: number) => {
-    if (!isLoggedIn) { signIn(); return }
+    if (!isLoggedIn && !isOnChain) { signIn(); return }
     if (!amount || amount <= 0) return
 
     setPlacingBets(true)
     setError(null)
 
     try {
+      // On-chain trading when wallet is connected
+      if (isOnChain && market.onChainId) {
+        const result = await buyOnChain(market.onChainId, outcome, amount)
+        if (!result.success) throw new Error(result.error || 'On-chain trade failed')
+        await refreshOnChainBalance()
+        setDetailAmount('')
+        // Refresh market prices from API
+        fetch(`/api/markets`).then(r => r.json()).then(setMarkets).catch(() => {})
+        return
+      }
+
+      // Fallback: centralized API trading
       const res = await fetch('/api/trade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1248,10 +1274,23 @@ export default function PolymarketStyleHomePage() {
                     </div>
                   )}
 
+                  {/* On-chain wallet info */}
+                  {isOnChain && (
+                    <div className={`flex items-center justify-between mb-2 px-2 py-1.5 rounded-lg text-xs ${isDarkMode ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-blue-50 border border-blue-200'}`}>
+                      <span className={isDarkMode ? 'text-blue-300' : 'text-blue-600'}>
+                        <span className="inline-block w-2 h-2 bg-green-400 rounded-full mr-1.5 animate-pulse" />
+                        On-chain ({tokenSymbol})
+                      </span>
+                      <span className={`font-semibold ${isDarkMode ? 'text-blue-200' : 'text-blue-700'}`}>
+                        {tokenBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} {tokenSymbol}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Trade button */}
                   <button
                     onClick={() => {
-                      if (!isLoggedIn) { signIn(); return }
+                      if (!isLoggedIn && !isOnChain) { signIn(); return }
                       if (amt <= 0) return
                       if (tradeSide === 'BUY') {
                         handleBuyFromDetail(market, showChart.outcome, amt)
@@ -1259,14 +1298,14 @@ export default function PolymarketStyleHomePage() {
                         handleSellFromDetail(market, showChart.outcome, amt)
                       }
                     }}
-                    disabled={placingBets || amt <= 0 || (tradeSide === 'BUY' && amt > userBalance)}
+                    disabled={placingBets || onChainLoading || amt <= 0 || (tradeSide === 'BUY' && !isOnChain && amt > userBalance) || (tradeSide === 'BUY' && isOnChain && amt > tokenBalance)}
                     className={`w-full py-3 text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 ${
                       tradeSide === 'SELL'
                         ? 'bg-red-500 hover:bg-red-600 text-white'
                         : 'bg-green-500 hover:bg-green-600 text-white'
                     }`}
                   >
-                    {placingBets ? 'Processing...' : !isLoggedIn ? 'Sign In to Trade' : amt > 0 ? 'Trade' : 'Enter amount'}
+                    {placingBets || onChainLoading ? 'Processing...' : !isLoggedIn && !isOnChain ? 'Sign In to Trade' : amt > 0 ? (isOnChain ? `Trade On-Chain` : 'Trade') : 'Enter amount'}
                   </button>
 
                   <p className={`text-[10px] ${textMuted} text-center mt-2`}>

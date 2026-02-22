@@ -93,21 +93,20 @@ async function fetchFromAPI(endpoint: string): Promise<any> {
   return response.json()
 }
 
-// Get upcoming matches for a competition
+// Get upcoming matches for a competition — fetches ALL within date range, no artificial limit
 export async function getUpcomingMatches(
   competitionCode: CompetitionCode = 'PL',
-  limit: number = 20
+  daysAhead: number = 14
 ): Promise<Match[]> {
   try {
-    // Use SCHEDULED,TIMED to get upcoming matches (free tier)
     const dateFrom = new Date().toISOString().split('T')[0]
-    const dateTo = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const dateTo = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     const data: MatchesResponse = await fetchFromAPI(
       `/competitions/${competitionCode}/matches?dateFrom=${dateFrom}&dateTo=${dateTo}&status=SCHEDULED,TIMED`
     )
-    return (data.matches || []).slice(0, limit)
+    return data.matches || []
   } catch (error) {
-    console.error('Error fetching upcoming matches:', error)
+    console.error(`Error fetching upcoming matches for ${competitionCode}:`, error)
     return []
   }
 }
@@ -115,28 +114,42 @@ export async function getUpcomingMatches(
 // Free-tier competition codes
 const FREE_TIER_COMPS: CompetitionCode[] = ['PL', 'BL1', 'SA', 'PD', 'FL1', 'CL']
 
+// Helper: delay to respect rate limits (free tier: 10 req/min)
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 // Get all scheduled matches across multiple competitions (free tier compatible)
-export async function getAllUpcomingMatches(limit: number = 50): Promise<Match[]> {
-  try {
-    // Fetch from each competition individually (free tier doesn't support global /matches)
-    const results = await Promise.allSettled(
-      FREE_TIER_COMPS.map(code => getUpcomingMatches(code, 10))
-    )
-    
-    const allMatches: Match[] = []
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        allMatches.push(...result.value)
+// Fetches sequentially with delay to avoid 429 rate limits.
+// No artificial cap — returns every match within the date window.
+export async function getAllUpcomingMatches(daysAhead: number = 14): Promise<Match[]> {
+  const allMatches: Match[] = []
+  const seen = new Set<number>() // deduplicate by match ID
+
+  for (let i = 0; i < FREE_TIER_COMPS.length; i++) {
+    const code = FREE_TIER_COMPS[i]
+    try {
+      const matches = await getUpcomingMatches(code, daysAhead)
+      for (const m of matches) {
+        if (!seen.has(m.id)) {
+          seen.add(m.id)
+          allMatches.push(m)
+        }
       }
+      console.log(`[sports-api] ${code}: fetched ${matches.length} matches`)
+    } catch (error) {
+      console.error(`[sports-api] Failed to fetch ${code}:`, error)
     }
-    
-    // Sort by date and limit
-    allMatches.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime())
-    return allMatches.slice(0, limit)
-  } catch (error) {
-    console.error('Error fetching all upcoming matches:', error)
-    return []
+    // Wait 7s between requests to stay well within 10 req/min
+    if (i < FREE_TIER_COMPS.length - 1) {
+      await delay(7000)
+    }
   }
+
+  // Sort by date — no limit, return everything
+  allMatches.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime())
+  console.log(`[sports-api] Total unique matches fetched: ${allMatches.length}`)
+  return allMatches
 }
 
 // Get live matches

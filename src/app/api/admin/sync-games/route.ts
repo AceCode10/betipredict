@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getAllUpcomingMatches } from '@/lib/sports-api'
+import { initializePool } from '@/lib/cpmm'
 import crypto from 'crypto'
 
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase())
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch upcoming matches from sports API
-    const matches = await getAllUpcomingMatches(50)
+    const matches = await getAllUpcomingMatches(14)
 
     if (!matches || matches.length === 0) {
       return NextResponse.json({
@@ -79,6 +80,9 @@ export async function POST(request: NextRequest) {
         const title = `${match.homeTeam.name} vs ${match.awayTeam.name}`
         const question = `Who will win: ${match.homeTeam.name} vs ${match.awayTeam.name}?`
 
+        const initialLiquidity = 10000
+        const pool = initializePool(initialLiquidity, 0.5)
+
         await prisma.$transaction(async (tx) => {
           const newMarket = await tx.market.create({
             data: {
@@ -92,11 +96,14 @@ export async function POST(request: NextRequest) {
               status: 'ACTIVE',
               yesPrice: 0.5,
               noPrice: 0.5,
-              liquidity: 10000,
+              liquidity: initialLiquidity,
               volume: 0,
               homeTeam: match.homeTeam.name,
               awayTeam: match.awayTeam.name,
               league: match.competition.name,
+              poolYesShares: pool.yesShares,
+              poolNoShares: pool.noShares,
+              poolK: pool.k,
             }
           })
 
