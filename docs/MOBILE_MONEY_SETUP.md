@@ -118,91 +118,119 @@ Withdrawal:
 2. Create/sign in to your MTN developer account.
 3. Confirm your profile and country access for MoMo products.
 
-> Note: The docs UX is on `developers.mtn.com`, while API traffic for sandbox/production remains on MTN MoMo API hosts (`sandbox.momodeveloper.mtn.com` and `proxy.momoapi.mtn.com`).
+> ⚠️ **Important**: The MTN portal has changed to a unified developer platform. Subscription keys are no longer visible in the main app dashboard. You need to access the legacy MoMo Developer Portal for API user creation.
 
-### Step 2 — Subscribe to API Products
+### Step 2 — Subscribe to API Products (New Unified Portal)
 
-1. In **My Apps**, create/select your app.
-2. Add/subscribe to these API products:
-   - ✅ **Collection** — for receiving payments (deposits)
-   - ✅ **Disbursement** — for sending payments (withdrawals)
-3. Save each product's **Primary Key** (Subscription Key):
-   - Collection key -> `MTN_MOMO_COLLECTION_KEY`
-   - Disbursement key -> `MTN_MOMO_DISBURSEMENT_KEY`
+1. In **My Apps** at https://developers.mtn.com/apps, select your "Beti Predict" app.
+2. Click on each product to subscribe:
+   - ✅ **Payments V1** (for Collection - deposits)
+   - ✅ **Mobile Money Withdrawals V1** (for Disbursement - withdrawals)
+3. **Note**: Subscription keys are NOT visible in this new portal interface.
 
-### Step 3 — Create API Users (Sandbox)
+### Step 2b — Get Subscription Keys (Updated Process)
 
-For each product (Collection and Disbursement), create an API user and then generate an API key.
+After reviewing the current MTN portal structure, here's the correct approach:
+
+**The new unified portal (`developers.mtn.com`) is now the primary interface for all MTN API products, including MoMo.**
+
+1. Go to **https://developers.mtn.com/apps**
+2. Select your "Beti Predict" app
+3. Click on each subscribed product to find the subscription keys:
+   - **Payments V1** (Collection) → Look for "Primary Key" or "Subscription Key"
+   - **Mobile Money Withdrawals V1** (Disbursement) → Look for "Primary Key" or "Subscription Key"
+
+If subscription keys are not visible in the app details, you may need to:
+- Check the product-specific pages within the app
+- Look for API credentials or keys section
+- Contact MTN support if keys are not accessible
+
+### Step 3 — Create API Users (Current Process)
+
+Based on the current portal structure, API user creation is done through API calls using your subscription keys:
+
+**You only need the new unified portal (`developers.mtn.com`) - the legacy MoMo portal is no longer used for app management.**
 
 `providerCallbackHost` must be host-only (no scheme/path), e.g. `www.betipredict.com`.
 
 #### 3a. Create Collection API User
 
 ```bash
-# Generate a UUID for the API user
-COLLECTION_USER_ID=$(uuidgen)
-echo "Collection User ID: $COLLECTION_USER_ID"
-
-# Create the API user
-curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser" \
+# Create Collection API User
+curl -X POST \
+  -H "Ocp-Apim-Subscription-Key: $MTN_MOMO_COLLECTION_KEY" \
+  -H "X-Reference-Id: $(uuidgen)" \
   -H "Content-Type: application/json" \
-  -H "X-Reference-Id: $COLLECTION_USER_ID" \
-  -H "Ocp-Apim-Subscription-Key: YOUR_COLLECTION_PRIMARY_KEY" \
-  -d '{"providerCallbackHost": "www.betipredict.com"}'
-
-# Generate the API key
-curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/$COLLECTION_USER_ID/apikey" \
-  -H "Ocp-Apim-Subscription-Key: YOUR_COLLECTION_PRIMARY_KEY"
+  -d '{"providerCallbackHost":"www.betipredict.com"}' \
+  "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser"
 ```
 
-PowerShell (Windows):
 ```powershell
-$COLLECTION_USER_ID = [guid]::NewGuid().ToString()
-Write-Host "Collection User ID: $COLLECTION_USER_ID"
-
-curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser" `
-  -H "Content-Type: application/json" `
-  -H "X-Reference-Id: $COLLECTION_USER_ID" `
-  -H "Ocp-Apim-Subscription-Key: YOUR_COLLECTION_PRIMARY_KEY" `
-  -d '{"providerCallbackHost":"www.betipredict.com"}'
-
-curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/$COLLECTION_USER_ID/apikey" `
-  -H "Ocp-Apim-Subscription-Key: YOUR_COLLECTION_PRIMARY_KEY"
+# PowerShell - Create Collection API User
+$headers = @{
+  "Ocp-Apim-Subscription-Key" = $env:MTN_MOMO_COLLECTION_KEY
+  "X-Reference-Id" = (New-Guid).ToString()
+  "Content-Type" = "application/json"
+}
+$body = '{"providerCallbackHost":"www.betipredict.com"}'
+$collectionUser = Invoke-RestMethod -Uri "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser" -Method POST -Headers $headers -Body $body
+Write-Output "Collection API User Reference: $($headers.'X-Reference-Id')"
 ```
 
-Save the response:
-- `COLLECTION_USER_ID` → `MTN_MOMO_COLLECTION_USER`
-- `apiKey` from response → `MTN_MOMO_COLLECTION_API_KEY`
-
-#### 3b. Create Disbursement API User
+#### 3b. Create Collection API Key
 
 ```bash
-DISBURSEMENT_USER_ID=$(uuidgen)
-echo "Disbursement User ID: $DISBURSEMENT_USER_ID"
-
-curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser" \
-  -H "Content-Type: application/json" \
-  -H "X-Reference-Id: $DISBURSEMENT_USER_ID" \
-  -H "Ocp-Apim-Subscription-Key: YOUR_DISBURSEMENT_PRIMARY_KEY" \
-  -d '{"providerCallbackHost": "www.betipredict.com"}'
-
-curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/$DISBURSEMENT_USER_ID/apikey" \
-  -H "Ocp-Apim-Subscription-Key: YOUR_DISBURSEMENT_PRIMARY_KEY"
+# Get the reference ID from the previous response, then:
+curl -X POST \
+  -H "Ocp-Apim-Subscription-Key: $MTN_MOMO_COLLECTION_KEY" \
+  -H "X-Reference-Id: YOUR_REFERENCE_ID" \
+  "https://sandbox.momodeveloper.mtn.com/v1_0/apikey/YOUR_REFERENCE_ID"
 ```
 
-PowerShell (Windows):
 ```powershell
-$DISBURSEMENT_USER_ID = [guid]::NewGuid().ToString()
-Write-Host "Disbursement User ID: $DISBURSEMENT_USER_ID"
+# PowerShell - Create Collection API Key
+$apiKey = Invoke-RestMethod -Uri "https://sandbox.momodeveloper.mtn.com/v1_0/apikey/$($headers.'X-Reference-Id')" -Method POST -Headers $headers
+Write-Output "Collection API Key: $($apiKey.apiKey)"
+```
 
-curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser" `
-  -H "Content-Type: application/json" `
-  -H "X-Reference-Id: $DISBURSEMENT_USER_ID" `
-  -H "Ocp-Apim-Subscription-Key: YOUR_DISBURSEMENT_PRIMARY_KEY" `
-  -d '{"providerCallbackHost":"www.betipredict.com"}'
+#### 3c. Create Disbursement API User
 
-curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/$DISBURSEMENT_USER_ID/apikey" `
-  -H "Ocp-Apim-Subscription-Key: YOUR_DISBURSEMENT_PRIMARY_KEY"
+```bash
+# Create Disbursement API User
+curl -X POST \
+  -H "Ocp-Apim-Subscription-Key: $MTN_MOMO_DISBURSEMENT_KEY" \
+  -H "X-Reference-Id: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"providerCallbackHost":"www.betipredict.com"}' \
+  "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser"
+```
+
+```powershell
+# PowerShell - Create Disbursement API User
+$headers = @{
+  "Ocp-Apim-Subscription-Key" = $env:MTN_MOMO_DISBURSEMENT_KEY
+  "X-Reference-Id" = (New-Guid).ToString()
+  "Content-Type" = "application/json"
+}
+$body = '{"providerCallbackHost":"www.betipredict.com"}'
+$disbursementUser = Invoke-RestMethod -Uri "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser" -Method POST -Headers $headers -Body $body
+Write-Output "Disbursement API User Reference: $($headers.'X-Reference-Id')"
+```
+
+#### 3d. Create Disbursement API Key
+
+```bash
+# Get the reference ID from the previous response, then:
+curl -X POST \
+  -H "Ocp-Apim-Subscription-Key: $MTN_MOMO_DISBURSEMENT_KEY" \
+  -H "X-Reference-Id: YOUR_REFERENCE_ID" \
+  "https://sandbox.momodeveloper.mtn.com/v1_0/apikey/YOUR_REFERENCE_ID"
+```
+
+```powershell
+# PowerShell - Create Disbursement API Key
+$apiKey = Invoke-RestMethod -Uri "https://sandbox.momodeveloper.mtn.com/v1_0/apikey/$($headers.'X-Reference-Id')" -Method POST -Headers $headers
+Write-Output "Disbursement API Key: $($apiKey.apiKey)"
 ```
 
 Save the response:

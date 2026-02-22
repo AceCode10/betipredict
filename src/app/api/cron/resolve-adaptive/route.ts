@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     // Resolve any missed matches immediately
     for (const game of pendingGames) {
-      const matchData = todayFinished.find(m => m.id === parseInt(game.externalId!))
+      const matchData = todayFinished.find(m => m.id === String(game.externalId!))
       if (matchData && matchData.score?.winner) {
         try {
           let winningOutcome: 'YES' | 'NO' | null = null
