@@ -114,23 +114,27 @@ Withdrawal:
 
 ### Step 1 — Create a Developer Account
 
-1. Go to **https://momodeveloper.mtn.com/signup**
-2. Register with your email and create a password.
-3. Verify your email.
+1. Go to **https://developers.mtn.com/getting-started**.
+2. Create/sign in to your MTN developer account.
+3. Confirm your profile and country access for MoMo products.
+
+> Note: The docs UX is on `developers.mtn.com`, while API traffic for sandbox/production remains on MTN MoMo API hosts (`sandbox.momodeveloper.mtn.com` and `proxy.momoapi.mtn.com`).
 
 ### Step 2 — Subscribe to API Products
 
-1. Log in to the MTN MoMo Developer Portal.
-2. Go to **Products** and subscribe to:
+1. In **My Apps**, create/select your app.
+2. Add/subscribe to these API products:
    - ✅ **Collection** — for receiving payments (deposits)
    - ✅ **Disbursement** — for sending payments (withdrawals)
-3. Each product gives you a **Primary Key** (Subscription Key).
-   - Save the **Collection Primary Key** → `MTN_MOMO_COLLECTION_KEY`
-   - Save the **Disbursement Primary Key** → `MTN_MOMO_DISBURSEMENT_KEY`
+3. Save each product's **Primary Key** (Subscription Key):
+   - Collection key -> `MTN_MOMO_COLLECTION_KEY`
+   - Disbursement key -> `MTN_MOMO_DISBURSEMENT_KEY`
 
 ### Step 3 — Create API Users (Sandbox)
 
-For each product (Collection and Disbursement), you need to create an API User and generate an API Key.
+For each product (Collection and Disbursement), create an API user and then generate an API key.
+
+`providerCallbackHost` must be host-only (no scheme/path), e.g. `www.betipredict.com`.
 
 #### 3a. Create Collection API User
 
@@ -144,10 +148,25 @@ curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser" \
   -H "Content-Type: application/json" \
   -H "X-Reference-Id: $COLLECTION_USER_ID" \
   -H "Ocp-Apim-Subscription-Key: YOUR_COLLECTION_PRIMARY_KEY" \
-  -d '{"providerCallbackHost": "yourdomain.com"}'
+  -d '{"providerCallbackHost": "www.betipredict.com"}'
 
 # Generate the API key
 curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/$COLLECTION_USER_ID/apikey" \
+  -H "Ocp-Apim-Subscription-Key: YOUR_COLLECTION_PRIMARY_KEY"
+```
+
+PowerShell (Windows):
+```powershell
+$COLLECTION_USER_ID = [guid]::NewGuid().ToString()
+Write-Host "Collection User ID: $COLLECTION_USER_ID"
+
+curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser" `
+  -H "Content-Type: application/json" `
+  -H "X-Reference-Id: $COLLECTION_USER_ID" `
+  -H "Ocp-Apim-Subscription-Key: YOUR_COLLECTION_PRIMARY_KEY" `
+  -d '{"providerCallbackHost":"www.betipredict.com"}'
+
+curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/$COLLECTION_USER_ID/apikey" `
   -H "Ocp-Apim-Subscription-Key: YOUR_COLLECTION_PRIMARY_KEY"
 ```
 
@@ -165,9 +184,24 @@ curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser" \
   -H "Content-Type: application/json" \
   -H "X-Reference-Id: $DISBURSEMENT_USER_ID" \
   -H "Ocp-Apim-Subscription-Key: YOUR_DISBURSEMENT_PRIMARY_KEY" \
-  -d '{"providerCallbackHost": "yourdomain.com"}'
+  -d '{"providerCallbackHost": "www.betipredict.com"}'
 
 curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/$DISBURSEMENT_USER_ID/apikey" \
+  -H "Ocp-Apim-Subscription-Key: YOUR_DISBURSEMENT_PRIMARY_KEY"
+```
+
+PowerShell (Windows):
+```powershell
+$DISBURSEMENT_USER_ID = [guid]::NewGuid().ToString()
+Write-Host "Disbursement User ID: $DISBURSEMENT_USER_ID"
+
+curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser" `
+  -H "Content-Type: application/json" `
+  -H "X-Reference-Id: $DISBURSEMENT_USER_ID" `
+  -H "Ocp-Apim-Subscription-Key: YOUR_DISBURSEMENT_PRIMARY_KEY" `
+  -d '{"providerCallbackHost":"www.betipredict.com"}'
+
+curl -X POST "https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/$DISBURSEMENT_USER_ID/apikey" `
   -H "Ocp-Apim-Subscription-Key: YOUR_DISBURSEMENT_PRIMARY_KEY"
 ```
 
@@ -180,12 +214,15 @@ Save the response:
 Set `providerCallbackHost` to your domain when creating the API user (Step 3).
 The full callback URL used by BetiPredict is:
 ```
-https://yourdomain.com/api/payments/callback
+https://www.betipredict.com/api/payments/callback
 ```
+
+This matches the app callback route in code and avoids apex->www redirect issues.
 
 ### Step 5 — Set Environment Variables
 
 ```env
+NEXTAUTH_URL=https://www.betipredict.com
 MTN_MOMO_COLLECTION_KEY=your_collection_subscription_key
 MTN_MOMO_DISBURSEMENT_KEY=your_disbursement_subscription_key
 MTN_MOMO_COLLECTION_USER=your_collection_api_user_uuid
@@ -195,6 +232,10 @@ MTN_MOMO_DISBURSEMENT_API_KEY=your_disbursement_api_key
 MTN_MOMO_WEBHOOK_SECRET=<generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
 MTN_MOMO_ENV=sandbox
 ```
+
+`MTN_MOMO_ENV` mapping in BetiPredict:
+- `sandbox` -> `X-Target-Environment: sandbox`
+- `production` -> `X-Target-Environment: mtnzambia`
 
 ### Step 6 — Test in Sandbox
 
@@ -220,6 +261,7 @@ MTN_MOMO_ENV=sandbox
    - Create new API Users against the production endpoint (`https://proxy.momoapi.mtn.com`)
    - Update all env variables with production values
    - Set `MTN_MOMO_ENV=production`
+5. Re-test collection + disbursement end-to-end before enabling real users.
 
 ### MTN API Flow Summary
 

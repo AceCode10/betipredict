@@ -59,16 +59,21 @@ In Vercel → Project Settings → Environment Variables, add:
 |----------|-------|----------|
 | `DATABASE_URL` | Your PostgreSQL connection string | ✅ |
 | `NEXTAUTH_SECRET` | Random 32+ char string (`openssl rand -base64 32`) | ✅ |
-| `NEXTAUTH_URL` | `https://betipredict.com` | ✅ |
+| `NEXTAUTH_URL` | `https://www.betipredict.com` (must match your primary Vercel domain) | ✅ |
 | `FOOTBALL_DATA_API_KEY` | Your football-data.org API key | ✅ |
 | `CRON_SECRET` | Random secret for cron job auth | ✅ |
 | `NEXT_PUBLIC_ADMIN_EMAILS` | Comma-separated admin emails | ✅ |
 | `AIRTEL_MONEY_CLIENT_ID` | Airtel API client ID | For payments |
 | `AIRTEL_MONEY_CLIENT_SECRET` | Airtel API client secret | For payments |
 | `AIRTEL_MONEY_WEBHOOK_SECRET` | Webhook signature secret | For payments |
-| `MTN_MOMO_SUBSCRIPTION_KEY` | MTN API subscription key | For payments |
-| `MTN_MOMO_API_USER` | MTN API user UUID | For payments |
-| `MTN_MOMO_API_KEY` | MTN API key | For payments |
+| `MTN_MOMO_COLLECTION_KEY` | MTN Collection subscription key | For payments |
+| `MTN_MOMO_DISBURSEMENT_KEY` | MTN Disbursement subscription key | For payments |
+| `MTN_MOMO_COLLECTION_USER` | MTN Collection API user UUID | For payments |
+| `MTN_MOMO_COLLECTION_API_KEY` | MTN Collection API key | For payments |
+| `MTN_MOMO_DISBURSEMENT_USER` | MTN Disbursement API user UUID | For payments |
+| `MTN_MOMO_DISBURSEMENT_API_KEY` | MTN Disbursement API key | For payments |
+| `MTN_MOMO_WEBHOOK_SECRET` | MTN callback signature secret | For payments |
+| `MTN_MOMO_ENV` | `sandbox` or `production` | For payments |
 
 ### 3c. Deploy
 Click **Deploy**. Vercel will:
@@ -84,8 +89,9 @@ Click **Deploy**. Vercel will:
 ### 4a. Add Domain in Vercel
 1. Go to Vercel → Project → **Settings** → **Domains**
 2. Add `betipredict.com`
-3. Also add `www.betipredict.com` (redirects to apex)
-4. Vercel will show you the DNS records needed
+3. Also add `www.betipredict.com`
+4. Set **`www.betipredict.com` as Primary Domain** (apex `betipredict.com` should redirect to `www`)
+5. Vercel will show you the DNS records needed
 
 ### 4b. Configure Namecheap DNS
 
@@ -122,28 +128,31 @@ Click **Deploy**. Vercel will:
 
 ## Step 5: Set Up Cron Jobs
 
-BetiPredict needs 3 recurring cron jobs.
+BetiPredict requires 3 core cron jobs (plus 1 optional fast-resolve job).
 
-> **Recommended for this project:** use an **external scheduler** (cron-job.org, EasyCron, UptimeRobot) instead of `vercel.json` crons, because plan-level cron limits can block Vercel deployments.
+> Use the canonical **primary domain URL** in cron-job.org. If apex redirects to `www`, calling apex directly can produce `307/308` and be marked as a failure.
 
-### Option A (Recommended): External Cron (cron-job.org)
-1. Go to [cron-job.org](https://cron-job.org) (free)
-2. Create 3 jobs:
+### Option A: External Cron Scheduler (Recommended)
+
+Create these jobs in cron-job.org:
 
 | Job | URL | Schedule |
 |-----|-----|----------|
-| Sync Games | `https://betipredict.com/api/cron/sync-games` | Every 2 hours |
-| Resolve Markets | `https://betipredict.com/api/cron/resolve` | Every 15 minutes |
-| Reconcile Payments | `https://betipredict.com/api/cron/reconcile` | Every 10 minutes |
+| Sync Games | `https://www.betipredict.com/api/cron/sync-games` | Every 2 hours |
+| Resolve Markets | `https://www.betipredict.com/api/cron/resolve` | Every 15 minutes |
+| Resolve Optimized | `https://www.betipredict.com/api/cron/resolve-optimized` | Every 5 minutes |
+| Resolve Adaptive | `https://www.betipredict.com/api/cron/resolve-adaptive` | Every 3 minutes |
+| Reconcile Payments | `https://www.betipredict.com/api/cron/reconcile` | Every 10 minutes |
 
-3. Add header `Authorization: Bearer YOUR_CRON_SECRET` to each job
+For each job:
+1. Set **Method = GET**
+2. Add header: `Authorization: Bearer YOUR_CRON_SECRET`
+3. Use `https://` (not `http://`)
+4. Use `www` URL directly (avoid redirect hop)
 
-### Option B (Optional): Vercel Cron
-Only use this if your Vercel plan supports your required cron count and frequency. If deployment fails with cron/config validation errors:
+### Option B: Vercel Cron (Only if plan supports it)
 
-1. Remove cron entries from `vercel.json` (keep it as `{}`)
-2. Redeploy
-3. Use Option A external cron scheduler
+If Vercel cron causes deployment validation failures, keep `vercel.json` as `{}` and use Option A.
 
 ---
 
@@ -151,12 +160,12 @@ Only use this if your Vercel plan supports your required cron count and frequenc
 
 ### Airtel Money
 1. In the Airtel Developer Portal → **App Settings**
-2. Set callback URL to: `https://betipredict.com/api/payments/callback`
+2. Set callback URL to: `https://www.betipredict.com/api/payments/callback`
 3. Set the webhook secret to match your `AIRTEL_MONEY_WEBHOOK_SECRET` env var
 
 ### MTN MoMo
 1. In the MTN Developer Portal → **Subscriptions**
-2. Set callback URL to: `https://betipredict.com/api/payments/callback`
+2. Set callback URL to: `https://www.betipredict.com/api/payments/callback`
 
 ---
 
@@ -175,14 +184,14 @@ Or use the Vercel dashboard → **Functions** tab → run migration via API.
 ## Step 8: Post-Deployment Verification
 
 ### Checklist
-- [ ] Visit `https://betipredict.com` — page loads
-- [ ] Visit `https://betipredict.com/api/health` — returns `{ "status": "healthy" }`
+- [ ] Visit `https://www.betipredict.com` — page loads
+- [ ] Visit `https://www.betipredict.com/api/health` — returns `{ "status": "healthy" }`
 - [ ] Sign up a new account
 - [ ] Verify notifications bell works
 - [ ] Test deposit flow (Airtel Money / MTN MoMo)
 - [ ] Place a test trade on a live market
 - [ ] Check admin panel at `/admin` (logged in with admin email)
-- [ ] Verify cron jobs are running (check `/api/cron/sync-games`)
+- [ ] Verify cron jobs are running (check `https://www.betipredict.com/api/cron/sync-games`)
 - [ ] Check SSL certificate is valid (padlock in browser)
 - [ ] Test on mobile device
 
