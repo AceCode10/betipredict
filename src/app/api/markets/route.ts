@@ -48,6 +48,18 @@ export async function GET(request: NextRequest) {
       skip: offset
     })
 
+    // ─── Expire stale games inline (same logic as /api/matches/live) ───
+    // This ensures finished games are cleaned up even if the live endpoint isn't hit
+    const STALE_CUTOFF_MS = 4 * 60 * 60 * 1000
+    const staleCutoff = new Date(Date.now() - STALE_CUTOFF_MS)
+    await prisma.scheduledGame.updateMany({
+      where: {
+        status: { in: ['IN_PLAY', 'LIVE'] },
+        utcDate: { lt: staleCutoff },
+      },
+      data: { status: 'FINISHED' },
+    }).catch(() => {})
+
     // Enrich with game status + crests from ScheduledGame
     const marketIds = markets.map(m => m.id)
     const linkedGames = marketIds.length > 0
@@ -63,20 +75,31 @@ export async function GET(request: NextRequest) {
       : []
     const gameMap = new Map(linkedGames.map(g => [g.marketId, g]))
 
-    const enriched = markets.map(m => {
-      const game = gameMap.get(m.id)
-      const isLive = game ? ['IN_PLAY', 'LIVE'].includes(game.status) : false
-      return {
-        ...m,
-        isLive,
-        gameStatus: game?.status ?? null,
-        liveHomeScore: isLive ? (game?.homeScore ?? null) : null,
-        liveAwayScore: isLive ? (game?.awayScore ?? null) : null,
-        homeTeamCrest: game?.homeTeamCrest ?? null,
-        awayTeamCrest: game?.awayTeamCrest ?? null,
-        matchDate: game?.utcDate ?? m.resolveTime,
-      }
-    })
+    const enriched = markets
+      .map(m => {
+        const game = gameMap.get(m.id)
+        const isLive = game ? ['IN_PLAY', 'LIVE'].includes(game.status) : false
+        const isGameFinished = game?.status === 'FINISHED'
+        // Hide ACTIVE markets whose linked game is already finished
+        // (these should be resolved, not shown as tradable)
+        const isTradable = m.status === 'ACTIVE' && !isGameFinished && new Date(m.resolveTime) > new Date()
+        return {
+          ...m,
+          isLive,
+          isTradable,
+          gameStatus: game?.status ?? null,
+          liveHomeScore: isLive ? (game?.homeScore ?? null) : null,
+          liveAwayScore: isLive ? (game?.awayScore ?? null) : null,
+          homeTeamCrest: game?.homeTeamCrest ?? null,
+          awayTeamCrest: game?.awayTeamCrest ?? null,
+          matchDate: game?.utcDate ?? m.resolveTime,
+        }
+      })
+      // Filter: only show tradable ACTIVE markets, or non-ACTIVE markets (resolved/finalized for history)
+      .filter(m => {
+        if (m.status === 'ACTIVE') return m.isTradable
+        return true // show resolved/finalized markets for reference
+      })
 
     return NextResponse.json(enriched)
   } catch (error) {

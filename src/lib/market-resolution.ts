@@ -232,14 +232,65 @@ export class MarketResolver {
     })
   }
 
+  /**
+   * Auto-resolve markets using real match results from football-data.org.
+   * Falls back to skipping if no result is available yet.
+   */
   static async autoResolveMarkets() {
+    const FOOTBALL_DATA_API_KEY = process.env.FOOTBALL_DATA_API_KEY || ''
     const markets = await this.getMarketsNeedingResolution()
+
     for (const market of markets) {
       try {
-        // In a real system, this would fetch actual results from a data provider
-        // For demo purposes, we'll randomly resolve markets
-        const outcome = Math.random() > 0.5 ? 'YES' : 'NO'
-        await this.resolveMarket(market.id, outcome as 'YES' | 'NO')
+        // Find linked scheduled game
+        const linkedGame = await prisma.scheduledGame.findFirst({
+          where: { marketId: market.id },
+          select: { id: true, externalId: true, homeTeam: true, awayTeam: true, status: true },
+        })
+
+        let outcome: 'YES' | 'NO' | null = null
+
+        if (linkedGame && linkedGame.externalId && FOOTBALL_DATA_API_KEY) {
+          // Fetch real result from football-data.org
+          try {
+            const res = await fetch(`https://api.football-data.org/v4/matches/${linkedGame.externalId}`, {
+              headers: { 'X-Auth-Token': FOOTBALL_DATA_API_KEY },
+              cache: 'no-store',
+            })
+            if (res.ok) {
+              const data = await res.json()
+              if (data.status === 'FINISHED') {
+                const winner = data.score?.winner
+                if (winner === 'HOME_TEAM') outcome = 'YES'
+                else if (winner === 'AWAY_TEAM' || winner === 'DRAW') outcome = 'NO'
+
+                // Update game status in DB
+                await prisma.scheduledGame.update({
+                  where: { id: linkedGame.id },
+                  data: {
+                    status: 'FINISHED',
+                    homeScore: data.score?.fullTime?.home ?? null,
+                    awayScore: data.score?.fullTime?.away ?? null,
+                    winner: winner || null,
+                  },
+                }).catch(() => {})
+              }
+            }
+          } catch (apiErr) {
+            console.error(`[autoResolve] API fetch failed for match ${linkedGame.externalId}:`, apiErr)
+          }
+        }
+
+        if (!outcome) {
+          // No result yet — skip, will retry on next cron run
+          const hoursPast = (Date.now() - new Date(market.resolveTime).getTime()) / 3600000
+          if (hoursPast < 2) continue // grace period
+          console.log(`[autoResolve] No result for "${market.title}" (${hoursPast.toFixed(1)}h past resolve time)`)
+          continue
+        }
+
+        await this.resolveMarket(market.id, outcome)
+        console.log(`[autoResolve] Resolved "${market.title}" → ${outcome}`)
       } catch (error) {
         console.error(`Failed to resolve market ${market.id}:`, error)
       }
