@@ -51,6 +51,20 @@ export function WalletProvider({ children }: WalletProviderProps) {
       rpcUrls: ['https://sepolia.infura.io/v3/'],
       nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
     },
+    baseSepolia: {
+      chainId: '0x14A34', // 84532
+      chainName: 'Base Sepolia',
+      rpcUrls: ['https://sepolia.base.org'],
+      nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+      blockExplorerUrls: ['https://sepolia.basescan.org'],
+    },
+    base: {
+      chainId: '0x2105', // 8453
+      chainName: 'Base',
+      rpcUrls: ['https://mainnet.base.org'],
+      nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+      blockExplorerUrls: ['https://basescan.org'],
+    },
   }
 
   useEffect(() => {
@@ -197,8 +211,11 @@ export function WalletConnectButton() {
 
   const getNetworkName = (chainId: number) => {
     switch (chainId) {
-      case 1337: return 'Localhost'
+      case 1337:
+      case 31337: return 'Localhost'
       case 11155111: return 'Sepolia'
+      case 84532: return 'Base Sepolia'
+      case 8453: return 'Base'
       default: return `Chain ${chainId}`
     }
   }

@@ -568,6 +568,48 @@
       "artifacts": [
         "MockToken"
       ]
+    },
+    "C:\\Users\\Denny\\3D Objects\\New folder\\betipredict\\contracts\\BetiPredictMarket.sol": {
+      "lastModificationDate": 1771742534761,
+      "contentHash": "3b179c764603956d2cefcb528aeeeb40",
+      "sourceName": "contracts/BetiPredictMarket.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+        "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+        "@openzeppelin/contracts/access/Ownable.sol",
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+        "@openzeppelin/contracts/utils/Pausable.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "BetiPredictMarket"
+      ]
     }
   }
 }

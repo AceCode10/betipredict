@@ -9,8 +9,10 @@
     "lint": "eslint",
     "db:seed": "tsx prisma/seed.ts",
     "compile": "hardhat compile",
-    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
-    "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
+    "deploy:local": "hardhat run scripts/deploy-market.ts --network localhost",
+    "deploy:base-sepolia": "hardhat run scripts/deploy-market.ts --network baseSepolia",
+    "deploy:base": "hardhat run scripts/deploy-market.ts --network base",
+    "test:contracts": "hardhat test test/BetiPredictMarket.test.js",
     "node": "hardhat node"
   },
   "prisma": {

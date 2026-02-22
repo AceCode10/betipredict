@@ -30,6 +30,8 @@ export type { Pausable } from "./@openzeppelin/contracts/utils/Pausable";
 export { Pausable__factory } from "./factories/@openzeppelin/contracts/utils/Pausable__factory";
 export type { ReentrancyGuard } from "./@openzeppelin/contracts/utils/ReentrancyGuard";
 export { ReentrancyGuard__factory } from "./factories/@openzeppelin/contracts/utils/ReentrancyGuard__factory";
+export type { BetiPredictMarket } from "./contracts/BetiPredictMarket";
+export { BetiPredictMarket__factory } from "./factories/contracts/BetiPredictMarket__factory";
 export type { BetiPredictSimple } from "./contracts/BetiPredictSimple";
 export { BetiPredictSimple__factory } from "./factories/contracts/BetiPredictSimple__factory";
 export type { MockToken } from "./contracts/MockToken";

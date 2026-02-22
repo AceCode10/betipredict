@@ -1,312 +1,309 @@
 import { ethers } from 'ethers'
 import { useWallet } from '@/components/WalletConnect'
 
-// Contract ABIs (simplified versions for demonstration)
-const BETI_PREDICT_ABI = [
-  "function createMarket(string title, string description, string category, string question, uint256 resolveTime, uint256 initialYesPrice, uint256 initialNoPrice) payable returns (uint256)",
-  "function placeLimitOrder(uint256 marketId, uint256 side, uint256 outcome, uint256 amount, uint256 price) external",
-  "function placeMarketOrder(uint256 marketId, uint256 side, uint256 outcome, uint256 amount) external",
-  "function resolveMarket(uint256 marketId, uint256 resolution) external",
-  "function deposit(uint256 amount) external",
-  "function withdraw(uint256 amount) external",
-  "function getBalance(address user) external view returns (uint256)",
-  "function getMarket(uint256 marketId) external view returns (tuple(uint256 id, string title, string description, string category, string question, uint256 resolveTime, uint256 yesPrice, uint256 noPrice, uint256 totalVolume, uint256 status, uint256 resolution, address creator, uint256 createdAt))",
-  "function getOrder(uint256 orderId) external view returns (tuple(uint256 id, uint256 marketId, address trader, uint256 side, uint256 orderType, uint256 outcome, uint256 amount, uint256 price, uint256 filled, uint256 status, uint256 createdAt))",
-  "function marketCreationFee() external view returns (uint256)",
-  "event MarketCreated(uint256 indexed marketId, string title, string question, uint256 resolveTime, address indexed creator)",
-  "event OrderPlaced(uint256 indexed orderId, uint256 indexed marketId, address indexed trader, uint256 side, uint256 outcome, uint256 amount, uint256 price)",
-  "event OrderFilled(uint256 indexed orderId, uint256 indexed marketId, address indexed trader, uint256 filledAmount, uint256 fillPrice)",
-  "event MarketResolved(uint256 indexed marketId, uint256 resolution, uint256 totalPayout)"
+// ──────────────────────────────────────────────
+//  ABIs — BetiPredictMarket (CPMM) + ERC20
+// ──────────────────────────────────────────────
+const BETI_MARKET_ABI = [
+  // Market lifecycle
+  "function createMarket(string question, uint256 resolveTime, uint256 initialLiquidity, address resolver) external returns (uint256)",
+  "function resolveMarket(uint256 marketId, uint8 resolution) external",
+  "function cancelMarket(uint256 marketId) external",
+  // Trading
+  "function buyYes(uint256 marketId, uint256 amount, uint256 minShares) external returns (uint256)",
+  "function buyNo(uint256 marketId, uint256 amount, uint256 minShares) external returns (uint256)",
+  "function sellYes(uint256 marketId, uint256 shares, uint256 minCollateral) external returns (uint256)",
+  "function sellNo(uint256 marketId, uint256 shares, uint256 minCollateral) external returns (uint256)",
+  // Claims
+  "function claimWinnings(uint256 marketId) external",
+  "function claimRefund(uint256 marketId) external",
+  // Views
+  "function getMarket(uint256 marketId) external view returns (uint256 id, string question, uint256 resolveTime, uint256 yesPool, uint256 noPool, uint256 totalVolume, uint8 status, uint8 resolution, address creator, uint256 createdAt)",
+  "function getPosition(uint256 marketId, address user) external view returns (uint256 yesAmount, uint256 noAmount, bool hasClaimed)",
+  "function getYesPrice(uint256 marketId) external view returns (uint256)",
+  "function getNoPrice(uint256 marketId) external view returns (uint256)",
+  "function estimateBuy(uint256 marketId, uint8 outcome, uint256 amount) external view returns (uint256 sharesOut, uint256 fee)",
+  "function estimateSell(uint256 marketId, uint8 outcome, uint256 shares) external view returns (uint256 collateralOut, uint256 fee)",
+  "function marketCount() external view returns (uint256)",
+  "function tradingFee() external view returns (uint256)",
+  "function platformBalance() external view returns (uint256)",
+  "function collateralToken() external view returns (address)",
+  "function collateralDecimals() external view returns (uint8)",
+  // Admin
+  "function setTradingFee(uint256 fee) external",
+  "function setResolver(address resolver, bool authorized) external",
+  "function withdrawFees(address to) external",
+  "function pause() external",
+  "function unpause() external",
+  "function owner() external view returns (address)",
+  // Events
+  "event MarketCreated(uint256 indexed marketId, string question, uint256 resolveTime, address indexed creator, uint256 initialLiquidity)",
+  "event SharesPurchased(uint256 indexed marketId, address indexed buyer, uint8 outcome, uint256 collateralIn, uint256 sharesOut, uint256 fee)",
+  "event SharesSold(uint256 indexed marketId, address indexed seller, uint8 outcome, uint256 sharesIn, uint256 collateralOut, uint256 fee)",
+  "event MarketResolved(uint256 indexed marketId, uint8 resolution, address indexed resolver)",
+  "event WinningsClaimed(uint256 indexed marketId, address indexed user, uint256 payout)",
 ]
 
-const MOCK_TOKEN_ABI = [
-  "function mint(address to, uint256 amount) external",
+const ERC20_ABI = [
   "function approve(address spender, uint256 amount) external returns (bool)",
-  "function transfer(address to, uint256 amount) external returns (bool)",
+  "function allowance(address owner, address spender) external view returns (uint256)",
   "function balanceOf(address account) external view returns (uint256)",
   "function decimals() external view returns (uint8)",
-  "function symbol() external view returns (string)"
+  "function symbol() external view returns (string)",
+  "function name() external view returns (string)",
+  "function transfer(address to, uint256 amount) external returns (bool)",
 ]
 
-// Contract addresses (update these with your deployed contract addresses)
-const CONTRACT_ADDRESSES = {
+// ──────────────────────────────────────────────
+//  Contract addresses per network
+//  Update after each deployment
+// ──────────────────────────────────────────────
+export const CONTRACT_ADDRESSES: Record<string, { market: string; collateral: string }> = {
   localhost: {
-    betiPredict: "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0", // BetiPredictSimple
-    collateralToken: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512" // MockToken
+    market: process.env.NEXT_PUBLIC_MARKET_CONTRACT || '',
+    collateral: process.env.NEXT_PUBLIC_USDC_CONTRACT || '',
   },
-  sepolia: {
-    betiPredict: "", // Add when deployed to sepolia
-    collateralToken: "" // Add when deployed to sepolia
+  baseSepolia: {
+    market: process.env.NEXT_PUBLIC_MARKET_CONTRACT || '',
+    collateral: process.env.NEXT_PUBLIC_USDC_CONTRACT || '',
+  },
+  base: {
+    market: process.env.NEXT_PUBLIC_MARKET_CONTRACT || '',
+    collateral: process.env.NEXT_PUBLIC_USDC_CONTRACT || '',
+  },
+}
+
+// ──────────────────────────────────────────────
+//  Network helpers
+// ──────────────────────────────────────────────
+export function getNetworkName(chainId: number): string {
+  switch (chainId) {
+    case 31337:
+    case 1337:   return 'localhost'
+    case 84532:  return 'baseSepolia'
+    case 8453:   return 'base'
+    default:     return 'localhost'
   }
 }
 
-export interface Market {
-  id: string
-  title: string
-  description: string
-  category: string
+export const COLLATERAL_DECIMALS = 6 // USDC uses 6 decimals
+
+// ──────────────────────────────────────────────
+//  Types
+// ──────────────────────────────────────────────
+export interface OnChainMarket {
+  id: number
   question: string
-  resolveTime: bigint
-  yesPrice: bigint
-  noPrice: bigint
+  resolveTime: number
+  yesPool: bigint
+  noPool: bigint
   totalVolume: bigint
-  status: bigint
-  resolution: bigint
+  status: number        // 0=Active, 1=Resolved, 2=Cancelled
+  resolution: number    // 0=None, 1=Yes, 2=No
   creator: string
-  createdAt: bigint
+  createdAt: number
 }
 
-export interface Order {
-  id: string
-  marketId: string
-  trader: string
-  side: bigint
-  orderType: bigint
-  outcome: bigint
-  amount: bigint
-  price: bigint
-  filled: bigint
-  status: bigint
-  createdAt: bigint
+export interface Position {
+  yesAmount: bigint
+  noAmount: bigint
+  hasClaimed: boolean
 }
 
+export interface TradeEstimate {
+  sharesOut: bigint
+  fee: bigint
+}
+
+// ──────────────────────────────────────────────
+//  ContractService — unified contract interface
+// ──────────────────────────────────────────────
 export class ContractService {
-  private betiPredictContract: ethers.Contract | null = null
-  private tokenContract: ethers.Contract | null = null
+  public marketContract: ethers.Contract
+  public tokenContract: ethers.Contract
+  public readonly networkName: string
 
-  constructor(private signer: ethers.JsonRpcSigner, private chainId: number) {
-    this.initializeContracts()
+  constructor(private signer: ethers.JsonRpcSigner, public chainId: number) {
+    this.networkName = getNetworkName(chainId)
+    const addrs = CONTRACT_ADDRESSES[this.networkName]
+
+    if (!addrs?.market || !addrs?.collateral) {
+      throw new Error(`Contracts not deployed on ${this.networkName}. Set NEXT_PUBLIC_MARKET_CONTRACT and NEXT_PUBLIC_USDC_CONTRACT in .env.local`)
+    }
+
+    this.marketContract = new ethers.Contract(addrs.market, BETI_MARKET_ABI, signer)
+    this.tokenContract = new ethers.Contract(addrs.collateral, ERC20_ABI, signer)
   }
 
-  private initializeContracts() {
-    try {
-      const networkName = this.getNetworkName()
-      const addresses = CONTRACT_ADDRESSES[networkName as keyof typeof CONTRACT_ADDRESSES]
+  // ── Helpers ────────────────────────────────
+  private toUnits(amount: number): bigint {
+    return ethers.parseUnits(amount.toString(), COLLATERAL_DECIMALS)
+  }
 
-      if (!addresses.betiPredict || !addresses.collateralToken) {
-        throw new Error(`Contracts not deployed on ${networkName}`)
-      }
+  private fromUnits(wei: bigint): number {
+    return Number(ethers.formatUnits(wei, COLLATERAL_DECIMALS))
+  }
 
-      this.betiPredictContract = new ethers.Contract(
-        addresses.betiPredict,
-        BETI_PREDICT_ABI,
-        this.signer
-      )
-
-      this.tokenContract = new ethers.Contract(
-        addresses.collateralToken,
-        MOCK_TOKEN_ABI,
-        this.signer
-      )
-    } catch (error) {
-      console.error('Error initializing contracts:', error)
-      throw error
+  private async ensureAllowance(amount: bigint) {
+    const owner = await this.signer.getAddress()
+    const marketAddr = await this.marketContract.getAddress()
+    const current: bigint = await this.tokenContract.allowance(owner, marketAddr)
+    if (current < amount) {
+      const tx = await this.tokenContract.approve(marketAddr, ethers.MaxUint256)
+      await tx.wait()
     }
   }
 
-  private getNetworkName(): string {
-    switch (this.chainId) {
-      case 1337: return 'localhost'
-      case 11155111: return 'sepolia'
-      default: return 'localhost'
+  // ── Market Reads ───────────────────────────
+  async getMarketCount(): Promise<number> {
+    return Number(await this.marketContract.marketCount())
+  }
+
+  async getMarket(id: number): Promise<OnChainMarket> {
+    const m = await this.marketContract.getMarket(id)
+    return {
+      id: Number(m.id),
+      question: m.question,
+      resolveTime: Number(m.resolveTime),
+      yesPool: m.yesPool,
+      noPool: m.noPool,
+      totalVolume: m.totalVolume,
+      status: Number(m.status),
+      resolution: Number(m.resolution),
+      creator: m.creator,
+      createdAt: Number(m.createdAt),
     }
   }
 
-  // Market Functions
-  async createMarket(
-    title: string,
-    description: string,
-    category: string,
-    question: string,
-    resolveTime: number,
-    initialYesPrice: number,
-    initialNoPrice: number
-  ): Promise<{ transaction: ethers.TransactionResponse; marketId: string }> {
-    if (!this.betiPredictContract) throw new Error('Contract not initialized')
+  async getYesPrice(id: number): Promise<number> {
+    const p = await this.marketContract.getYesPrice(id)
+    return Number(p) / 1e18
+  }
 
-    const marketCreationFee = await this.betiPredictContract.marketCreationFee()
-    
-    const tx = await this.betiPredictContract.createMarket(
-      title,
-      description,
-      category,
+  async getNoPrice(id: number): Promise<number> {
+    const p = await this.marketContract.getNoPrice(id)
+    return Number(p) / 1e18
+  }
+
+  async getPosition(marketId: number, user?: string): Promise<Position> {
+    const addr = user || await this.signer.getAddress()
+    const pos = await this.marketContract.getPosition(marketId, addr)
+    return {
+      yesAmount: pos.yesAmount,
+      noAmount: pos.noAmount,
+      hasClaimed: pos.hasClaimed,
+    }
+  }
+
+  // ── Token Reads ────────────────────────────
+  async getTokenBalance(user?: string): Promise<number> {
+    const addr = user || await this.signer.getAddress()
+    const bal = await this.tokenContract.balanceOf(addr)
+    return this.fromUnits(bal)
+  }
+
+  async getTokenSymbol(): Promise<string> {
+    return await this.tokenContract.symbol()
+  }
+
+  // ── Trading ────────────────────────────────
+  async estimateBuy(marketId: number, outcome: 'YES' | 'NO', amount: number): Promise<{ shares: number; fee: number }> {
+    const outcomeEnum = outcome === 'YES' ? 1 : 2
+    const amtUnits = this.toUnits(amount)
+    const est = await this.marketContract.estimateBuy(marketId, outcomeEnum, amtUnits)
+    return { shares: this.fromUnits(est.sharesOut), fee: this.fromUnits(est.fee) }
+  }
+
+  async estimateSell(marketId: number, outcome: 'YES' | 'NO', shares: bigint): Promise<{ collateral: number; fee: number }> {
+    const outcomeEnum = outcome === 'YES' ? 1 : 2
+    const est = await this.marketContract.estimateSell(marketId, outcomeEnum, shares)
+    return { collateral: this.fromUnits(est.collateralOut), fee: this.fromUnits(est.fee) }
+  }
+
+  async buyYes(marketId: number, amount: number, minShares: number = 0): Promise<ethers.TransactionResponse> {
+    const amtUnits = this.toUnits(amount)
+    await this.ensureAllowance(amtUnits)
+    const minUnits = this.toUnits(minShares)
+    return await this.marketContract.buyYes(marketId, amtUnits, minUnits)
+  }
+
+  async buyNo(marketId: number, amount: number, minShares: number = 0): Promise<ethers.TransactionResponse> {
+    const amtUnits = this.toUnits(amount)
+    await this.ensureAllowance(amtUnits)
+    const minUnits = this.toUnits(minShares)
+    return await this.marketContract.buyNo(marketId, amtUnits, minUnits)
+  }
+
+  async sellYes(marketId: number, shares: bigint, minCollateral: number = 0): Promise<ethers.TransactionResponse> {
+    const minUnits = this.toUnits(minCollateral)
+    return await this.marketContract.sellYes(marketId, shares, minUnits)
+  }
+
+  async sellNo(marketId: number, shares: bigint, minCollateral: number = 0): Promise<ethers.TransactionResponse> {
+    const minUnits = this.toUnits(minCollateral)
+    return await this.marketContract.sellNo(marketId, shares, minUnits)
+  }
+
+  // ── Claims ─────────────────────────────────
+  async claimWinnings(marketId: number): Promise<ethers.TransactionResponse> {
+    return await this.marketContract.claimWinnings(marketId)
+  }
+
+  async claimRefund(marketId: number): Promise<ethers.TransactionResponse> {
+    return await this.marketContract.claimRefund(marketId)
+  }
+
+  // ── Market Creation ────────────────────────
+  async createMarket(question: string, resolveTime: number, initialLiquidity: number, resolver?: string): Promise<{ tx: ethers.TransactionResponse; marketId: number }> {
+    const liqUnits = this.toUnits(initialLiquidity)
+    await this.ensureAllowance(liqUnits)
+    const tx = await this.marketContract.createMarket(
       question,
       resolveTime,
-      initialYesPrice,
-      initialNoPrice,
-      { value: marketCreationFee }
+      liqUnits,
+      resolver || ethers.ZeroAddress
     )
-
     const receipt = await tx.wait()
-    
-    // Parse MarketCreated event
-    const marketCreatedEvent = receipt?.logs?.find((log: any) => 
-      log.fragment?.name === 'MarketCreated'
-    )
-    
-    const marketId = marketCreatedEvent?.args?.[0]?.toString() || '0'
-    
-    return { transaction: tx, marketId }
+    const log = receipt?.logs?.find((l: any) => l.fragment?.name === 'MarketCreated')
+    const marketId = log?.args?.[0] ? Number(log.args[0]) : 0
+    return { tx, marketId }
   }
 
-  async getMarket(marketId: string): Promise<Market> {
-    if (!this.betiPredictContract) throw new Error('Contract not initialized')
-
-    const market = await this.betiPredictContract.getMarket(marketId)
-    return {
-      id: marketId,
-      title: market.title,
-      description: market.description,
-      category: market.category,
-      question: market.question,
-      resolveTime: market.resolveTime,
-      yesPrice: market.yesPrice,
-      noPrice: market.noPrice,
-      totalVolume: market.totalVolume,
-      status: market.status,
-      resolution: market.resolution,
-      creator: market.creator,
-      createdAt: market.createdAt
-    }
+  // ── Resolution (admin) ─────────────────────
+  async resolveMarket(marketId: number, outcome: 'YES' | 'NO'): Promise<ethers.TransactionResponse> {
+    const outcomeEnum = outcome === 'YES' ? 1 : 2
+    return await this.marketContract.resolveMarket(marketId, outcomeEnum)
   }
 
-  // Trading Functions
-  async placeLimitOrder(
-    marketId: string,
-    side: number, // 0 = Buy, 1 = Sell
-    outcome: number, // 0 = Yes, 1 = No
-    amount: string,
-    price: number
-  ): Promise<ethers.TransactionResponse> {
-    if (!this.betiPredictContract) throw new Error('Contract not initialized')
-
-    const amountWei = ethers.parseEther(amount)
-    const priceScaled = Math.round(price * 1e6) // Scale to 1e6 as per contract
-
-    return await this.betiPredictContract.placeLimitOrder(
-      marketId,
-      side,
-      outcome,
-      amountWei,
-      priceScaled
-    )
+  async cancelMarket(marketId: number): Promise<ethers.TransactionResponse> {
+    return await this.marketContract.cancelMarket(marketId)
   }
 
-  async placeMarketOrder(
-    marketId: string,
-    side: number,
-    outcome: number,
-    amount: string
-  ): Promise<ethers.TransactionResponse> {
-    if (!this.betiPredictContract) throw new Error('Contract not initialized')
-
-    const amountWei = ethers.parseEther(amount)
-
-    return await this.betiPredictContract.placeMarketOrder(
-      marketId,
-      side,
-      outcome,
-      amountWei
-    )
-  }
-
-  // Balance Functions
-  async getBalance(): Promise<string> {
-    if (!this.betiPredictContract) throw new Error('Contract not initialized')
-    
-    const address = await this.signer.getAddress()
-    const balance = await this.betiPredictContract.getBalance(address)
-    
-    return ethers.formatEther(balance)
-  }
-
-  async getTokenBalance(): Promise<string> {
-    if (!this.tokenContract) throw new Error('Contract not initialized')
-    
-    const address = await this.signer.getAddress()
-    const balance = await this.tokenContract.balanceOf(address)
-    
-    return ethers.formatEther(balance)
-  }
-
-  async deposit(amount: string): Promise<ethers.TransactionResponse> {
-    if (!this.betiPredictContract) throw new Error('Contract not initialized')
-
-    const amountWei = ethers.parseEther(amount)
-    
-    // First approve token spending
-    const approveTx = await this.tokenContract!.approve(
-      await this.betiPredictContract.getAddress(),
-      amountWei
-    )
-    await approveTx.wait()
-
-    // Then deposit
-    return await this.betiPredictContract.deposit(amountWei)
-  }
-
-  async withdraw(amount: string): Promise<ethers.TransactionResponse> {
-    if (!this.betiPredictContract) throw new Error('Contract not initialized')
-
-    const amountWei = ethers.parseEther(amount)
-    return await this.betiPredictContract.withdraw(amountWei)
-  }
-
-  // Market Resolution
-  async resolveMarket(marketId: string, resolution: number): Promise<ethers.TransactionResponse> {
-    if (!this.betiPredictContract) throw new Error('Contract not initialized')
-
-    return await this.betiPredictContract.resolveMarket(marketId, resolution)
-  }
-
-  // Event Listeners
-  onMarketCreated(callback: (marketId: string, title: string, creator: string) => void) {
-    if (!this.betiPredictContract) return
-
-    this.betiPredictContract.on('MarketCreated', (marketId, title, question, resolveTime, creator) => {
-      callback(marketId.toString(), title, creator)
+  // ── Event Listeners ────────────────────────
+  onSharesPurchased(cb: (marketId: number, buyer: string, outcome: number, amount: bigint, shares: bigint) => void) {
+    this.marketContract.on('SharesPurchased', (marketId, buyer, outcome, collateralIn, sharesOut) => {
+      cb(Number(marketId), buyer, Number(outcome), collateralIn, sharesOut)
     })
   }
 
-  onOrderPlaced(callback: (orderId: string, marketId: string, trader: string, amount: string, price: string) => void) {
-    if (!this.betiPredictContract) return
-
-    this.betiPredictContract.on('OrderPlaced', (orderId, marketId, trader, side, outcome, amount, price) => {
-      callback(orderId.toString(), marketId.toString(), trader, ethers.formatEther(amount), (Number(price) / 1e6).toString())
+  onMarketResolved(cb: (marketId: number, resolution: number) => void) {
+    this.marketContract.on('MarketResolved', (marketId, resolution) => {
+      cb(Number(marketId), Number(resolution))
     })
   }
 
-  onOrderFilled(callback: (orderId: string, marketId: string, trader: string, filledAmount: string, fillPrice: string) => void) {
-    if (!this.betiPredictContract) return
-
-    this.betiPredictContract.on('OrderFilled', (orderId, marketId, trader, filledAmount, fillPrice) => {
-      callback(orderId.toString(), marketId.toString(), trader, ethers.formatEther(filledAmount), (Number(fillPrice) / 1e6).toString())
-    })
-  }
-
-  onMarketResolved(callback: (marketId: string, resolution: number, totalPayout: string) => void) {
-    if (!this.betiPredictContract) return
-
-    this.betiPredictContract.on('MarketResolved', (marketId, resolution, totalPayout) => {
-      callback(marketId.toString(), Number(resolution), ethers.formatEther(totalPayout))
-    })
-  }
-
-  // Cleanup
   removeAllListeners() {
-    if (this.betiPredictContract) {
-      this.betiPredictContract.removeAllListeners()
-    }
+    this.marketContract.removeAllListeners()
   }
 }
 
-// Hook for using contract service — returns null when wallet is not connected
+// ──────────────────────────────────────────────
+//  React hook — returns null when wallet disconnected
+// ──────────────────────────────────────────────
 export function useContractService(): ContractService | null {
   const { signer, chainId, isConnected } = useWallet()
-  
-  if (!isConnected || !signer || !chainId) {
-    return null
-  }
+
+  if (!isConnected || !signer || !chainId) return null
 
   try {
     return new ContractService(signer, chainId)

@@ -62,6 +62,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.ReentrancyGuard__factory>;
     getContractFactory(
+      name: "BetiPredictMarket",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.BetiPredictMarket__factory>;
+    getContractFactory(
       name: "BetiPredictSimple",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.BetiPredictSimple__factory>;
@@ -131,6 +135,11 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.ReentrancyGuard>;
     getContractAt(
+      name: "BetiPredictMarket",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.BetiPredictMarket>;
+    getContractAt(
       name: "BetiPredictSimple",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
@@ -190,6 +199,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.ReentrancyGuard>;
     deployContract(
+      name: "BetiPredictMarket",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.BetiPredictMarket>;
+    deployContract(
       name: "BetiPredictSimple",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.BetiPredictSimple>;
@@ -258,6 +271,11 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.ReentrancyGuard>;
+    deployContract(
+      name: "BetiPredictMarket",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.BetiPredictMarket>;
     deployContract(
       name: "BetiPredictSimple",
       args: any[],
