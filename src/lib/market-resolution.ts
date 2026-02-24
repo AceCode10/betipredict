@@ -24,6 +24,12 @@ export class MarketResolver {
       const disputeDeadline = new Date(now.getTime() + DISPUTE_WINDOW_MS)
 
       // Update market status to RESOLVED with dispute window
+      // Fetch resting orders BEFORE cancelling them so we can refund
+      const restingOrders = await prisma.order.findMany({
+        where: { marketId, status: { in: ['OPEN', 'PARTIALLY_FILLED'] }, remaining: { gt: 0 } },
+        select: { id: true, userId: true, side: true, outcome: true, price: true, remaining: true },
+      })
+
       await prisma.$transaction([
         prisma.market.update({
           where: { id: marketId },
@@ -34,12 +40,57 @@ export class MarketResolver {
             disputeDeadline,
           }
         }),
-        // Cancel all open orders immediately (no more trading)
+        // Cancel all open/partial orders immediately (no more trading)
         prisma.order.updateMany({
-          where: { marketId, status: 'OPEN' },
-          data: { status: 'CANCELLED' }
+          where: { marketId, status: { in: ['OPEN', 'PARTIALLY_FILLED'] } },
+          data: { status: 'CANCELLED', remaining: 0 }
         }),
       ])
+
+      // Refund reserved funds for cancelled resting CLOB orders
+      for (const order of restingOrders) {
+        try {
+          if (order.side === 'BUY') {
+            // Refund: remaining shares * price * (1 + fee rate)
+            const refund = order.remaining * order.price * 1.02
+            if (refund > 0) {
+              await prisma.user.update({
+                where: { id: order.userId },
+                data: { balance: { increment: refund } },
+              })
+              await prisma.transaction.create({
+                data: {
+                  type: 'REFUND',
+                  amount: refund,
+                  feeAmount: 0,
+                  description: `Refund for cancelled BUY order (market resolved): ${order.remaining.toFixed(2)} ${order.outcome} shares`,
+                  status: 'COMPLETED',
+                  userId: order.userId,
+                },
+              })
+            }
+          } else {
+            // SELL order: return locked shares to position
+            if (order.remaining > 0) {
+              const position = await prisma.position.findUnique({
+                where: { userId_marketId_outcome: { userId: order.userId, marketId, outcome: order.outcome } },
+              })
+              if (position) {
+                await prisma.position.update({
+                  where: { id: position.id },
+                  data: { size: { increment: order.remaining }, isClosed: false },
+                })
+              } else {
+                await prisma.position.create({
+                  data: { userId: order.userId, marketId, outcome: order.outcome, size: order.remaining, averagePrice: order.price },
+                })
+              }
+            }
+          }
+        } catch (refundErr) {
+          console.error(`[Resolution] Failed to refund order ${order.id}:`, refundErr)
+        }
+      }
 
       // Notify all position holders about resolution and dispute window
       const positionHolders = await prisma.position.findMany({

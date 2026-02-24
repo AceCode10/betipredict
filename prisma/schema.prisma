@@ -44,6 +44,24 @@ model User {
   @@map("users")
 }
 
+// Multi-option market groups (e.g. "US strikes Iran by...?" with date options)
+// Each option is a separate binary Market linked to this group via groupId
+model MarketGroup {
+  id              String    @id @default(cuid())
+  title           String    // Parent question: "US strikes Iran by...?"
+  description     String?
+  category        String
+  subcategory     String?
+  icon            String?   // Emoji or image URL for the group card
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  creatorId       String
+  markets         Market[]  // Child option markets
+
+  @@map("market_groups")
+}
+
 model Market {
   id              String    @id @default(cuid())
   title           String
@@ -51,12 +69,18 @@ model Market {
   category        String
   subcategory     String?
   question        String    @unique
-  yesPrice        Float     @default(0.5)
-  noPrice         Float     @default(0.5)
-  drawPrice       Float?    // 3-outcome markets: draw probability (null for binary)
+  yesPrice        Float     @default(0.5)  // Last traded price for YES (binary) or HOME (tri)
+  noPrice         Float     @default(0.5)  // Last traded price for NO (binary) or AWAY (tri)
+  drawPrice       Float?    // Last traded price for DRAW (tri-outcome only)
   volume          Float     @default(0)
   liquidity       Float     @default(0)
   marketType      String    @default("BINARY") // BINARY (yes/no) or TRI_OUTCOME (home/draw/away)
+  pricingEngine   String    @default("CLOB")   // CLOB (order book) or CPMM (legacy AMM)
+  // CLOB order book state — serialized JSON per outcome
+  bookYes         String?   @db.Text  // OrderBook JSON for YES/HOME outcome
+  bookNo          String?   @db.Text  // OrderBook JSON for NO/AWAY outcome
+  bookDraw        String?   @db.Text  // OrderBook JSON for DRAW outcome (tri only)
+  // Legacy CPMM pool fields (kept for backward compat with existing markets)
   poolYesShares   Float?    // Binary CPMM pool: YES share count
   poolNoShares    Float?    // Binary CPMM pool: NO share count
   poolK           Float?    // Binary CPMM pool: constant product (yesShares * noShares)
@@ -72,6 +96,8 @@ model Market {
   homeTeam        String?   // For match-winner markets: home team name
   awayTeam        String?   // For match-winner markets: away team name
   league          String?   // Competition/league name (e.g. "Premier League")
+  groupId         String?   // Link to MarketGroup for multi-option markets (null for standalone)
+  group           MarketGroup? @relation(fields: [groupId], references: [id])
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -82,19 +108,21 @@ model Market {
   disputes        MarketDispute[]
   chatMessages    ChatMessage[]
 
+  @@index([groupId])
   @@map("markets")
 }
 
 model Order {
-  id            String   @id @default(cuid())
-  type          String   @default("LIMIT")
-  side          String
-  outcome       String
-  price         Float
-  amount        Float
-  filled        Float    @default(0)
-  remaining     Float
-  status        String   @default("OPEN")
+  id            String    @id @default(cuid())
+  type          String    @default("LIMIT")   // LIMIT or MARKET
+  side          String                         // BUY or SELL
+  outcome       String                         // YES/NO or HOME/DRAW/AWAY
+  price         Float                          // Limit price (0.01-0.99) or avg fill price for market orders
+  amount        Float                          // Total shares ordered
+  filled        Float    @default(0)           // Shares filled
+  remaining     Float                          // Shares still resting on book
+  status        String   @default("OPEN")     // OPEN, PARTIALLY_FILLED, FILLED, CANCELLED
+  expiresAt     DateTime?                      // Optional expiry for resting orders
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

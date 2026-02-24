@@ -24,6 +24,7 @@ export interface Market {
   volume: number
   liquidity: number
   marketType: 'BINARY' | 'TRI_OUTCOME'
+  pricingEngine?: 'CLOB' | 'CPMM'
   status: 'PENDING' | 'ACTIVE' | 'RESOLVED' | 'CANCELLED' | 'FINALIZED'
   resolveTime: Date
   resolvedAt?: Date

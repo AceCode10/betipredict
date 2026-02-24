@@ -88,6 +88,9 @@ export default function PolymarketStyleHomePage() {
   const [error, setError] = useState<string | null>(null)
   const [liveTrades, setLiveTrades] = useState<LiveTradeToast[]>([])
   const [tradeSide, setTradeSide] = useState<'BUY' | 'SELL'>('BUY')
+  const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('LIMIT')
+  const [limitPrice, setLimitPrice] = useState<string>('')
+  const [orderBookData, setOrderBookData] = useState<any>(null)
   const [detailTab, setDetailTab] = useState<'comments' | 'top-holders' | 'positions' | 'activity'>('comments')
   const [holders, setHolders] = useState<{ yesHolders: any[]; noHolders: any[] }>({ yesHolders: [], noHolders: [] })
   const [positions, setPositions] = useState<any[]>([])
@@ -405,29 +408,39 @@ export default function PolymarketStyleHomePage() {
         return
       }
 
-      // Centralized API
+      // Centralized API — CLOB sell with limit/market order support
+      const tradeBody: any = {
+        marketId: market.id,
+        outcome,
+        side: 'SELL',
+        type: orderType,
+        amount: shares,
+      }
+      if (orderType === 'LIMIT' && limitPrice) {
+        tradeBody.price = parseFloat(limitPrice)
+      }
+
       const res = await fetch('/api/trade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          marketId: market.id,
-          outcome,
-          side: 'SELL',
-          type: 'MARKET',
-          amount: shares,
-        })
+        body: JSON.stringify(tradeBody)
       })
 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Sell failed')
 
-      // Update market prices locally (supports both binary and 3-outcome)
+      // Update order book data if returned
+      if (data.orderBook) setOrderBookData(data.orderBook)
+
+      // Update market prices locally (supports both CLOB and legacy CPMM responses)
       setMarkets(prev => prev.map(m => {
         if (m.id !== market.id) return m
-        const updates: any = {
-          volume: typeof data.newVolume === 'number' ? data.newVolume : m.volume,
-          liquidity: typeof data.newLiquidity === 'number' ? data.newLiquidity : m.liquidity,
-        }
+        const updates: any = {}
+        if (typeof data.newVolume === 'number') updates.volume = data.newVolume
+        if (typeof data.newLiquidity === 'number') updates.liquidity = data.newLiquidity
+        if (data.yesPrice != null) updates.yesPrice = data.yesPrice
+        if (data.noPrice != null) updates.noPrice = data.noPrice
+        if (data.drawPrice != null) updates.drawPrice = data.drawPrice
         if (data.newHomePrice != null) {
           updates.yesPrice = data.newHomePrice
           updates.noPrice = data.newAwayPrice
@@ -466,31 +479,42 @@ export default function PolymarketStyleHomePage() {
         return
       }
 
-      // Centralized API trading
+      // Centralized API trading — CLOB with limit/market order support
+      const tradeBody: any = {
+        marketId: market.id,
+        outcome,
+        side: 'BUY',
+        type: orderType,
+        amount,
+      }
+      if (orderType === 'LIMIT' && limitPrice) {
+        tradeBody.price = parseFloat(limitPrice)
+      }
+
       const res = await fetch('/api/trade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          marketId: market.id,
-          outcome,
-          side: 'BUY',
-          type: 'MARKET',
-          amount,
-        })
+        body: JSON.stringify(tradeBody)
       })
 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Trade failed')
 
-      // Update market prices locally (supports both binary and 3-outcome)
+      // Update order book data if returned
+      if (data.orderBook) setOrderBookData(data.orderBook)
+
+      // Update market prices locally (supports both CLOB and legacy CPMM responses)
       setMarkets(prev => prev.map(m => {
         if (m.id !== market.id) return m
-        const updates: any = {
-          volume: typeof data.newVolume === 'number' ? data.newVolume : (m.volume || 0) + amount,
-          liquidity: typeof data.newLiquidity === 'number' ? data.newLiquidity : m.liquidity,
-        }
+        const updates: any = {}
+        if (typeof data.newVolume === 'number') updates.volume = data.newVolume
+        if (typeof data.newLiquidity === 'number') updates.liquidity = data.newLiquidity
+        // CLOB response: prices are flat fields (yesPrice, noPrice, drawPrice)
+        if (data.yesPrice != null) updates.yesPrice = data.yesPrice
+        if (data.noPrice != null) updates.noPrice = data.noPrice
+        if (data.drawPrice != null) updates.drawPrice = data.drawPrice
+        // Legacy CPMM response
         if (data.newHomePrice != null) {
-          // 3-outcome market response
           updates.yesPrice = data.newHomePrice
           updates.noPrice = data.newAwayPrice
           updates.drawPrice = data.newDrawPrice
@@ -1343,32 +1367,60 @@ export default function PolymarketStyleHomePage() {
                       >
                         Sell
                       </button>
-                      <div className={`ml-auto text-xs ${textMuted} px-2 py-1 rounded ${inputBg} border ${modalBorder}`}>Market ▾</div>
-                    </div>
-
-                    {/* Outcome price buttons — Polymarket Yes/No style */}
-                    {market.isTri ? (
-                      <div className="flex gap-2 mb-4">
+                      <div className="ml-auto flex gap-1">
                         <button
-                          onClick={() => setShowChart({ ...showChart, outcome: 'HOME' })}
-                          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${
-                            showChart.outcome === 'HOME'
-                              ? 'bg-green-500 text-white'
+                          onClick={() => setOrderType('LIMIT')}
+                          className={`text-xs px-2 py-1 rounded transition-colors ${
+                            orderType === 'LIMIT'
+                              ? 'bg-blue-600 text-white'
                               : `${inputBg} ${textMuted} border ${modalBorder}`
                           }`}
                         >
-                          Yes {ngweePrice(market.homePrice ?? market.yesPrice)}
+                          Limit
                         </button>
                         <button
-                          onClick={() => {
-                            const otherOutcomes = ['HOME', 'DRAW', 'AWAY'].filter(o => o !== showChart.outcome)
-                            // No button not applicable in 3-outcome — keep current
-                          }}
-                          className={`flex-1 py-2.5 rounded-lg text-sm font-bold ${inputBg} ${textMuted} border ${modalBorder}`}
-                          disabled
+                          onClick={() => setOrderType('MARKET')}
+                          className={`text-xs px-2 py-1 rounded transition-colors ${
+                            orderType === 'MARKET'
+                              ? 'bg-blue-600 text-white'
+                              : `${inputBg} ${textMuted} border ${modalBorder}`
+                          }`}
                         >
-                          No {ngweePrice(1 - (market.homePrice ?? market.yesPrice))}
+                          Market
                         </button>
+                      </div>
+                    </div>
+
+                    {/* Limit price input (only for LIMIT orders) */}
+                    {orderType === 'LIMIT' && (
+                      <div className="mb-3">
+                        <label className={`text-xs ${textMuted} mb-1 block`}>Price (1¢–99¢)</label>
+                        <div className={`flex items-center rounded-lg border ${modalBorder} ${inputBg} px-3 py-2`}>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            max="0.99"
+                            value={limitPrice}
+                            onChange={(e) => setLimitPrice(e.target.value)}
+                            placeholder={`${(price * 100).toFixed(0)}¢`}
+                            className={`flex-1 bg-transparent outline-none text-sm ${textColor}`}
+                          />
+                          <span className={`text-xs ${textMuted} ml-1`}>¢ per share</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Outcome price buttons */}
+                    {market.isTri ? (
+                      /* 3-outcome: show selected outcome price as the Buy target */
+                      <div className={`flex items-center justify-between mb-4 p-3 rounded-lg ${inputBg} border ${modalBorder}`}>
+                        <span className={`text-sm font-semibold ${textColor}`}>
+                          {showChart.outcome === 'HOME' ? market.homeTeam : showChart.outcome === 'AWAY' ? market.awayTeam : 'Draw'}
+                        </span>
+                        <span className={`text-lg font-bold ${textColor}`}>
+                          {ngweePrice(price)}
+                        </span>
                       </div>
                     ) : (
                       <div className="flex gap-2 mb-4">
@@ -1448,7 +1500,7 @@ export default function PolymarketStyleHomePage() {
                           : 'bg-green-500 hover:bg-green-600 text-white'
                       }`}
                     >
-                      {placingBets || onChainLoading ? 'Processing...' : !isLoggedIn && !isOnChain ? 'Sign In to Trade' : amt > 0 ? 'Trade' : 'Trade'}
+                      {placingBets || onChainLoading ? 'Processing...' : !isLoggedIn && !isOnChain ? 'Sign In to Trade' : `${tradeSide === 'BUY' ? 'Buy' : 'Sell'} ${orderType === 'LIMIT' ? '(Limit)' : '(Market)'}`}
                     </button>
 
                     {/* To Win / Proceeds */}

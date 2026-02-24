@@ -6,7 +6,7 @@
  * 2. Withdrawal Fee - 1.5% on Airtel Money withdrawals (min K5)
  * 3. Market Creation Fee - K50 flat fee to create a custom market
  * 4. Resolution Fee - 1% on winning payouts when markets resolve
- * 5. Spread Revenue - CPMM bid-ask spread naturally benefits the platform pool
+ * 5. Spread Revenue - CLOB bid-ask spread captured via maker/taker fee model
  * 
  * All fees are collected into a platform revenue ledger.
  */

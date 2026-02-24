@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAllUpcomingMatches } from '@/lib/sports-api'
-import { initializeTriPool, getTriPrices } from '@/lib/cpmm'
 import crypto from 'crypto'
 
 // Auto-sync sports games from the API and create markets for them
@@ -85,18 +84,12 @@ export async function GET(request: NextRequest) {
           continue
         }
 
-        // Create market for this match — 3-outcome (Home/Draw/Away)
+        // Create market for this match — 3-outcome (Home/Draw/Away) with CLOB pricing
         const title = `${match.homeTeam.name} vs ${match.awayTeam.name}`
         const question = `Who will win: ${match.homeTeam.name} vs ${match.awayTeam.name}?`
 
-        const initialLiquidity = 10000
-        // Initialize 3-outcome CPMM pool with default probabilities
-        // Home ~40%, Draw ~25%, Away ~35% (neutral-ish starting point)
-        const triPool = initializeTriPool(initialLiquidity, 0.4, 0.25, 0.35)
-        const triPrices = getTriPrices(triPool)
-
         const market = await prisma.$transaction(async (tx) => {
-          // Create the market with 3-outcome CPMM pool state
+          // Create the market with CLOB engine — no seeded prices, pure price discovery
           const newMarket = await tx.market.create({
             data: {
               title,
@@ -108,18 +101,15 @@ export async function GET(request: NextRequest) {
               creatorId: systemUser!.id,
               status: 'ACTIVE',
               marketType: 'TRI_OUTCOME',
-              yesPrice: triPrices.homePrice,
-              noPrice: triPrices.awayPrice,
-              drawPrice: triPrices.drawPrice,
-              liquidity: initialLiquidity,
+              pricingEngine: 'CLOB',
+              yesPrice: 0.50,  // placeholder until first trade
+              noPrice: 0.50,
+              drawPrice: 0.25,
+              liquidity: 0,
               volume: 0,
               homeTeam: match.homeTeam.name,
               awayTeam: match.awayTeam.name,
               league: match.competition.name,
-              poolHomeShares: triPool.homeShares,
-              poolDrawShares: triPool.drawShares,
-              poolAwayShares: triPool.awayShares,
-              poolTriK: triPool.k,
             }
           })
 

@@ -418,7 +418,9 @@ export default function AccountPage() {
                           <p className="text-sm font-medium text-white truncate">{pos.market?.title || pos.market?.question}</p>
                           <div className="flex items-center gap-2 mt-1">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              pos.outcome === 'YES' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
+                              pos.outcome === 'YES' || pos.outcome === 'HOME' ? 'bg-green-500/15 text-green-400' :
+                              pos.outcome === 'DRAW' ? 'bg-yellow-500/15 text-yellow-400' :
+                              'bg-red-500/15 text-red-400'
                             }`}>
                               {pos.outcome}
                             </span>

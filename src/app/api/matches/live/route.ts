@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { initializePool } from '@/lib/cpmm'
 import { MarketResolver } from '@/lib/market-resolution'
 
 const FOOTBALL_DATA_API_KEY = process.env.FOOTBALL_DATA_API_KEY || ''
@@ -137,8 +136,6 @@ export async function GET(request: NextRequest) {
 
             const title = `${match.homeTeam} vs ${match.awayTeam}`
             const question = `Who will win: ${match.homeTeam} vs ${match.awayTeam}?`
-            const initialLiquidity = 10000
-            const pool = initializePool(initialLiquidity, 0.5)
 
             const newMarket = await prisma.$transaction(async (tx) => {
               const m = await tx.market.create({
@@ -151,16 +148,16 @@ export async function GET(request: NextRequest) {
                   resolveTime: new Date(Date.now() + 4 * 60 * 60 * 1000),
                   creatorId: systemUser!.id,
                   status: 'ACTIVE',
-                  yesPrice: 0.5,
-                  noPrice: 0.5,
-                  liquidity: initialLiquidity,
+                  marketType: 'TRI_OUTCOME',
+                  pricingEngine: 'CLOB',
+                  yesPrice: 0.50,
+                  noPrice: 0.50,
+                  drawPrice: 0.25,
+                  liquidity: 0,
                   volume: 0,
                   homeTeam: match.homeTeam,
                   awayTeam: match.awayTeam,
                   league: match.competition,
-                  poolYesShares: pool.yesShares,
-                  poolNoShares: pool.noShares,
-                  poolK: pool.k,
                 },
               })
               const existingGame = await tx.scheduledGame.findUnique({ where: { externalId: match.id } })
@@ -191,7 +188,7 @@ export async function GET(request: NextRequest) {
             match.yesPrice = newMarket.yesPrice
             match.noPrice = newMarket.noPrice
             match.volume = 0
-            match.liquidity = initialLiquidity
+            match.liquidity = 0
             console.log(`[Live Matches] Auto-created market for live match: ${title}`)
           } catch (createErr) {
             console.error(`[Live Matches] Failed to auto-create market for match ${match.id}:`, createErr)

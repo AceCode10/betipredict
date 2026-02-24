@@ -189,6 +189,10 @@ export async function PUT(request: NextRequest) {
           creatorId: suggestion.suggesterId,
           status: 'ACTIVE',
           resolveTime: finalResolveTime,
+          pricingEngine: 'CLOB',
+          liquidity: 0,
+          yesPrice: 0.5,
+          noPrice: 0.5,
         }
       })
 

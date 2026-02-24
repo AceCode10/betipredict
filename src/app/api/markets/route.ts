@@ -3,7 +3,6 @@ import { prisma } from '@/lib/prisma'
 import { initializeDatabase } from '@/lib/db-init'
 import { checkRateLimit, getClientIp, sanitizeString } from '@/lib/rate-limit'
 import { FEES } from '@/lib/fees'
-import { initializePool } from '@/lib/cpmm'
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,6 +32,13 @@ export async function GET(request: NextRequest) {
             username: true,
             fullName: true,
             avatar: true
+          }
+        },
+        group: {
+          select: {
+            id: true,
+            title: true,
+            icon: true,
           }
         },
         _count: {
@@ -205,7 +211,6 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      const pool = initializePool(FEES.DEFAULT_INITIAL_LIQUIDITY, 0.5)
       const newMarket = await tx.market.create({
         data: {
           title: title.trim(),
@@ -216,12 +221,10 @@ export async function POST(request: NextRequest) {
           resolveTime: new Date(resolveTime),
           creatorId: session.user.id,
           status: 'ACTIVE',
-          liquidity: FEES.DEFAULT_INITIAL_LIQUIDITY,
+          pricingEngine: 'CLOB',
+          liquidity: 0,
           yesPrice: 0.5,
           noPrice: 0.5,
-          poolYesShares: pool.yesShares,
-          poolNoShares: pool.noShares,
-          poolK: pool.k,
         },
         include: {
           creator: {
