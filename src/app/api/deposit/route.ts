@@ -90,6 +90,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    // ─── TEST MODE: instant credit without mobile money APIs ───
+    const isTestMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true'
+    if (isTestMode) {
+      const result = await prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: session.user.id },
+          data: { balance: { increment: amount } }
+        })
+        const txRecord = await tx.transaction.create({
+          data: {
+            type: 'DEPOSIT',
+            amount: amount,
+            feeAmount: 0,
+            description: `Test deposit of K${amount.toFixed(2)}`,
+            status: 'COMPLETED',
+            userId: session.user.id,
+            metadata: JSON.stringify({ testMode: true })
+          }
+        })
+        return txRecord
+      })
+
+      await prisma.notification.create({
+        data: {
+          type: 'DEPOSIT',
+          title: 'Test Deposit Successful',
+          message: `K${amount.toFixed(2)} has been added to your account (test mode).`,
+          userId: session.user.id,
+        }
+      }).catch(() => {})
+
+      const successBody = {
+        success: true,
+        paymentId: result.id,
+        status: 'COMPLETED',
+        message: `Test deposit of K${amount.toFixed(2)} credited instantly.`,
+        testMode: true,
+      }
+      if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, successBody)
+      return NextResponse.json(successBody)
+    }
+
     // Validate phone number is required for all mobile money deposits
     if (!phoneNumber) {
       if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)

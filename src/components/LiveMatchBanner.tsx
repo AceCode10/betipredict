@@ -231,7 +231,7 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLive
                   disabled={!hasMkt}
                   className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-150 truncate ${
                     hasMkt
-                      ? 'bg-[#2d9cdb]/15 text-[#2d9cdb] hover:bg-[#2d9cdb]/25 active:bg-[#2d9cdb]/35'
+                      ? 'bg-green-500/15 text-green-500 hover:bg-green-500/25 active:bg-green-500/35'
                       : isDarkMode ? 'bg-gray-800 text-gray-600' : 'bg-gray-100 text-gray-400'
                   }`}
                 >
@@ -247,6 +247,7 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLive
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300 active:bg-gray-400'
                       : isDarkMode ? 'bg-gray-800 text-gray-600' : 'bg-gray-100 text-gray-400'
                   }`}
+                  title="Draw results in market void — all traders are refunded"
                 >
                   DRAW
                 </button>
@@ -255,7 +256,7 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLive
                   disabled={!hasMkt}
                   className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-150 truncate ${
                     hasMkt
-                      ? 'bg-[#27ae60]/15 text-[#27ae60] hover:bg-[#27ae60]/25 active:bg-[#27ae60]/35'
+                      ? 'bg-green-500/15 text-green-500 hover:bg-green-500/25 active:bg-green-500/35'
                       : isDarkMode ? 'bg-gray-800 text-gray-600' : 'bg-gray-100 text-gray-400'
                   }`}
                 >

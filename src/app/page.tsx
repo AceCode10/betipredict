@@ -764,19 +764,20 @@ export default function PolymarketStyleHomePage() {
                   <>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'YES' }) }}
-                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} text-green-500 border ${cardBorder} hover:border-green-500/50 hover:bg-green-500/10 transition-all duration-200 truncate`}
+                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200 truncate`}
                     >
                       {market.optionA}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'YES' }) }}
                       className={`px-3 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-all duration-200`}
+                      title="Draw results in market void — all traders are refunded"
                     >
                       DRAW
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'NO' }) }}
-                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} text-red-500 border ${cardBorder} hover:border-red-500/50 hover:bg-red-500/10 transition-all duration-200 truncate`}
+                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200 truncate`}
                     >
                       {market.optionB}
                     </button>

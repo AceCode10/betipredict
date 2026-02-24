@@ -154,7 +154,7 @@ export default function SignIn() {
               </button>
             )}
             {mode === 'signup' ? (
-              <p className="text-xs text-gray-500">New accounts start with <span className="text-green-400">K1,000</span> balance to get you started.</p>
+              <p className="text-xs text-gray-500">Create your account to start trading on prediction markets.</p>
             ) : (
               <p className="text-xs text-gray-500">Don&apos;t have an account? <button onClick={() => setMode('signup')} className="text-green-400 hover:underline">Sign up</button></p>
             )}

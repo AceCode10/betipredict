@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
     const recentlyFinishedIds = todayFinished.map(m => Number(m.id))
     const pendingGames = await prisma.scheduledGame.findMany({
       where: {
-        status: { in: ['IN_PLAY', 'LIVE'] },
+        status: { in: ['SCHEDULED', 'IN_PLAY', 'LIVE'] },
         externalId: { in: recentlyFinishedIds },
         marketId: { not: null }
       }
@@ -95,25 +95,24 @@ export async function POST(request: NextRequest) {
       const matchData = todayFinished.find(m => Number(m.id) === game.externalId)
       if (matchData && matchData.score?.winner) {
         try {
-          let winningOutcome: 'YES' | 'NO' | null = null
-          if (matchData.score.winner === 'HOME_TEAM') {
-            winningOutcome = 'YES'
+          await prisma.scheduledGame.update({
+            where: { id: game.id },
+            data: { status: 'FINISHED', winner: matchData.score.winner }
+          })
+
+          if (matchData.score.winner === 'DRAW') {
+            // DRAW: void the binary market and refund all traders
+            await MarketResolver.voidMarket(game.marketId!, 'Match ended in a draw')
+            resolved.push({ marketId: game.marketId!, outcome: 'VOID' })
+            console.log(`[adaptive-resolve] DRAW — voided: ${game.homeTeam} vs ${game.awayTeam}`)
           } else {
-            winningOutcome = 'NO'
-          }
-
-          if (winningOutcome && game.marketId) {
-            await prisma.scheduledGame.update({
-              where: { id: game.id },
-              data: { status: 'FINISHED', winner: matchData.score.winner }
-            })
-
-            await MarketResolver.resolveMarket(game.marketId, winningOutcome)
-            resolved.push({ marketId: game.marketId, outcome: winningOutcome })
-            console.log(`[adaptive-resolve] Caught missed match: ${game.homeTeam} vs ${game.awayTeam}`)
+            const winningOutcome: 'YES' | 'NO' = matchData.score.winner === 'HOME_TEAM' ? 'YES' : 'NO'
+            await MarketResolver.resolveMarket(game.marketId!, winningOutcome)
+            resolved.push({ marketId: game.marketId!, outcome: winningOutcome })
+            console.log(`[adaptive-resolve] Resolved: ${game.homeTeam} vs ${game.awayTeam} → ${winningOutcome}`)
           }
         } catch (err: any) {
-          console.error(`[adaptive-resolve] Failed to resolve missed match ${game.marketId ?? game.id}:`, err)
+          console.error(`[adaptive-resolve] Failed to resolve ${game.marketId ?? game.id}:`, err)
         }
       }
     }
@@ -127,7 +126,7 @@ export async function POST(request: NextRequest) {
       if (matchesToCheck.length > 0 && stats.apiCallsUsed + matchesToCheck.length <= 10) {
         const liveGames = await prisma.scheduledGame.findMany({
           where: {
-            status: { in: ['IN_PLAY', 'LIVE'] },
+            status: { in: ['SCHEDULED', 'IN_PLAY', 'LIVE'] },
             externalId: { in: matchesToCheck },
             marketId: { not: null }
           }
@@ -145,19 +144,16 @@ export async function POST(request: NextRequest) {
 
             if (result.isFinished && result.winner) {
               try {
-                let winningOutcome: 'YES' | 'NO' | null = null
-                if (result.winner === 'HOME_TEAM') {
-                  winningOutcome = 'YES'
+                await prisma.scheduledGame.update({
+                  where: { id: game.id },
+                  data: { status: 'FINISHED', winner: result.winner }
+                })
+
+                if (result.winner === 'DRAW') {
+                  await MarketResolver.voidMarket(game.marketId, 'Match ended in a draw')
+                  resolved.push({ marketId: game.marketId, outcome: 'VOID' })
                 } else {
-                  winningOutcome = 'NO'
-                }
-
-                if (winningOutcome && game.marketId) {
-                  await prisma.scheduledGame.update({
-                    where: { id: game.id },
-                    data: { status: 'FINISHED', winner: result.winner }
-                  })
-
+                  const winningOutcome: 'YES' | 'NO' = result.winner === 'HOME_TEAM' ? 'YES' : 'NO'
                   await MarketResolver.resolveMarket(game.marketId, winningOutcome)
                   resolved.push({ marketId: game.marketId, outcome: winningOutcome })
                 }
@@ -175,7 +171,7 @@ export async function POST(request: NextRequest) {
     const staleCutoff = new Date(Date.now() - 8 * 60 * 60 * 1000) // 8 hours
     const staleGames = await prisma.scheduledGame.updateMany({
       where: {
-        status: { in: ['IN_PLAY', 'LIVE'] },
+        status: { in: ['SCHEDULED', 'IN_PLAY', 'LIVE'] },
         utcDate: { lt: staleCutoff }
       },
       data: { status: 'FINISHED' }

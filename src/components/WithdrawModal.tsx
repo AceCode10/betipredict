@@ -114,6 +114,8 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
     }, 5000)
   }
 
+  const isTestMode = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_TEST_MODE === 'true'
+
   const handleWithdraw = async () => {
     const withdrawAmount = parseFloat(amount)
     if (!withdrawAmount || withdrawAmount <= 0) {
@@ -133,15 +135,17 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
       return
     }
 
-    if (!phoneNumber) {
-      setError('Please enter your mobile money number')
-      return
-    }
+    if (!isTestMode) {
+      if (!phoneNumber) {
+        setError('Please enter your mobile money number')
+        return
+      }
 
-    const digits = phoneNumber.replace(/\D/g, '')
-    if (digits.length < 9 || digits.length > 13) {
-      setError('Please enter a valid Zambian phone number')
-      return
+      const digits = phoneNumber.replace(/\D/g, '')
+      if (digits.length < 9 || digits.length > 13) {
+        setError('Please enter a valid Zambian phone number')
+        return
+      }
     }
 
     setError('')
@@ -154,7 +158,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: withdrawAmount,
-          phoneNumber,
+          phoneNumber: isTestMode ? '0970000000' : phoneNumber,
           method: provider,
         })
       })
@@ -162,7 +166,13 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Withdrawal failed')
 
-      if (data.paymentId && data.status === 'PROCESSING') {
+      if (data.testMode || data.status === 'COMPLETED') {
+        setFeeInfo({ fee: data.fee || 0, net: data.netAmount || withdrawAmount })
+        setStep('success')
+        setSuccess(data.message || `Successfully withdrew ${formatZambianCurrency(data.netAmount || withdrawAmount)} (fee: ${formatZambianCurrency(data.fee || 0)})`)
+        await onWithdraw(withdrawAmount, phoneNumber || undefined)
+        setTimeout(handleClose, 2500)
+      } else if (data.paymentId && data.status === 'PROCESSING') {
         setPaymentId(data.paymentId)
         setFeeInfo({ fee: data.fee, net: data.netAmount })
         setStep('processing')
@@ -209,44 +219,55 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
               <div className="text-xl font-bold text-white">{formatZambianCurrency(currentBalance)}</div>
             </div>
 
-            {/* Provider Selection */}
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Payment Provider</label>
-              <div className="grid grid-cols-2 gap-2">
-                {PROVIDERS.map(p => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => { setProvider(p.id); setError('') }}
-                    className={`flex flex-col items-center gap-1 px-3 py-3 rounded-lg border text-sm font-semibold transition-all ${
-                      provider === p.id
-                        ? `${p.activeBg} ${p.color}`
-                        : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                    }`}
-                  >
-                    <span className={p.color}>{p.name}</span>
-                    <span className="text-[10px] text-gray-500 font-normal">{p.prefix}</span>
-                  </button>
-                ))}
+            {isTestMode && (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-xs text-yellow-400 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span><strong>Test Mode</strong> — Withdrawals are instant with prop money. No real money is involved.</span>
               </div>
-            </div>
+            )}
 
-            {/* Phone Number Input */}
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">{providerLabel} Number</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">+260</span>
-                <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => { setPhoneNumber(e.target.value.replace(/[^\d]/g, '').slice(0, 10)); setError('') }}
-                  placeholder={provider === 'airtel_money' ? '97XXXXXXX' : '96XXXXXXX'}
-                  className="w-full pl-14 pr-3 py-3 text-lg font-medium bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-orange-500"
-                  maxLength={10}
-                />
-              </div>
-              <p className="text-[10px] text-gray-500 mt-1">{selectedProvider.hint}</p>
-            </div>
+            {!isTestMode && (
+              <>
+                {/* Provider Selection */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Payment Provider</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PROVIDERS.map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => { setProvider(p.id); setError('') }}
+                        className={`flex flex-col items-center gap-1 px-3 py-3 rounded-lg border text-sm font-semibold transition-all ${
+                          provider === p.id
+                            ? `${p.activeBg} ${p.color}`
+                            : 'border-gray-700 text-gray-400 hover:border-gray-500'
+                        }`}
+                      >
+                        <span className={p.color}>{p.name}</span>
+                        <span className="text-[10px] text-gray-500 font-normal">{p.prefix}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Phone Number Input */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">{providerLabel} Number</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">+260</span>
+                    <input
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => { setPhoneNumber(e.target.value.replace(/[^\d]/g, '').slice(0, 10)); setError('') }}
+                      placeholder={provider === 'airtel_money' ? '97XXXXXXX' : '96XXXXXXX'}
+                      className="w-full pl-14 pr-3 py-3 text-lg font-medium bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-orange-500"
+                      maxLength={10}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-1">{selectedProvider.hint}</p>
+                </div>
+              </>
+            )}
 
             {/* Amount Input */}
             <div>

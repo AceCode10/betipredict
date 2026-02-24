@@ -256,6 +256,68 @@ export class MarketResolver {
     }
   }
 
+  /**
+   * Void a market: refund all position holders their cost basis.
+   * Used when a match ends in a DRAW (binary market can't resolve to either side).
+   */
+  static async voidMarket(marketId: string, reason: string = 'Match ended in a draw') {
+    try {
+      const market = await prisma.market.findUnique({
+        where: { id: marketId },
+        include: { positions: true }
+      })
+      if (!market) throw new Error('Market not found')
+      if (market.status === 'FINALIZED' || market.status === 'CANCELLED') {
+        return { success: true, voided: 'already', refunds: 0 }
+      }
+
+      const openPositions = market.positions.filter(p => !p.isClosed)
+      const payouts: { userId: string; amount: number }[] = []
+      for (const pos of openPositions) {
+        const refund = pos.size * pos.averagePrice
+        if (refund > 0) payouts.push({ userId: pos.userId, amount: refund })
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.market.update({
+          where: { id: marketId },
+          data: { status: 'FINALIZED', winningOutcome: 'VOID', resolvedAt: new Date() }
+        })
+        await tx.order.updateMany({
+          where: { marketId, status: 'OPEN' },
+          data: { status: 'CANCELLED' }
+        })
+        for (const payout of payouts) {
+          await tx.user.update({
+            where: { id: payout.userId },
+            data: { balance: { increment: payout.amount } }
+          })
+          await tx.transaction.create({
+            data: {
+              type: 'TRADE',
+              amount: payout.amount,
+              description: `Refund: ${reason} — "${market.title}"`,
+              status: 'COMPLETED',
+              userId: payout.userId,
+              metadata: JSON.stringify({ marketId, winningOutcome: 'VOID', type: 'REFUND' })
+            }
+          })
+        }
+        await tx.position.updateMany({
+          where: { marketId },
+          data: { isClosed: true }
+        })
+      })
+
+      const totalRefunded = payouts.reduce((s, p) => s + p.amount, 0)
+      console.log(`Market ${marketId} VOIDED (${reason}). Refunded ${payouts.length} positions, total K${totalRefunded.toFixed(2)}`)
+      return { success: true, voided: 'VOID', refunds: payouts.length, totalRefunded }
+    } catch (error) {
+      console.error('Error voiding market:', error)
+      throw error
+    }
+  }
+
   static async getMarketsNeedingResolution() {
     return prisma.market.findMany({
       where: {
@@ -294,9 +356,6 @@ export class MarketResolver {
               const data = await res.json()
               if (data.status === 'FINISHED') {
                 const winner = data.score?.winner
-                if (winner === 'HOME_TEAM') outcome = 'YES'
-                else if (winner === 'AWAY_TEAM' || winner === 'DRAW') outcome = 'NO'
-
                 // Update game status in DB
                 await prisma.scheduledGame.update({
                   where: { id: linkedGame.id },
@@ -307,6 +366,15 @@ export class MarketResolver {
                     winner: winner || null,
                   },
                 }).catch(() => {})
+
+                if (winner === 'HOME_TEAM') outcome = 'YES'
+                else if (winner === 'AWAY_TEAM') outcome = 'NO'
+                else if (winner === 'DRAW') {
+                  // DRAW: void the binary market and refund all traders
+                  await this.voidMarket(market.id, 'Match ended in a draw')
+                  console.log(`[autoResolve] DRAW — voided "${market.title}"`)
+                  continue
+                }
               }
             }
           } catch (apiErr) {

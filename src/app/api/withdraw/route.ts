@@ -121,6 +121,63 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
+    // ─── TEST MODE: instant withdrawal without mobile money APIs ───
+    const isTestMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true'
+    if (isTestMode) {
+      const result = await prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: session.user.id },
+          data: { balance: { decrement: amount } }
+        })
+        const txRecord = await tx.transaction.create({
+          data: {
+            type: 'WITHDRAWAL',
+            amount: -amount,
+            feeAmount: fee.feeAmount,
+            description: `Test withdrawal of K${fee.netAmount.toFixed(2)} (fee K${fee.feeAmount.toFixed(2)})`,
+            status: 'COMPLETED',
+            userId: session.user.id,
+            metadata: JSON.stringify({ testMode: true })
+          }
+        })
+        if (fee.feeAmount > 0) {
+          await tx.platformRevenue.create({
+            data: {
+              feeType: 'WITHDRAWAL_FEE',
+              amount: fee.feeAmount,
+              description: `Test withdrawal fee`,
+              sourceType: 'WITHDRAWAL',
+              sourceId: txRecord.id,
+              userId: session.user.id,
+            }
+          })
+        }
+        return txRecord
+      })
+
+      await prisma.notification.create({
+        data: {
+          type: 'WITHDRAW',
+          title: 'Test Withdrawal Successful',
+          message: `K${fee.netAmount.toFixed(2)} withdrawn (fee K${fee.feeAmount.toFixed(2)}) — test mode.`,
+          userId: session.user.id,
+        }
+      }).catch(() => {})
+
+      const successBody = {
+        success: true,
+        paymentId: result.id,
+        status: 'COMPLETED',
+        amount,
+        fee: fee.feeAmount,
+        netAmount: fee.netAmount,
+        message: `Test withdrawal completed. K${fee.netAmount.toFixed(2)} deducted.`,
+        testMode: true,
+      }
+      if (idempotencyKey) await completeIdempotencyKey(idempotencyKey, 200, successBody)
+      return NextResponse.json(successBody)
+    }
+
     // Validate phone number is required
     if (!phoneNumber) {
       if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
