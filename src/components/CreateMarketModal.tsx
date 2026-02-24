@@ -10,20 +10,33 @@ interface CreateMarketModalProps {
   onMarketCreated: () => void
 }
 
+type QuestionType = 'yes-no' | 'multi-option'
+
 const QUESTION_TEMPLATES = [
-  { label: 'Match Winner', template: 'Will {team} beat {opponent}?' },
-  { label: 'League Winner', template: 'Will {team} win the {league} {season}?' },
-  { label: 'Player Transfer', template: 'Will {player} transfer to {club} before {date}?' },
-  { label: 'Goals Scored', template: 'Will there be over {number} goals in {match}?' },
-  { label: 'Custom', template: '' },
+  { label: 'Yes/No', template: '', type: 'yes-no' as QuestionType, hint: 'Will something happen? Resolves Yes or No.' },
+  { label: 'Match Winner', template: 'Who will win: {Team A} vs {Team B}?', type: 'yes-no' as QuestionType, hint: 'Pick the winner of a match.' },
+  { label: 'League Winner', template: 'Will {team} win the {league} {season}?', type: 'yes-no' as QuestionType, hint: 'Predict a league champion.' },
+  { label: 'Player Transfer', template: 'Will {player} transfer to {club} before {date}?', type: 'yes-no' as QuestionType, hint: 'Predict a player move.' },
+  { label: 'Over/Under', template: 'Will there be over {number} goals in {match}?', type: 'yes-no' as QuestionType, hint: 'Predict total goals.' },
+  { label: 'Multi-Option', template: '', type: 'multi-option' as QuestionType, hint: 'Multiple options, each tradable. e.g. "Who will win the Ballon d\'Or?"' },
 ]
 
 const CATEGORIES = [
   { value: 'Sports', label: 'Sports', icon: '⚽' },
+  { value: 'Football', label: 'Football', icon: '⚽' },
+  { value: 'Basketball', label: 'Basketball', icon: '🏀' },
+  { value: 'Tennis', label: 'Tennis', icon: '🎾' },
+  { value: 'Cricket', label: 'Cricket', icon: '🏏' },
   { value: 'Politics', label: 'Politics', icon: '🏛️' },
   { value: 'Entertainment', label: 'Entertainment', icon: '🎬' },
+  { value: 'Music', label: 'Music', icon: '🎵' },
   { value: 'Finance', label: 'Finance', icon: '📈' },
+  { value: 'Crypto', label: 'Crypto', icon: '₿' },
   { value: 'Tech', label: 'Tech', icon: '💻' },
+  { value: 'Science', label: 'Science', icon: '🔬' },
+  { value: 'Weather', label: 'Weather', icon: '🌤️' },
+  { value: 'Culture', label: 'Culture', icon: '🎭' },
+  { value: 'Gaming', label: 'Gaming', icon: '🎮' },
   { value: 'Other', label: 'Other', icon: '🌍' },
 ]
 
@@ -40,6 +53,8 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
   const [suggestionResolution, setSuggestionResolution] = useState('')
   const [suggestionResolveDate, setSuggestionResolveDate] = useState('')
   const [showPreview, setShowPreview] = useState(false)
+  const [questionType, setQuestionType] = useState<QuestionType>('yes-no')
+  const [multiOptions, setMultiOptions] = useState<string[]>(['', ''])
 
   const bgColor = isDarkMode ? 'bg-[#1e2130]' : 'bg-white'
   const borderColor = isDarkMode ? 'border-gray-700' : 'border-gray-200'
@@ -73,6 +88,8 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
     setSuggestionResolution('')
     setSuggestionResolveDate('')
     setShowPreview(false)
+    setQuestionType('yes-no')
+    setMultiOptions(['', ''])
     setError('')
     setSuccess('')
   }
@@ -84,12 +101,19 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
     setSuccess('')
 
     try {
+      const optionsStr = questionType === 'multi-option' ? multiOptions.filter(o => o.trim()).join(' | ') : ''
+      const fullDescription = [
+        suggestionDescription,
+        questionType === 'multi-option' ? `\n\nOptions: ${optionsStr}` : '',
+        questionType === 'multi-option' ? `\nQuestion Type: Multi-Option` : `\nQuestion Type: Yes/No`,
+      ].filter(Boolean).join('')
+
       const res = await fetch('/api/suggestions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: effectiveTitle,
-          description: suggestionDescription,
+          description: fullDescription,
           category: suggestionCategory,
           question: suggestionQuestion,
           resolutionSource: suggestionResolution,
@@ -136,13 +160,6 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          {/* Info Banner */}
-          <div className={`mb-4 p-3 ${isDarkMode ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border rounded-lg`}>
-            <p className={`text-sm ${isDarkMode ? 'text-blue-400' : 'text-blue-700'}`}>
-              <strong>Tip:</strong> Create a Yes/No question that can be clearly resolved. Sports matches are auto-added — use this for custom markets.
-            </p>
-          </div>
-
           {/* Status Messages */}
           {error && (
             <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2 text-red-400">
@@ -159,37 +176,54 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
 
           {/* Suggestion Form */}
           <form onSubmit={submitSuggestion} className="space-y-4">
-            {/* Question Templates */}
+            {/* Question Type Selector */}
             <div>
               <label className={`block text-sm font-medium ${textColor} mb-2`}>
                 <Zap className="w-3.5 h-3.5 inline mr-1 text-yellow-500" />
-                Quick Templates
+                Market Type
               </label>
               <div className="flex flex-wrap gap-1.5">
                 {QUESTION_TEMPLATES.map((t) => (
                   <button
                     key={t.label}
                     type="button"
-                    onClick={() => applyTemplate(t.template)}
-                    className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
-                      isDarkMode
-                        ? 'border-gray-600 text-gray-300 hover:border-yellow-500/50 hover:text-yellow-400 hover:bg-yellow-500/5'
-                        : 'border-gray-300 text-gray-600 hover:border-yellow-500 hover:text-yellow-600 hover:bg-yellow-50'
+                    onClick={() => {
+                      setQuestionType(t.type)
+                      if (t.template) applyTemplate(t.template)
+                    }}
+                    className={`px-2.5 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                      (questionType === t.type && t.label === (questionType === 'multi-option' ? 'Multi-Option' : 'Yes/No')) ||
+                      (suggestionQuestion === t.template && t.template)
+                        ? isDarkMode
+                          ? 'border-green-500/50 bg-green-500/10 text-green-400'
+                          : 'border-green-500 bg-green-50 text-green-700'
+                        : isDarkMode
+                          ? 'border-gray-600 text-gray-300 hover:border-green-500/50 hover:text-green-400'
+                          : 'border-gray-300 text-gray-600 hover:border-green-500 hover:text-green-600'
                     }`}
+                    title={t.hint}
                   >
                     {t.label}
                   </button>
                 ))}
               </div>
+              {questionType === 'multi-option' && (
+                <p className={`text-xs ${textMuted} mt-1.5`}>Each option will be independently tradable with its own price.</p>
+              )}
             </div>
 
             {/* Question — primary input */}
             <div>
-              <label className={`block text-sm font-medium ${textColor} mb-1`}>Your Yes/No Question *</label>
+              <label className={`block text-sm font-medium ${textColor} mb-1`}>
+                {questionType === 'multi-option' ? 'Your Question *' : 'Your Yes/No Question *'}
+              </label>
               <textarea
                 value={suggestionQuestion}
                 onChange={(e) => setSuggestionQuestion(e.target.value)}
-                placeholder="e.g., Will Arsenal win the Premier League 2025/26?"
+                placeholder={questionType === 'multi-option'
+                  ? 'e.g., Who will win the 2025/26 Ballon d\'Or?'
+                  : 'e.g., Will Arsenal win the Premier League 2025/26?'
+                }
                 rows={2}
                 className={`w-full px-4 py-2.5 ${inputBg} border ${borderColor} rounded-lg ${textColor} text-sm resize-none focus:outline-none focus:border-green-500`}
                 required
@@ -200,20 +234,64 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                 <p className="text-xs text-red-400 mt-1">{questionValidation.message}</p>
               )}
               {suggestionQuestion && questionValidation.valid && (
-                <p className="text-xs text-green-400 mt-1">Valid Yes/No question</p>
+                <p className="text-xs text-green-400 mt-1">Valid question</p>
               )}
             </div>
+
+            {/* Multi-Option inputs */}
+            {questionType === 'multi-option' && (
+              <div>
+                <label className={`block text-sm font-medium ${textColor} mb-2`}>Options (min 2, max 10)</label>
+                <div className="space-y-2">
+                  {multiOptions.map((opt, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className={`text-xs font-bold ${textMuted} w-5 text-center`}>{i + 1}</span>
+                      <input
+                        type="text"
+                        value={opt}
+                        onChange={(e) => {
+                          const updated = [...multiOptions]
+                          updated[i] = e.target.value
+                          setMultiOptions(updated)
+                        }}
+                        placeholder={`Option ${i + 1}`}
+                        className={`flex-1 px-3 py-2 ${inputBg} border ${borderColor} rounded-lg ${textColor} text-sm`}
+                        maxLength={100}
+                      />
+                      {multiOptions.length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => setMultiOptions(multiOptions.filter((_, j) => j !== i))}
+                          className="text-red-400 hover:text-red-300 text-xs p-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {multiOptions.length < 10 && (
+                  <button
+                    type="button"
+                    onClick={() => setMultiOptions([...multiOptions, ''])}
+                    className={`mt-2 text-xs font-medium ${isDarkMode ? 'text-green-400 hover:text-green-300' : 'text-green-600 hover:text-green-700'}`}
+                  >
+                    + Add Option
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Category */}
             <div>
               <label className={`block text-sm font-medium ${textColor} mb-2`}>Category *</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-1.5">
                 {CATEGORIES.map((cat) => (
                   <button
                     key={cat.value}
                     type="button"
                     onClick={() => setSuggestionCategory(cat.value)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
                       suggestionCategory === cat.value
                         ? isDarkMode
                           ? 'border-green-500/50 bg-green-500/10 text-green-400'
@@ -224,7 +302,7 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                     }`}
                   >
                     <span>{cat.icon}</span>
-                    <span>{cat.label}</span>
+                    <span className="truncate">{cat.label}</span>
                   </button>
                 ))}
               </div>
@@ -291,14 +369,28 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                   <span className={`text-xs font-semibold ${textMuted}`}>MARKET PREVIEW</span>
                 </div>
                 <h4 className={`text-sm font-semibold ${textColor} mb-3`}>{effectiveTitle}</h4>
-                <div className="flex gap-2">
-                  <div className={`flex-1 py-2.5 text-center rounded-lg text-sm font-semibold ${isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200'}`}>
-                    Yes 50%
+                {questionType === 'multi-option' ? (
+                  <div className="space-y-1.5">
+                    {multiOptions.filter(o => o.trim()).map((opt, i) => {
+                      const pct = Math.round(100 / Math.max(multiOptions.filter(o => o.trim()).length, 1))
+                      return (
+                        <div key={i} className={`flex items-center justify-between py-2 px-3 rounded-lg text-sm font-medium ${isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200'}`}>
+                          <span className="truncate">{opt}</span>
+                          <span className="ml-2 flex-shrink-0">{pct}%</span>
+                        </div>
+                      )
+                    })}
                   </div>
-                  <div className={`flex-1 py-2.5 text-center rounded-lg text-sm font-semibold ${isDarkMode ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-red-50 text-red-600 border border-red-200'}`}>
-                    No 50%
+                ) : (
+                  <div className="flex gap-2">
+                    <div className={`flex-1 py-2.5 text-center rounded-lg text-sm font-semibold ${isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200'}`}>
+                      Yes 50%
+                    </div>
+                    <div className={`flex-1 py-2.5 text-center rounded-lg text-sm font-semibold ${isDarkMode ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                      No 50%
+                    </div>
                   </div>
-                </div>
+                )}
                 {suggestionDescription && (
                   <p className={`text-xs ${textMuted} mt-3 leading-relaxed`}>{suggestionDescription.slice(0, 150)}{suggestionDescription.length > 150 ? '...' : ''}</p>
                 )}

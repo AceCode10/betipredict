@@ -14,6 +14,185 @@ export interface PoolState {
   k: number // invariant constant
 }
 
+// ════════════════════════════════════════════════════════════════
+// 3-Outcome CPMM (TriPool) for sports markets: Home / Draw / Away
+// Uses: homeShares * drawShares * awayShares = k  (constant)
+// Price(home) = (draw * away) / (home*draw + home*away + draw*away)
+// Prices always sum to ~1.00
+// ════════════════════════════════════════════════════════════════
+
+export type TriOutcome = 'HOME' | 'DRAW' | 'AWAY'
+
+export interface TriPoolState {
+  homeShares: number
+  drawShares: number
+  awayShares: number
+  k: number // invariant: home * draw * away
+}
+
+export function initializeTriPool(
+  liquidity: number,
+  initialHomePrice: number = 0.4,
+  initialDrawPrice: number = 0.25,
+  initialAwayPrice: number = 0.35,
+): TriPoolState {
+  // Normalize prices to sum to 1
+  const total = initialHomePrice + initialDrawPrice + initialAwayPrice
+  const pH = initialHomePrice / total
+  const pD = initialDrawPrice / total
+  const pA = initialAwayPrice / total
+
+  // For 3-outcome CPMM: price(X) ∝ 1/shares(X)
+  // So shares(X) ∝ 1/price(X), scaled by liquidity
+  const scale = liquidity / (1/pH + 1/pD + 1/pA)
+  const homeShares = scale / pH
+  const drawShares = scale / pD
+  const awayShares = scale / pA
+  const k = homeShares * drawShares * awayShares
+
+  return { homeShares, drawShares, awayShares, k }
+}
+
+export function getTriPrices(pool: TriPoolState): { homePrice: number; drawPrice: number; awayPrice: number } {
+  const { homeShares: h, drawShares: d, awayShares: a } = pool
+  // Product-based pricing: price(X) = product(others) / sum(all pairwise products)
+  const hd = h * d, ha = h * a, da = d * a
+  const denom = hd + ha + da
+  if (denom === 0) return { homePrice: 0.33, drawPrice: 0.34, awayPrice: 0.33 }
+  return {
+    homePrice: da / denom,
+    drawPrice: ha / denom,
+    awayPrice: hd / denom,
+  }
+}
+
+function getTriShares(pool: TriPoolState, outcome: TriOutcome): number {
+  return outcome === 'HOME' ? pool.homeShares : outcome === 'DRAW' ? pool.drawShares : pool.awayShares
+}
+
+function setTriShares(pool: TriPoolState, outcome: TriOutcome, val: number): TriPoolState {
+  const p = { ...pool }
+  if (outcome === 'HOME') p.homeShares = val
+  else if (outcome === 'DRAW') p.drawShares = val
+  else p.awayShares = val
+  return p
+}
+
+export function calculateTriBuyCost(
+  pool: TriPoolState,
+  outcome: TriOutcome,
+  shares: number
+): { cost: number; newPool: TriPoolState; avgPrice: number } {
+  if (shares <= 0) return { cost: 0, newPool: pool, avgPrice: 0 }
+
+  // Buying X shares: X pool increases, others rebalance to maintain k
+  // New_X = X + shares. Distribute reduction across other two pools proportionally.
+  const curX = getTriShares(pool, outcome)
+  const newX = curX + shares
+
+  // Others: we need other1 * other2 = k / newX
+  const others: TriOutcome[] = (['HOME', 'DRAW', 'AWAY'] as TriOutcome[]).filter(o => o !== outcome)
+  const o1 = getTriShares(pool, others[0])
+  const o2 = getTriShares(pool, others[1])
+  const targetProduct = pool.k / newX
+  // Maintain ratio between the two others
+  const ratio = o1 / o2
+  const newO2 = Math.sqrt(targetProduct / ratio)
+  const newO1 = targetProduct / newO2
+
+  const cost = shares - ((o1 - newO1) + (o2 - newO2))
+
+  let newPool = setTriShares(pool, outcome, newX)
+  newPool = setTriShares(newPool, others[0], newO1)
+  newPool = setTriShares(newPool, others[1], newO2)
+  newPool.k = pool.k // preserve invariant
+
+  const avgPrice = shares > 0 ? Math.max(0, cost) / shares : 0
+  return {
+    cost: Math.max(0, cost),
+    newPool,
+    avgPrice: Math.min(1, Math.max(0, avgPrice)),
+  }
+}
+
+export function calculateTriSharesForAmount(
+  pool: TriPoolState,
+  outcome: TriOutcome,
+  amount: number
+): { shares: number; newPool: TriPoolState; avgPrice: number } {
+  if (amount <= 0) return { shares: 0, newPool: pool, avgPrice: 0 }
+
+  const prices = getTriPrices(pool)
+  const currentPrice = outcome === 'HOME' ? prices.homePrice : outcome === 'DRAW' ? prices.drawPrice : prices.awayPrice
+
+  let lo = 0
+  let hi = currentPrice > 0 ? (amount / currentPrice) * 2 : amount * 10
+
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2
+    const { cost } = calculateTriBuyCost(pool, outcome, mid)
+    if (Math.abs(cost - amount) < 0.001) {
+      const result = calculateTriBuyCost(pool, outcome, mid)
+      return { shares: mid, newPool: result.newPool, avgPrice: mid > 0 ? amount / mid : 0 }
+    }
+    if (cost < amount) lo = mid; else hi = mid
+  }
+
+  const finalShares = (lo + hi) / 2
+  const result = calculateTriBuyCost(pool, outcome, finalShares)
+  return { shares: finalShares, newPool: result.newPool, avgPrice: finalShares > 0 ? amount / finalShares : 0 }
+}
+
+export function calculateTriSellProceeds(
+  pool: TriPoolState,
+  outcome: TriOutcome,
+  shares: number
+): { proceeds: number; newPool: TriPoolState; avgPrice: number } {
+  if (shares <= 0) return { proceeds: 0, newPool: pool, avgPrice: 0 }
+
+  const curX = getTriShares(pool, outcome)
+  const maxSellable = curX * 0.95
+  const effectiveShares = Math.min(shares, maxSellable)
+  if (effectiveShares <= 0) return { proceeds: 0, newPool: pool, avgPrice: 0 }
+
+  const newX = curX - effectiveShares
+  const others: TriOutcome[] = (['HOME', 'DRAW', 'AWAY'] as TriOutcome[]).filter(o => o !== outcome)
+  const o1 = getTriShares(pool, others[0])
+  const o2 = getTriShares(pool, others[1])
+  const targetProduct = pool.k / newX
+  const ratio = o1 / o2
+  const newO2 = Math.sqrt(targetProduct / ratio)
+  const newO1 = targetProduct / newO2
+
+  const proceeds = ((newO1 - o1) + (newO2 - o2)) + effectiveShares
+
+  let newPool = setTriShares(pool, outcome, newX)
+  newPool = setTriShares(newPool, others[0], newO1)
+  newPool = setTriShares(newPool, others[1], newO2)
+  newPool.k = pool.k
+
+  const avgPrice = effectiveShares > 0 ? Math.max(0, proceeds) / effectiveShares : 0
+  return {
+    proceeds: Math.max(0, proceeds),
+    newPool,
+    avgPrice: Math.min(1, Math.max(0, avgPrice)),
+  }
+}
+
+export function estimateTriPriceImpact(
+  pool: TriPoolState,
+  outcome: TriOutcome,
+  amount: number
+): { priceImpact: number; newPrices: { homePrice: number; drawPrice: number; awayPrice: number } } {
+  const currentPrices = getTriPrices(pool)
+  const { newPool } = calculateTriSharesForAmount(pool, outcome, amount)
+  const newPrices = getTriPrices(newPool)
+  const currentPrice = outcome === 'HOME' ? currentPrices.homePrice : outcome === 'DRAW' ? currentPrices.drawPrice : currentPrices.awayPrice
+  const newPrice = outcome === 'HOME' ? newPrices.homePrice : outcome === 'DRAW' ? newPrices.drawPrice : newPrices.awayPrice
+  const priceImpact = currentPrice > 0 ? ((newPrice - currentPrice) / currentPrice) * 100 : 0
+  return { priceImpact, newPrices }
+}
+
 /**
  * Initialize a new liquidity pool
  * @param liquidity - Initial liquidity in Kwacha (split equally)

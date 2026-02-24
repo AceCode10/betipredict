@@ -27,8 +27,8 @@ interface LiveMatch {
 
 interface LiveMatchBannerProps {
   category?: string
-  onMarketClick?: (marketId: string, outcome?: 'YES' | 'NO') => void
-  onBet?: (marketId: string, outcome: 'YES' | 'NO') => void
+  onMarketClick?: (marketId: string, outcome?: string) => void
+  onBet?: (marketId: string, outcome: string) => void
   onLiveMarketIds?: (ids: string[]) => void
 }
 
@@ -224,10 +224,10 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLive
                 </div>
               </div>
 
-              {/* ── Bet buttons: Home | DRAW | Away — Polymarket colored style ── */}
+              {/* ── Bet buttons: Home | DRAW | Away — 3-outcome tradable ── */}
               <div className="flex gap-1.5 px-4 pb-3">
                 <button
-                  onClick={(e) => { e.stopPropagation(); hasMkt && onMarketClick?.(match.marketId!, 'YES') }}
+                  onClick={(e) => { e.stopPropagation(); hasMkt && onMarketClick?.(match.marketId!, 'HOME') }}
                   disabled={!hasMkt}
                   className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-150 truncate ${
                     hasMkt
@@ -236,23 +236,24 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLive
                   }`}
                 >
                   {match.homeTeam.length > 12 ? match.homeTeam.substring(0, 12) + '…' : match.homeTeam}
+                  {match.yesPrice != null && <span className="opacity-60 ml-1">K{match.yesPrice.toFixed(2)}</span>}
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); hasMkt && onMarketClick?.(match.marketId!, 'YES') }}
+                  onClick={(e) => { e.stopPropagation(); hasMkt && onMarketClick?.(match.marketId!, 'DRAW') }}
                   disabled={!hasMkt}
-                  className={`px-4 py-2.5 text-xs font-bold rounded-lg transition-all duration-150 ${
+                  className={`px-3 py-2.5 text-xs font-bold rounded-lg transition-all duration-150 ${
                     hasMkt
                       ? isDarkMode
                         ? 'bg-gray-700/60 text-gray-300 hover:bg-gray-700 active:bg-gray-600'
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300 active:bg-gray-400'
                       : isDarkMode ? 'bg-gray-800 text-gray-600' : 'bg-gray-100 text-gray-400'
                   }`}
-                  title="Draw results in market void — all traders are refunded"
+                  title="Trade on Draw outcome"
                 >
-                  DRAW
+                  Draw
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); hasMkt && onMarketClick?.(match.marketId!, 'NO') }}
+                  onClick={(e) => { e.stopPropagation(); hasMkt && onMarketClick?.(match.marketId!, 'AWAY') }}
                   disabled={!hasMkt}
                   className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-150 truncate ${
                     hasMkt
@@ -261,6 +262,7 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLive
                   }`}
                 >
                   {match.awayTeam.length > 12 ? match.awayTeam.substring(0, 12) + '…' : match.awayTeam}
+                  {match.noPrice != null && <span className="opacity-60 ml-1">K{match.noPrice.toFixed(2)}</span>}
                 </button>
               </div>
 

@@ -10,7 +10,7 @@ export class MarketResolver {
    * Phase 1: Resolve a market and open a 24h dispute window.
    * No payouts are made yet — users can dispute during this window.
    */
-  static async resolveMarket(marketId: string, outcome: 'YES' | 'NO') {
+  static async resolveMarket(marketId: string, outcome: 'YES' | 'NO' | 'HOME' | 'DRAW' | 'AWAY') {
     try {
       const market = await prisma.market.findUnique({
         where: { id: marketId },
@@ -113,9 +113,8 @@ export class MarketResolver {
 
       if (!market) throw new Error('Market not found after lock')
 
-      const outcome = market.winningOutcome as 'YES' | 'NO'
+      const outcome = market.winningOutcome
       if (!outcome) {
-        // Rollback lock
         await prisma.market.update({ where: { id: marketId }, data: { status: 'RESOLVED' } })
         throw new Error('No winning outcome set')
       }
@@ -128,7 +127,6 @@ export class MarketResolver {
       let totalFeesCollected = 0
 
       for (const position of winningPositions) {
-        // Skip already-closed positions (guard against partial re-runs)
         if (position.isClosed) continue
 
         const grossPayout = position.size * 1.0
@@ -168,9 +166,9 @@ export class MarketResolver {
         ])
       }
 
-      // Close losing positions — set realizedPnl to negative cost basis (total loss)
+      // Close losing positions — all positions NOT matching the winning outcome
       const losingPositions = await prisma.position.findMany({
-        where: { marketId, outcome: outcome === 'YES' ? 'NO' : 'YES', isClosed: false }
+        where: { marketId, outcome: { not: outcome }, isClosed: false }
       })
       for (const lp of losingPositions) {
         const costBasis = lp.size * lp.averagePrice
@@ -343,10 +341,10 @@ export class MarketResolver {
           select: { id: true, externalId: true, homeTeam: true, awayTeam: true, status: true },
         })
 
-        let outcome: 'YES' | 'NO' | null = null
+        let outcome: 'YES' | 'NO' | 'HOME' | 'DRAW' | 'AWAY' | null = null
+        const isTri = (market as any).marketType === 'TRI_OUTCOME'
 
         if (linkedGame && linkedGame.externalId && FOOTBALL_DATA_API_KEY) {
-          // Fetch real result from football-data.org
           try {
             const res = await fetch(`https://api.football-data.org/v4/matches/${linkedGame.externalId}`, {
               headers: { 'X-Auth-Token': FOOTBALL_DATA_API_KEY },
@@ -356,7 +354,6 @@ export class MarketResolver {
               const data = await res.json()
               if (data.status === 'FINISHED') {
                 const winner = data.score?.winner
-                // Update game status in DB
                 await prisma.scheduledGame.update({
                   where: { id: linkedGame.id },
                   data: {
@@ -367,13 +364,20 @@ export class MarketResolver {
                   },
                 }).catch(() => {})
 
-                if (winner === 'HOME_TEAM') outcome = 'YES'
-                else if (winner === 'AWAY_TEAM') outcome = 'NO'
-                else if (winner === 'DRAW') {
-                  // DRAW: void the binary market and refund all traders
-                  await this.voidMarket(market.id, 'Match ended in a draw')
-                  console.log(`[autoResolve] DRAW — voided "${market.title}"`)
-                  continue
+                if (isTri) {
+                  // 3-outcome market: HOME/DRAW/AWAY are all valid outcomes
+                  if (winner === 'HOME_TEAM') outcome = 'HOME'
+                  else if (winner === 'AWAY_TEAM') outcome = 'AWAY'
+                  else if (winner === 'DRAW') outcome = 'DRAW'
+                } else {
+                  // Legacy binary market: DRAW still voids
+                  if (winner === 'HOME_TEAM') outcome = 'YES'
+                  else if (winner === 'AWAY_TEAM') outcome = 'NO'
+                  else if (winner === 'DRAW') {
+                    await this.voidMarket(market.id, 'Match ended in a draw')
+                    console.log(`[autoResolve] DRAW — voided binary market "${market.title}"`)
+                    continue
+                  }
                 }
               }
             }
@@ -383,9 +387,8 @@ export class MarketResolver {
         }
 
         if (!outcome) {
-          // No result yet — skip, will retry on next cron run
           const hoursPast = (Date.now() - new Date(market.resolveTime).getTime()) / 3600000
-          if (hoursPast < 2) continue // grace period
+          if (hoursPast < 2) continue
           console.log(`[autoResolve] No result for "${market.title}" (${hoursPast.toFixed(1)}h past resolve time)`)
           continue
         }

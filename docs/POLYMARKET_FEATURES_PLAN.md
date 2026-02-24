@@ -67,7 +67,7 @@ Features that require more significant work:
 
 | # | Feature | Description | Effort |
 |---|---------|-------------|--------|
-| 1 | **Multi-Outcome Markets** | Create 3 separate binary markets per match (Home/Draw/Away). Group under one event in UI. Each has independent Yes/No CPMM pool. | High |
+| 1 | **Multi-Outcome Markets** | ~~Create 3 separate binary markets per match.~~ **DONE** — Implemented as single 3-outcome CPMM pool per match (Home/Draw/Away). | ~~High~~ |
 | 2 | **Limit Orders** | Allow users to place orders at a specific price (not just market orders). Orders sit in a book until matched. | High |
 | 3 | **Order Book Display** | Show bid/ask depth for each market. | Medium |
 | 4 | **Sell Shares Anytime** | Users can sell positions before market resolves (partially implemented). | Medium |
@@ -105,18 +105,34 @@ CPMM is the right choice for BetiPredict's current scale. The key improvement is
 
 ---
 
-## DRAW Resolution Strategy
+## DRAW Resolution Strategy — IMPLEMENTED
 
-**Current problem**: Markets are binary (YES/NO = Home/Away). Draws are not handled.
+**Previous problem**: Markets were binary (YES/NO = Home/Away). Draws were not handled.
 
-**Immediate fix**: When a match ends in a DRAW, VOID the market and refund all traders.
+**Previous fix**: When a match ended in a DRAW, VOID the market and refund all traders.
 
-**Future fix (Phase 3)**: Create 3 separate binary markets per match:
-- "Will [HomeTeam] win?" → YES/NO CPMM pool
-- "Will it be a Draw?" → YES/NO CPMM pool  
-- "Will [AwayTeam] win?" → YES/NO CPMM pool
+**Current implementation (3-Outcome CPMM)**:
+- Sports markets now use `marketType: 'TRI_OUTCOME'` with a single 3-outcome CPMM pool.
+- The CPMM invariant is: `homeShares * drawShares * awayShares = k`
+- Prices for Home, Draw, Away always sum to ~1.00.
+- Default initial probabilities: Home 40%, Draw 25%, Away 35%.
+- Draw is a **fully tradable outcome** — users can buy/sell Draw shares.
+- On resolution: the winning outcome (HOME, DRAW, or AWAY) pays K1.00 per share; losing positions are closed.
+- Legacy binary markets still void on Draw for backward compatibility.
 
-Only one resolves YES, the other two resolve NO. All payouts are clean.
+**Files modified**:
+- `src/lib/cpmm.ts` — Added `TriPoolState`, `initializeTriPool`, `getTriPrices`, `calculateTriBuyCost`, `calculateTriSharesForAmount`, `calculateTriSellProceeds`, `estimateTriPriceImpact`
+- `prisma/schema.prisma` — Added `drawPrice`, `poolHomeShares`, `poolDrawShares`, `poolAwayShares`, `poolTriK`, `marketType` fields
+- `src/app/api/cron/sync-games/route.ts` — Creates TRI_OUTCOME markets for sports
+- `src/app/api/trade/route.ts` — Supports HOME/DRAW/AWAY trading with tri-outcome CPMM
+- `src/lib/market-resolution.ts` — Resolves TRI_OUTCOME markets with HOME/DRAW/AWAY as valid outcomes
+- `src/app/api/cron/resolve-adaptive/route.ts` — Checks marketType before resolving; TRI_OUTCOME markets resolve Draw instead of voiding
+- `src/types/index.ts` — Updated Market, Order, Position, TradeRequest interfaces
+- `src/app/page.tsx` — 3-outcome market cards with Home/Draw/Away rows, moneyline cost bar in trade detail
+- `src/components/PriceChart.tsx` — Accepts HOME/DRAW/AWAY outcome prop
+- `src/components/LiveMatchBanner.tsx` — Bet buttons now use HOME/DRAW/AWAY outcomes
+- `src/components/CreateMarketModal.tsx` — Expanded categories, multi-option support, removed tip
+- `src/components/HowItWorksModal.tsx` — New 3-step informational modal (Pick → Buy → Win)
 
 ---
 

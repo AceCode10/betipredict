@@ -10,6 +10,7 @@ import { PriceChart } from '@/components/PriceChart'
 import { Header } from '@/components/Header'
 import { Logo } from '@/components/Logo'
 import { CreateMarketModal } from '@/components/CreateMarketModal'
+import { HowItWorksModal } from '@/components/HowItWorksModal'
 import { WithdrawModal } from '@/components/WithdrawModal'
 import { LiveBetToast, type LiveTradeToast } from '@/components/LiveBetToast'
 import { LiveMatchBanner } from '@/components/LiveMatchBanner'
@@ -41,7 +42,7 @@ interface BetItem {
   id: string
   marketId: string
   marketTitle: string
-  outcome: 'YES' | 'NO'
+  outcome: 'YES' | 'NO' | 'HOME' | 'DRAW' | 'AWAY'
   price: number
   amount: number
 }
@@ -70,11 +71,12 @@ export default function PolymarketStyleHomePage() {
   const [category, setCategory] = useState<string>('all')
   const [userBalance, setUserBalance] = useState<number>(0)
   const [sortBy, setSortBy] = useState<string>('volume')
-  const [showChart, setShowChart] = useState<{marketId: string, outcome: 'YES' | 'NO'} | null>(null)
+  const [showChart, setShowChart] = useState<{marketId: string, outcome: 'YES' | 'NO' | 'HOME' | 'DRAW' | 'AWAY'} | null>(null)
   const [detailAmount, setDetailAmount] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState('')
   const [showMarketCreation, setShowMarketCreation] = useState(false)
   const [showWithdraw, setShowWithdraw] = useState(false)
+  const [showHowItWorks, setShowHowItWorks] = useState(false)
   const [placingBets, setPlacingBets] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [liveTrades, setLiveTrades] = useState<LiveTradeToast[]>([])
@@ -274,7 +276,9 @@ export default function PolymarketStyleHomePage() {
 
   // Normalize market data from API to ensure consistent shape
   const normalizeMarket = (m: any) => {
-    const marketType = detectMarketType(m)
+    // Use DB marketType if available; fall back to heuristic detection for legacy markets
+    const isTri = m.marketType === 'TRI_OUTCOME'
+    const uiType = isTri ? 'match-winner' : detectMarketType(m)
     const titleVs = (m.title || '').match(/^(.+?)\s+vs\.?\s+(.+)$/i)
     const questionVs = (m.question || '').match(/^(.+?)\s+vs\.?\s+(.+)$/i)
     const vsMatch = titleVs || questionVs
@@ -284,16 +288,14 @@ export default function PolymarketStyleHomePage() {
     let optionA = 'Yes'
     let optionB = 'No'
 
-    if (marketType === 'match-winner') {
+    if (uiType === 'match-winner') {
       homeTeam = homeTeam || (vsMatch ? vsMatch[1].trim() : m.title || 'Home')
       awayTeam = awayTeam || (vsMatch ? vsMatch[2].trim() : 'Away')
       optionA = homeTeam
       optionB = awayTeam
     } else {
-      // Yes/No market — options are always Yes and No
       optionA = 'Yes'
       optionB = 'No'
-      // Still extract team names for context display if available
       if (!homeTeam && vsMatch) homeTeam = vsMatch[1].trim()
       if (!awayTeam && vsMatch) awayTeam = vsMatch[2].trim()
     }
@@ -309,7 +311,11 @@ export default function PolymarketStyleHomePage() {
     const gameStatus = m.gameStatus || null
     const liveHomeScore = m.liveHomeScore ?? null
     const liveAwayScore = m.liveAwayScore ?? null
-    return { ...m, marketType, homeTeam, awayTeam, optionA, optionB, league, matchDate, trend, change, volume, homeTeamCrest, awayTeamCrest, gameStatus, liveHomeScore, liveAwayScore }
+    // For TRI_OUTCOME: yesPrice=homePrice, noPrice=awayPrice, drawPrice=drawPrice
+    const homePrice = isTri ? m.yesPrice : null
+    const drawPrice = isTri ? (m.drawPrice ?? 0.25) : null
+    const awayPrice = isTri ? m.noPrice : null
+    return { ...m, marketType: uiType, isTri, homeTeam, awayTeam, optionA, optionB, league, matchDate, trend, change, volume, homeTeamCrest, awayTeamCrest, gameStatus, liveHomeScore, liveAwayScore, homePrice, drawPrice, awayPrice }
   }
 
   const normalizedMarkets = markets.map(normalizeMarket)
@@ -364,7 +370,7 @@ export default function PolymarketStyleHomePage() {
     return 0
   })
 
-  const handleSellFromDetail = async (market: any, outcome: 'YES' | 'NO', shares: number) => {
+  const handleSellFromDetail = async (market: any, outcome: string, shares: number) => {
     if (!isLoggedIn && !isOnChain) { signIn(); return }
     if (!shares || shares <= 0) return
 
@@ -375,7 +381,7 @@ export default function PolymarketStyleHomePage() {
       // On-chain selling when wallet is connected
       if (isOnChain && market.onChainId) {
         const sharesBigInt = BigInt(Math.floor(shares * 1e6)) // USDC 6 decimals
-        const result = await sellOnChain(market.onChainId, outcome, sharesBigInt)
+        const result = await sellOnChain(market.onChainId, outcome as any, sharesBigInt)
         if (!result.success) throw new Error(result.error || 'On-chain sell failed')
         await refreshOnChainBalance()
         setDetailAmount('')
@@ -383,7 +389,7 @@ export default function PolymarketStyleHomePage() {
         return
       }
 
-      // Fallback: centralized API
+      // Centralized API
       const res = await fetch('/api/trade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -399,19 +405,23 @@ export default function PolymarketStyleHomePage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Sell failed')
 
-      if (data.newYesPrice && data.newNoPrice) {
-        setMarkets(prev => prev.map(m =>
-          m.id === market.id
-            ? {
-                ...m,
-                yesPrice: data.newYesPrice,
-                noPrice: data.newNoPrice,
-                volume: typeof data.newVolume === 'number' ? data.newVolume : m.volume,
-                liquidity: typeof data.newLiquidity === 'number' ? data.newLiquidity : m.liquidity,
-              }
-            : m
-        ))
-      }
+      // Update market prices locally (supports both binary and 3-outcome)
+      setMarkets(prev => prev.map(m => {
+        if (m.id !== market.id) return m
+        const updates: any = {
+          volume: typeof data.newVolume === 'number' ? data.newVolume : m.volume,
+          liquidity: typeof data.newLiquidity === 'number' ? data.newLiquidity : m.liquidity,
+        }
+        if (data.newHomePrice != null) {
+          updates.yesPrice = data.newHomePrice
+          updates.noPrice = data.newAwayPrice
+          updates.drawPrice = data.newDrawPrice
+        } else if (data.newYesPrice != null) {
+          updates.yesPrice = data.newYesPrice
+          updates.noPrice = data.newNoPrice
+        }
+        return { ...m, ...updates }
+      }))
 
       await loadBalance()
       setDetailAmount('')
@@ -422,7 +432,7 @@ export default function PolymarketStyleHomePage() {
     }
   }
 
-  const handleBuyFromDetail = async (market: any, outcome: 'YES' | 'NO', amount: number) => {
+  const handleBuyFromDetail = async (market: any, outcome: string, amount: number) => {
     if (!isLoggedIn && !isOnChain) { signIn(); return }
     if (!amount || amount <= 0) return
 
@@ -432,16 +442,15 @@ export default function PolymarketStyleHomePage() {
     try {
       // On-chain trading when wallet is connected
       if (isOnChain && market.onChainId) {
-        const result = await buyOnChain(market.onChainId, outcome, amount)
+        const result = await buyOnChain(market.onChainId, outcome as any, amount)
         if (!result.success) throw new Error(result.error || 'On-chain trade failed')
         await refreshOnChainBalance()
         setDetailAmount('')
-        // Refresh market prices from API
         fetch(`/api/markets`).then(r => r.json()).then(setMarkets).catch(() => {})
         return
       }
 
-      // Fallback: centralized API trading
+      // Centralized API trading
       const res = await fetch('/api/trade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -457,20 +466,24 @@ export default function PolymarketStyleHomePage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Trade failed')
 
-      // Update market prices locally
-      if (data.newYesPrice && data.newNoPrice) {
-        setMarkets(prev => prev.map(m =>
-          m.id === market.id
-            ? {
-                ...m,
-                yesPrice: data.newYesPrice,
-                noPrice: data.newNoPrice,
-                volume: typeof data.newVolume === 'number' ? data.newVolume : (m.volume || 0) + amount,
-                liquidity: typeof data.newLiquidity === 'number' ? data.newLiquidity : m.liquidity,
-              }
-            : m
-        ))
-      }
+      // Update market prices locally (supports both binary and 3-outcome)
+      setMarkets(prev => prev.map(m => {
+        if (m.id !== market.id) return m
+        const updates: any = {
+          volume: typeof data.newVolume === 'number' ? data.newVolume : (m.volume || 0) + amount,
+          liquidity: typeof data.newLiquidity === 'number' ? data.newLiquidity : m.liquidity,
+        }
+        if (data.newHomePrice != null) {
+          // 3-outcome market response
+          updates.yesPrice = data.newHomePrice
+          updates.noPrice = data.newAwayPrice
+          updates.drawPrice = data.newDrawPrice
+        } else if (data.newYesPrice != null) {
+          updates.yesPrice = data.newYesPrice
+          updates.noPrice = data.newNoPrice
+        }
+        return { ...m, ...updates }
+      }))
 
       await loadBalance()
       setDetailAmount('')
@@ -588,7 +601,7 @@ export default function PolymarketStyleHomePage() {
         <LiveMatchBanner
           category={category}
           onMarketClick={(marketId, outcome) => {
-            setShowChart({ marketId, outcome: outcome || 'YES' })
+            setShowChart({ marketId, outcome: (outcome as any) || 'HOME' })
           }}
           onLiveMarketIds={(ids) => setLiveMarketIds(new Set(ids))}
         />
@@ -598,6 +611,9 @@ export default function PolymarketStyleHomePage() {
           {filteredMarkets.filter(m => !liveMarketIds.has(m.id)).map((market) => {
             const yesPercent = Math.round(market.yesPrice * 100)
             const noPercent = Math.round(market.noPrice * 100)
+            const homePercent = market.isTri ? Math.round((market.homePrice ?? 0.4) * 100) : yesPercent
+            const drawPercent = market.isTri ? Math.round((market.drawPrice ?? 0.25) * 100) : 0
+            const awayPercent = market.isTri ? Math.round((market.awayPrice ?? 0.35) * 100) : noPercent
             const cardBg = isDarkMode ? 'bg-[#1e2130]' : 'bg-white'
             const cardBorder = isDarkMode ? 'border-gray-700/50' : 'border-gray-200'
             const cardHover = isDarkMode ? 'hover:border-gray-600 hover:shadow-lg hover:shadow-black/20' : 'hover:border-gray-300 hover:shadow-lg hover:shadow-gray-200/80'
@@ -611,13 +627,13 @@ export default function PolymarketStyleHomePage() {
                 if (showChart?.marketId === market.id) {
                   setShowChart(null)
                 } else {
-                  setShowChart({ marketId: market.id, outcome: 'YES' })
+                  setShowChart({ marketId: market.id, outcome: market.isTri ? 'HOME' : 'YES' })
                 }
               }}
             >
               {/* ── Match-style card for sports markets ── */}
               {!isYesNo && market.homeTeam && market.awayTeam ? (
-                <div className="space-y-3 mb-3">
+                <div className="space-y-2.5 mb-3">
                   {/* Home team row */}
                   <div className="flex items-center gap-3">
                     {market.homeTeamCrest ? (
@@ -638,9 +654,25 @@ export default function PolymarketStyleHomePage() {
                       {market.homeTeam}
                     </span>
                     <span className={`text-sm font-bold tabular-nums ml-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      {yesPercent}%
+                      {homePercent}%
                     </span>
                   </div>
+                  {/* Draw row (for TRI_OUTCOME markets) */}
+                  {market.isTri && (
+                    <div className="flex items-center gap-3">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                        isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        =
+                      </div>
+                      <span className={`text-sm font-medium flex-1 truncate ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                        Draw
+                      </span>
+                      <span className={`text-sm font-bold tabular-nums ml-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                        {drawPercent}%
+                      </span>
+                    </div>
+                  )}
                   {/* Away team row */}
                   <div className="flex items-center gap-3">
                     {market.awayTeamCrest ? (
@@ -661,7 +693,7 @@ export default function PolymarketStyleHomePage() {
                       {market.awayTeam}
                     </span>
                     <span className={`text-sm font-bold tabular-nums ml-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      {noPercent}%
+                      {awayPercent}%
                     </span>
                   </div>
                 </div>
@@ -763,23 +795,23 @@ export default function PolymarketStyleHomePage() {
                   /* Match-winner buttons: TeamA | DRAW | TeamB — open trading interface */
                   <>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'YES' }) }}
+                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'HOME' : 'YES' }) }}
                       className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200 truncate`}
                     >
-                      {market.optionA}
+                      {market.optionA} <span className="opacity-70">K{((market.homePrice ?? market.yesPrice) * 1).toFixed(2)}</span>
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'YES' }) }}
+                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'DRAW' : 'YES' }) }}
                       className={`px-3 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-all duration-200`}
-                      title="Draw results in market void — all traders are refunded"
+                      title={market.isTri ? 'Trade Draw outcome' : 'Draw results in market void — all traders are refunded'}
                     >
-                      DRAW
+                      Draw {market.isTri ? `K${(market.drawPrice ?? 0.25).toFixed(2)}` : ''}
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'NO' }) }}
+                      onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'AWAY' : 'NO' }) }}
                       className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200 truncate`}
                     >
-                      {market.optionB}
+                      {market.optionB} <span className="opacity-70">K{((market.awayPrice ?? market.noPrice) * 1).toFixed(2)}</span>
                     </button>
                   </>
                 )}
@@ -857,7 +889,15 @@ export default function PolymarketStyleHomePage() {
         const modalBorder = isDarkMode ? 'border-gray-700' : 'border-gray-200'
         const inputBg = isDarkMode ? 'bg-[#252840]' : 'bg-gray-100'
         const isYesNo = market.marketType === 'yes-no'
-        const price = showChart.outcome === 'YES' ? market.yesPrice : market.noPrice
+        // Price lookup for current selected outcome
+        const price = (() => {
+          if (market.isTri) {
+            if (showChart.outcome === 'HOME') return market.homePrice ?? market.yesPrice
+            if (showChart.outcome === 'DRAW') return market.drawPrice ?? 0.25
+            if (showChart.outcome === 'AWAY') return market.awayPrice ?? market.noPrice
+          }
+          return showChart.outcome === 'YES' ? market.yesPrice : market.noPrice
+        })()
         const amt = parseFloat(detailAmount) || 0
         const shares = tradeSide === 'BUY' ? (price > 0 ? (amt * 0.98) / price : 0) : amt
         const potentialReturn = tradeSide === 'BUY' ? (price > 0 ? amt * 0.98 / price : 0) : shares * price * 0.98
@@ -886,16 +926,66 @@ export default function PolymarketStyleHomePage() {
                 <div className="flex-1 min-w-0">
                   {/* Chart area */}
                   <div className="p-4">
-                    <div className="flex items-center gap-4 mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-500" />
-                        <span className={`text-sm font-semibold ${textColor}`}>{market.optionA} {Math.round(market.yesPrice * 100)}%</span>
+                    {market.isTri ? (
+                      /* 3-outcome moneyline bar */
+                      <div className="mb-3">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="flex items-center gap-1.5">
+                            {market.homeTeamCrest && <img src={market.homeTeamCrest} alt="" className="w-4 h-4 object-contain" />}
+                            <span className={`text-sm font-semibold ${textColor}`}>{market.homeTeam}</span>
+                          </div>
+                          <span className={`text-xs ${textMuted}`}>vs</span>
+                          <div className="flex items-center gap-1.5">
+                            {market.awayTeamCrest && <img src={market.awayTeamCrest} alt="" className="w-4 h-4 object-contain" />}
+                            <span className={`text-sm font-semibold ${textColor}`}>{market.awayTeam}</span>
+                          </div>
+                        </div>
+                        {/* Moneyline cost bar */}
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={() => setShowChart({ marketId: market.id, outcome: 'HOME' })}
+                            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all duration-200 ${
+                              showChart.outcome === 'HOME'
+                                ? 'bg-green-500 text-white shadow-md'
+                                : 'bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20'
+                            }`}
+                          >
+                            {market.homeTeam} K{(market.homePrice ?? market.yesPrice).toFixed(2)}
+                          </button>
+                          <button
+                            onClick={() => setShowChart({ marketId: market.id, outcome: 'DRAW' })}
+                            className={`px-3 py-2 text-xs font-semibold rounded-lg transition-all duration-200 ${
+                              showChart.outcome === 'DRAW'
+                                ? `${isDarkMode ? 'bg-gray-500' : 'bg-gray-600'} text-white shadow-md`
+                                : `${inputBg} ${textMuted} border ${modalBorder} hover:border-gray-400`
+                            }`}
+                          >
+                            Draw K{(market.drawPrice ?? 0.25).toFixed(2)}
+                          </button>
+                          <button
+                            onClick={() => setShowChart({ marketId: market.id, outcome: 'AWAY' })}
+                            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all duration-200 ${
+                              showChart.outcome === 'AWAY'
+                                ? 'bg-blue-500 text-white shadow-md'
+                                : 'bg-blue-500/10 text-blue-500 border border-blue-500/30 hover:bg-blue-500/20'
+                            }`}
+                          >
+                            {market.awayTeam} K{(market.awayPrice ?? market.noPrice).toFixed(2)}
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-red-400" />
-                        <span className={`text-sm font-semibold ${textColor}`}>{market.optionB} {Math.round(market.noPrice * 100)}%</span>
+                    ) : (
+                      <div className="flex items-center gap-4 mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-green-500" />
+                          <span className={`text-sm font-semibold ${textColor}`}>{market.optionA} {Math.round(market.yesPrice * 100)}%</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-red-400" />
+                          <span className={`text-sm font-semibold ${textColor}`}>{market.optionB} {Math.round(market.noPrice * 100)}%</span>
+                        </div>
                       </div>
-                    </div>
+                    )}
                     <PriceChart
                       marketId={market.id}
                       outcome={showChart.outcome}
@@ -1176,28 +1266,63 @@ export default function PolymarketStyleHomePage() {
                   </div>
 
                   {/* Outcome selector buttons */}
-                  <div className="flex items-center gap-2 mb-4">
-                    <button
-                      onClick={() => setShowChart({ ...showChart, outcome: 'YES' })}
-                      className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                        showChart.outcome === 'YES'
-                          ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
-                          : `${inputBg} ${textMuted} border ${modalBorder}`
-                      }`}
-                    >
-                      {isYesNo ? 'Yes' : market.optionA} {formatPriceAsNgwee(market.yesPrice)}
-                    </button>
-                    <button
-                      onClick={() => setShowChart({ ...showChart, outcome: 'NO' })}
-                      className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                        showChart.outcome === 'NO'
-                          ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
-                          : `${inputBg} ${textMuted} border ${modalBorder}`
-                      }`}
-                    >
-                      {isYesNo ? 'No' : market.optionB} {formatPriceAsNgwee(market.noPrice)}
-                    </button>
-                  </div>
+                  {market.isTri ? (
+                    <div className="flex items-center gap-1.5 mb-4">
+                      <button
+                        onClick={() => setShowChart({ ...showChart, outcome: 'HOME' })}
+                        className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all truncate ${
+                          showChart.outcome === 'HOME'
+                            ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
+                            : `${inputBg} ${textMuted} border ${modalBorder}`
+                        }`}
+                      >
+                        {market.homeTeam} {formatPriceAsNgwee(market.homePrice ?? market.yesPrice)}
+                      </button>
+                      <button
+                        onClick={() => setShowChart({ ...showChart, outcome: 'DRAW' })}
+                        className={`px-2 py-2 rounded-lg text-xs font-semibold transition-all ${
+                          showChart.outcome === 'DRAW'
+                            ? `${isDarkMode ? 'bg-gray-500' : 'bg-gray-600'} text-white shadow-md`
+                            : `${inputBg} ${textMuted} border ${modalBorder}`
+                        }`}
+                      >
+                        Draw {formatPriceAsNgwee(market.drawPrice ?? 0.25)}
+                      </button>
+                      <button
+                        onClick={() => setShowChart({ ...showChart, outcome: 'AWAY' })}
+                        className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all truncate ${
+                          showChart.outcome === 'AWAY'
+                            ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                            : `${inputBg} ${textMuted} border ${modalBorder}`
+                        }`}
+                      >
+                        {market.awayTeam} {formatPriceAsNgwee(market.awayPrice ?? market.noPrice)}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mb-4">
+                      <button
+                        onClick={() => setShowChart({ ...showChart, outcome: 'YES' })}
+                        className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                          showChart.outcome === 'YES'
+                            ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
+                            : `${inputBg} ${textMuted} border ${modalBorder}`
+                        }`}
+                      >
+                        {isYesNo ? 'Yes' : market.optionA} {formatPriceAsNgwee(market.yesPrice)}
+                      </button>
+                      <button
+                        onClick={() => setShowChart({ ...showChart, outcome: 'NO' })}
+                        className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                          showChart.outcome === 'NO'
+                            ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
+                            : `${inputBg} ${textMuted} border ${modalBorder}`
+                        }`}
+                      >
+                        {isYesNo ? 'No' : market.optionB} {formatPriceAsNgwee(market.noPrice)}
+                      </button>
+                    </div>
+                  )}
 
                   {/* Amount input */}
                   <div className="mb-3">
@@ -1327,6 +1452,7 @@ export default function PolymarketStyleHomePage() {
               <Logo size="sm" />
             </div>
             <div className={`flex items-center gap-4 text-xs ${textMuted}`}>
+              <button onClick={() => setShowHowItWorks(true)} className={`hover:${textColor} transition-colors font-medium`}>How it Works</button>
               <button onClick={() => window.location.href = '/account'} className={`hover:${textColor} transition-colors`}>My Account</button>
               <button onClick={() => window.location.href = '/leaderboard'} className={`hover:${textColor} transition-colors`}>Leaderboard</button>
               <button onClick={() => window.location.href = '/terms'} className={`hover:${textColor} transition-colors`}>Terms</button>
@@ -1353,6 +1479,12 @@ export default function PolymarketStyleHomePage() {
         onClose={() => setShowWithdraw(false)}
         onWithdraw={handleWithdraw}
         currentBalance={userBalance}
+      />
+
+      {/* How It Works Modal */}
+      <HowItWorksModal
+        isOpen={showHowItWorks}
+        onClose={() => setShowHowItWorks(false)}
       />
 
       {/* Live Bet Toasts — pop-up notifications for incoming bets */}

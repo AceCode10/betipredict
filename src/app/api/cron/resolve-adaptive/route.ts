@@ -91,6 +91,14 @@ export async function POST(request: NextRequest) {
     })
 
     // Resolve any missed matches immediately
+    // Fetch market types for linked markets so we know if they're TRI_OUTCOME
+    const marketIds = pendingGames.map(g => g.marketId).filter(Boolean) as string[]
+    const marketsForType = marketIds.length > 0 ? await prisma.market.findMany({
+      where: { id: { in: marketIds } },
+      select: { id: true, marketType: true },
+    }) : []
+    const marketTypeMap = new Map(marketsForType.map(m => [m.id, m.marketType]))
+
     for (const game of pendingGames) {
       const matchData = todayFinished.find(m => Number(m.id) === game.externalId)
       if (matchData && matchData.score?.winner) {
@@ -100,11 +108,21 @@ export async function POST(request: NextRequest) {
             data: { status: 'FINISHED', winner: matchData.score.winner }
           })
 
-          if (matchData.score.winner === 'DRAW') {
-            // DRAW: void the binary market and refund all traders
+          const isTri = marketTypeMap.get(game.marketId!) === 'TRI_OUTCOME'
+
+          if (isTri) {
+            // 3-outcome: HOME/DRAW/AWAY are all valid winning outcomes
+            let triOutcome: 'HOME' | 'DRAW' | 'AWAY'
+            if (matchData.score.winner === 'HOME_TEAM') triOutcome = 'HOME'
+            else if (matchData.score.winner === 'AWAY_TEAM') triOutcome = 'AWAY'
+            else triOutcome = 'DRAW'
+            await MarketResolver.resolveMarket(game.marketId!, triOutcome)
+            resolved.push({ marketId: game.marketId!, outcome: triOutcome })
+            console.log(`[adaptive-resolve] Resolved (tri): ${game.homeTeam} vs ${game.awayTeam} → ${triOutcome}`)
+          } else if (matchData.score.winner === 'DRAW') {
             await MarketResolver.voidMarket(game.marketId!, 'Match ended in a draw')
             resolved.push({ marketId: game.marketId!, outcome: 'VOID' })
-            console.log(`[adaptive-resolve] DRAW — voided: ${game.homeTeam} vs ${game.awayTeam}`)
+            console.log(`[adaptive-resolve] DRAW — voided binary: ${game.homeTeam} vs ${game.awayTeam}`)
           } else {
             const winningOutcome: 'YES' | 'NO' = matchData.score.winner === 'HOME_TEAM' ? 'YES' : 'NO'
             await MarketResolver.resolveMarket(game.marketId!, winningOutcome)
@@ -137,6 +155,14 @@ export async function POST(request: NextRequest) {
           const statusResults = await checkMatchesForResolution(matchIdsToCheck)
           stats.apiCallsUsed += matchIdsToCheck.length
 
+          // Get market types for Strategy 2 games
+          const liveMarketIds2 = liveGames.map(g => g.marketId).filter(Boolean) as string[]
+          const marketsForType2 = liveMarketIds2.length > 0 ? await prisma.market.findMany({
+            where: { id: { in: liveMarketIds2 } },
+            select: { id: true, marketType: true },
+          }) : []
+          const marketTypeMap2 = new Map(marketsForType2.map(m => [m.id, m.marketType]))
+
           for (const result of statusResults) {
             if (isOverDeadline()) break
             const game = liveGames.find(g => g.externalId === result.matchId)
@@ -149,7 +175,16 @@ export async function POST(request: NextRequest) {
                   data: { status: 'FINISHED', winner: result.winner }
                 })
 
-                if (result.winner === 'DRAW') {
+                const isTri2 = marketTypeMap2.get(game.marketId) === 'TRI_OUTCOME'
+
+                if (isTri2) {
+                  let triOutcome: 'HOME' | 'DRAW' | 'AWAY'
+                  if (result.winner === 'HOME_TEAM') triOutcome = 'HOME'
+                  else if (result.winner === 'AWAY_TEAM') triOutcome = 'AWAY'
+                  else triOutcome = 'DRAW'
+                  await MarketResolver.resolveMarket(game.marketId, triOutcome)
+                  resolved.push({ marketId: game.marketId, outcome: triOutcome })
+                } else if (result.winner === 'DRAW') {
                   await MarketResolver.voidMarket(game.marketId, 'Match ended in a draw')
                   resolved.push({ marketId: game.marketId, outcome: 'VOID' })
                 } else {

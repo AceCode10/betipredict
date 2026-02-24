@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { TradeRequest } from '@/types'
-import { initializePool, calculateSharesForAmount, calculateBuyCost, calculateSellProceeds, getPrices } from '@/lib/cpmm'
+import { initializePool, calculateSharesForAmount, calculateBuyCost, calculateSellProceeds, getPrices, initializeTriPool, calculateTriSharesForAmount, calculateTriSellProceeds, getTriPrices, TriOutcome, TriPoolState } from '@/lib/cpmm'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 import { calculateTradeFee, FEES } from '@/lib/fees'
 import { sendTradeConfirmation } from '@/lib/email'
@@ -33,8 +33,8 @@ export async function POST(request: NextRequest) {
     if (!marketId || typeof marketId !== 'string') {
       return NextResponse.json({ error: 'Invalid market ID' }, { status: 400 })
     }
-    if (!['YES', 'NO'].includes(outcome)) {
-      return NextResponse.json({ error: 'Outcome must be YES or NO' }, { status: 400 })
+    if (!['YES', 'NO', 'HOME', 'DRAW', 'AWAY'].includes(outcome)) {
+      return NextResponse.json({ error: 'Outcome must be YES, NO, HOME, DRAW, or AWAY' }, { status: 400 })
     }
     if (!['BUY', 'SELL'].includes(side)) {
       return NextResponse.json({ error: 'Side must be BUY or SELL' }, { status: 400 })
@@ -85,21 +85,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'The linked match has ended. Trading is closed.' }, { status: 400 })
     }
 
-    // Use persisted CPMM pool state if available, otherwise initialize (legacy fallback)
-    let pool;
-    if (market.poolYesShares != null && market.poolNoShares != null && market.poolK != null) {
-      pool = { yesShares: market.poolYesShares, noShares: market.poolNoShares, k: market.poolK }
-    } else {
-      pool = initializePool(market.liquidity || 1000, market.yesPrice)
+    // Determine market type and validate outcome
+    const isTri = market.marketType === 'TRI_OUTCOME'
+    if (isTri && !['HOME', 'DRAW', 'AWAY'].includes(outcome)) {
+      return NextResponse.json({ error: 'This is a 3-outcome market. Outcome must be HOME, DRAW, or AWAY' }, { status: 400 })
+    }
+    if (!isTri && !['YES', 'NO'].includes(outcome)) {
+      return NextResponse.json({ error: 'This is a binary market. Outcome must be YES or NO' }, { status: 400 })
     }
 
     if (side === 'BUY') {
-      // For BUY: `amount` = Kwacha the user wants to spend (gross)
       const grossAmount = amount
       const fee = calculateTradeFee(grossAmount)
-      const kwachaToSpend = fee.netAmount // Amount after fee deduction
+      const kwachaToSpend = fee.netAmount
 
-      // Check balance BEFORE any DB writes (user pays gross amount)
       if (user.balance < grossAmount) {
         return NextResponse.json(
           { error: `Insufficient balance. You have ${user.balance.toFixed(2)} but need ${grossAmount.toFixed(2)}` },
@@ -107,17 +106,38 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Calculate shares received via CPMM (using net amount after fee)
-      const { shares, newPool, avgPrice } = calculateSharesForAmount(pool, outcome as 'YES' | 'NO', kwachaToSpend)
-      const newPrices = getPrices(newPool)
+      // Calculate shares via appropriate CPMM engine
+      let shares: number, newPool: any, avgPrice: number, newPriceData: any
+
+      if (isTri) {
+        // 3-outcome CPMM
+        let triPool: TriPoolState
+        if (market.poolHomeShares != null && market.poolDrawShares != null && market.poolAwayShares != null && market.poolTriK != null) {
+          triPool = { homeShares: market.poolHomeShares, drawShares: market.poolDrawShares, awayShares: market.poolAwayShares, k: market.poolTriK }
+        } else {
+          triPool = initializeTriPool(market.liquidity || 10000)
+        }
+        const result = calculateTriSharesForAmount(triPool, outcome as TriOutcome, kwachaToSpend)
+        shares = result.shares; newPool = result.newPool; avgPrice = result.avgPrice
+        newPriceData = getTriPrices(result.newPool)
+      } else {
+        // Binary CPMM
+        let pool
+        if (market.poolYesShares != null && market.poolNoShares != null && market.poolK != null) {
+          pool = { yesShares: market.poolYesShares, noShares: market.poolNoShares, k: market.poolK }
+        } else {
+          pool = initializePool(market.liquidity || 1000, market.yesPrice)
+        }
+        const result = calculateSharesForAmount(pool, outcome as 'YES' | 'NO', kwachaToSpend)
+        shares = result.shares; newPool = result.newPool; avgPrice = result.avgPrice
+        newPriceData = getPrices(result.newPool)
+      }
 
       if (shares <= 0) {
         return NextResponse.json({ error: 'Trade amount too small' }, { status: 400 })
       }
 
-      // Execute everything atomically
       const result = await prisma.$transaction(async (tx) => {
-        // 1. Deduct balance (re-check inside transaction for safety)
         const freshUser = await tx.user.findUnique({ where: { id: session.user.id } })
         if (!freshUser || freshUser.balance < grossAmount || (freshUser.balance - grossAmount) < -0.001) {
           throw new Error('Insufficient balance')
@@ -128,50 +148,33 @@ export async function POST(request: NextRequest) {
           data: { balance: { decrement: grossAmount } }
         })
 
-        // 2. Create order record
         const order = await tx.order.create({
           data: {
-            type,
-            side: 'BUY',
-            outcome,
-            price: avgPrice,
-            amount: shares,
-            filled: shares,
-            remaining: 0,
-            status: 'FILLED',
-            userId: session.user.id,
-            marketId
+            type, side: 'BUY', outcome, price: avgPrice,
+            amount: shares, filled: shares, remaining: 0, status: 'FILLED',
+            userId: session.user.id, marketId
           }
         })
 
-        // 3. Create transaction record (with fee tracking)
         await tx.transaction.create({
           data: {
-            type: 'TRADE',
-            amount: -grossAmount,
-            feeAmount: fee.feeAmount,
+            type: 'TRADE', amount: -grossAmount, feeAmount: fee.feeAmount,
             description: `Bought ${shares.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(avgPrice * 100).toFixed(1)}% (fee: K${fee.feeAmount.toFixed(2)})`,
-            status: 'COMPLETED',
-            userId: session.user.id,
+            status: 'COMPLETED', userId: session.user.id,
             metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares, avgPrice, spent: grossAmount, fee: fee.feeAmount, netSpent: kwachaToSpend })
           }
         })
 
-        // 3b. Record platform revenue from trading fee
         if (fee.feeAmount > 0) {
           await tx.platformRevenue.create({
             data: {
-              feeType: 'TRADE_FEE',
-              amount: fee.feeAmount,
+              feeType: 'TRADE_FEE', amount: fee.feeAmount,
               description: `Trade fee on BUY ${outcome} in "${market.title}"`,
-              sourceType: 'TRADE',
-              sourceId: order.id,
-              userId: session.user.id,
+              sourceType: 'TRADE', sourceId: order.id, userId: session.user.id,
             }
           })
         }
 
-        // 4. Update or create position
         const existingPosition = await tx.position.findUnique({
           where: { userId_marketId_outcome: { userId: session.user.id, marketId, outcome } }
         })
@@ -189,50 +192,66 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // 5. Update market prices, volume, and persist CPMM pool state
+        // Update market prices and pool state
+        const marketUpdateData: any = {
+          volume: { increment: grossAmount },
+        }
+
+        if (isTri) {
+          const tp = newPriceData as { homePrice: number; drawPrice: number; awayPrice: number }
+          marketUpdateData.yesPrice = Math.max(0.01, Math.min(0.99, tp.homePrice))
+          marketUpdateData.noPrice = Math.max(0.01, Math.min(0.99, tp.awayPrice))
+          marketUpdateData.drawPrice = Math.max(0.01, Math.min(0.99, tp.drawPrice))
+          marketUpdateData.liquidity = newPool.homeShares + newPool.drawShares + newPool.awayShares
+          marketUpdateData.poolHomeShares = newPool.homeShares
+          marketUpdateData.poolDrawShares = newPool.drawShares
+          marketUpdateData.poolAwayShares = newPool.awayShares
+          marketUpdateData.poolTriK = newPool.k
+        } else {
+          marketUpdateData.yesPrice = Math.max(0.01, Math.min(0.99, newPriceData.yesPrice))
+          marketUpdateData.noPrice = Math.max(0.01, Math.min(0.99, newPriceData.noPrice))
+          marketUpdateData.liquidity = newPool.yesShares + newPool.noShares
+          marketUpdateData.poolYesShares = newPool.yesShares
+          marketUpdateData.poolNoShares = newPool.noShares
+          marketUpdateData.poolK = newPool.k
+        }
+
         const updatedMarket = await tx.market.update({
           where: { id: marketId },
-          data: {
-            volume: { increment: grossAmount },
-            liquidity: newPool.yesShares + newPool.noShares,
-            yesPrice: Math.max(0.01, Math.min(0.99, newPrices.yesPrice)),
-            noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice)),
-            poolYesShares: newPool.yesShares,
-            poolNoShares: newPool.noShares,
-            poolK: newPool.k,
-          }
+          data: marketUpdateData,
         })
 
-        return { updatedUser, order, updatedMarket, shares, avgPrice, newPrices }
+        return { updatedUser, order, updatedMarket, shares, avgPrice, newPriceData }
       })
 
-      // Fire-and-forget trade confirmation email
       if (user.email) {
         sendTradeConfirmation(user.email, {
           side: 'BUY', outcome, amount: grossAmount, shares: result.shares, market: market.title,
         }).catch(() => {})
       }
 
-      return NextResponse.json({
-        success: true,
-        order: result.order,
+      const responseData: any = {
+        success: true, order: result.order,
         newBalance: result.updatedUser.balance,
-        newYesPrice: result.newPrices.yesPrice,
-        newNoPrice: result.newPrices.noPrice,
         newVolume: result.updatedMarket.volume,
         newLiquidity: result.updatedMarket.liquidity,
-        shares: result.shares,
-        avgPrice: result.avgPrice,
-        spent: grossAmount,
-        fee: fee.feeAmount,
-        feeRate: FEES.TRADE_FEE_RATE,
-      })
+        shares: result.shares, avgPrice: result.avgPrice,
+        spent: grossAmount, fee: fee.feeAmount, feeRate: FEES.TRADE_FEE_RATE,
+      }
+      if (isTri) {
+        responseData.newHomePrice = result.newPriceData.homePrice
+        responseData.newDrawPrice = result.newPriceData.drawPrice
+        responseData.newAwayPrice = result.newPriceData.awayPrice
+      } else {
+        responseData.newYesPrice = result.newPriceData.yesPrice
+        responseData.newNoPrice = result.newPriceData.noPrice
+      }
+      return NextResponse.json(responseData)
 
     } else {
-      // SELL: `amount` = number of shares to sell
+      // SELL
       const sharesToSell = amount
 
-      // Pre-check (non-authoritative — real check is inside transaction)
       const positionPreCheck = await prisma.position.findUnique({
         where: { userId_marketId_outcome: { userId: session.user.id, marketId, outcome } }
       })
@@ -244,21 +263,38 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Calculate proceeds via CPMM (proper sell-side computation)
-      const { proceeds: grossProceeds, newPool: sellPool, avgPrice: sellAvgPrice } = calculateSellProceeds(pool, outcome as 'YES' | 'NO', sharesToSell)
-      const newPrices = getPrices(sellPool)
+      let grossProceeds: number, sellPool: any, sellAvgPrice: number, newPriceData: any
+
+      if (isTri) {
+        let triPool: TriPoolState
+        if (market.poolHomeShares != null && market.poolDrawShares != null && market.poolAwayShares != null && market.poolTriK != null) {
+          triPool = { homeShares: market.poolHomeShares, drawShares: market.poolDrawShares, awayShares: market.poolAwayShares, k: market.poolTriK }
+        } else {
+          triPool = initializeTriPool(market.liquidity || 10000)
+        }
+        const result = calculateTriSellProceeds(triPool, outcome as TriOutcome, sharesToSell)
+        grossProceeds = result.proceeds; sellPool = result.newPool; sellAvgPrice = result.avgPrice
+        newPriceData = getTriPrices(result.newPool)
+      } else {
+        let pool
+        if (market.poolYesShares != null && market.poolNoShares != null && market.poolK != null) {
+          pool = { yesShares: market.poolYesShares, noShares: market.poolNoShares, k: market.poolK }
+        } else {
+          pool = initializePool(market.liquidity || 1000, market.yesPrice)
+        }
+        const result = calculateSellProceeds(pool, outcome as 'YES' | 'NO', sharesToSell)
+        grossProceeds = result.proceeds; sellPool = result.newPool; sellAvgPrice = result.avgPrice
+        newPriceData = getPrices(result.newPool)
+      }
 
       if (grossProceeds <= 0) {
         return NextResponse.json({ error: 'Sell amount too small' }, { status: 400 })
       }
 
-      // Apply trading fee on sell proceeds
       const sellFee = calculateTradeFee(grossProceeds)
       const netProceeds = sellFee.netAmount
 
-      // Execute atomically — re-check position inside transaction to prevent race
       const result = await prisma.$transaction(async (tx) => {
-        // 1. Re-check position inside transaction (prevents double-sell race)
         const position = await tx.position.findUnique({
           where: { userId_marketId_outcome: { userId: session.user.id, marketId, outcome } }
         })
@@ -267,100 +303,98 @@ export async function POST(request: NextRequest) {
           throw new Error(`Insufficient shares. You have ${position?.size.toFixed(2) || '0'} but want to sell ${sharesToSell.toFixed(2)}`)
         }
 
-        // 2. Credit balance (net of fee)
         const updatedUser = await tx.user.update({
           where: { id: session.user.id },
           data: { balance: { increment: netProceeds } }
         })
 
-        // 3. Create order
         const order = await tx.order.create({
           data: {
-            type,
-            side: 'SELL',
-            outcome,
-            price: sellAvgPrice,
-            amount: sharesToSell,
-            filled: sharesToSell,
-            remaining: 0,
-            status: 'FILLED',
-            userId: session.user.id,
-            marketId
+            type, side: 'SELL', outcome, price: sellAvgPrice,
+            amount: sharesToSell, filled: sharesToSell, remaining: 0, status: 'FILLED',
+            userId: session.user.id, marketId
           }
         })
 
-        // 4. Create transaction (with fee tracking)
         await tx.transaction.create({
           data: {
-            type: 'TRADE',
-            amount: netProceeds,
-            feeAmount: sellFee.feeAmount,
+            type: 'TRADE', amount: netProceeds, feeAmount: sellFee.feeAmount,
             description: `Sold ${sharesToSell.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(sellAvgPrice * 100).toFixed(1)}% (fee: K${sellFee.feeAmount.toFixed(2)})`,
-            status: 'COMPLETED',
-            userId: session.user.id,
+            status: 'COMPLETED', userId: session.user.id,
             metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares: sharesToSell, price: sellAvgPrice, grossProceeds, fee: sellFee.feeAmount, netProceeds })
           }
         })
 
-        // 4b. Record platform revenue from trading fee
         if (sellFee.feeAmount > 0) {
           await tx.platformRevenue.create({
             data: {
-              feeType: 'TRADE_FEE',
-              amount: sellFee.feeAmount,
+              feeType: 'TRADE_FEE', amount: sellFee.feeAmount,
               description: `Trade fee on SELL ${outcome} in "${market.title}"`,
-              sourceType: 'TRADE',
-              sourceId: order.id,
-              userId: session.user.id,
+              sourceType: 'TRADE', sourceId: order.id, userId: session.user.id,
             }
           })
         }
 
-        // 5. Reduce position
         const newSize = position.size - sharesToSell
         await tx.position.update({
           where: { id: position.id },
           data: { size: Math.max(0, newSize), isClosed: newSize <= 0 }
         })
 
-        // 6. Update market prices, liquidity, and persist CPMM pool state
+        const marketUpdateData: any = {
+          volume: { increment: grossProceeds },
+        }
+
+        if (isTri) {
+          const tp = newPriceData as { homePrice: number; drawPrice: number; awayPrice: number }
+          marketUpdateData.yesPrice = Math.max(0.01, Math.min(0.99, tp.homePrice))
+          marketUpdateData.noPrice = Math.max(0.01, Math.min(0.99, tp.awayPrice))
+          marketUpdateData.drawPrice = Math.max(0.01, Math.min(0.99, tp.drawPrice))
+          marketUpdateData.liquidity = sellPool.homeShares + sellPool.drawShares + sellPool.awayShares
+          marketUpdateData.poolHomeShares = sellPool.homeShares
+          marketUpdateData.poolDrawShares = sellPool.drawShares
+          marketUpdateData.poolAwayShares = sellPool.awayShares
+          marketUpdateData.poolTriK = sellPool.k
+        } else {
+          marketUpdateData.yesPrice = Math.max(0.01, Math.min(0.99, newPriceData.yesPrice))
+          marketUpdateData.noPrice = Math.max(0.01, Math.min(0.99, newPriceData.noPrice))
+          marketUpdateData.liquidity = sellPool.yesShares + sellPool.noShares
+          marketUpdateData.poolYesShares = sellPool.yesShares
+          marketUpdateData.poolNoShares = sellPool.noShares
+          marketUpdateData.poolK = sellPool.k
+        }
+
         const updatedMarket = await tx.market.update({
           where: { id: marketId },
-          data: {
-            volume: { increment: grossProceeds },
-            liquidity: sellPool.yesShares + sellPool.noShares,
-            yesPrice: Math.max(0.01, Math.min(0.99, newPrices.yesPrice)),
-            noPrice: Math.max(0.01, Math.min(0.99, newPrices.noPrice)),
-            poolYesShares: sellPool.yesShares,
-            poolNoShares: sellPool.noShares,
-            poolK: sellPool.k,
-          }
+          data: marketUpdateData,
         })
 
-        return { updatedUser, order, updatedMarket, newPrices }
+        return { updatedUser, order, updatedMarket, newPriceData }
       })
 
-      // Fire-and-forget trade confirmation email
       if (user.email) {
         sendTradeConfirmation(user.email, {
           side: 'SELL', outcome, amount: grossProceeds, shares: sharesToSell, market: market.title,
         }).catch(() => {})
       }
 
-      return NextResponse.json({
-        success: true,
-        order: result.order,
+      const responseData: any = {
+        success: true, order: result.order,
         newBalance: result.updatedUser.balance,
-        newYesPrice: result.newPrices.yesPrice,
-        newNoPrice: result.newPrices.noPrice,
         newVolume: result.updatedMarket.volume,
         newLiquidity: result.updatedMarket.liquidity,
-        shares: sharesToSell,
-        proceeds: netProceeds,
-        grossProceeds,
-        fee: sellFee.feeAmount,
-        feeRate: FEES.TRADE_FEE_RATE,
-      })
+        shares: sharesToSell, proceeds: netProceeds, grossProceeds,
+        fee: sellFee.feeAmount, feeRate: FEES.TRADE_FEE_RATE,
+      }
+      if (isTri) {
+        responseData.newHomePrice = result.newPriceData.homePrice
+        responseData.newDrawPrice = result.newPriceData.drawPrice
+        responseData.newAwayPrice = result.newPriceData.awayPrice
+      } else {
+        responseData.newYesPrice = result.newPriceData.yesPrice
+        responseData.newNoPrice = result.newPriceData.noPrice
+      }
+      return NextResponse.json(responseData)
     }
 
   } catch (error: any) {

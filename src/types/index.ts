@@ -20,12 +20,17 @@ export interface Market {
   question: string
   yesPrice: number
   noPrice: number
+  drawPrice?: number | null
   volume: number
   liquidity: number
-  status: 'PENDING' | 'ACTIVE' | 'RESOLVED' | 'CANCELLED'
+  marketType: 'BINARY' | 'TRI_OUTCOME'
+  status: 'PENDING' | 'ACTIVE' | 'RESOLVED' | 'CANCELLED' | 'FINALIZED'
   resolveTime: Date
   resolvedAt?: Date
-  winningOutcome?: 'YES' | 'NO'
+  winningOutcome?: 'YES' | 'NO' | 'HOME' | 'DRAW' | 'AWAY' | 'VOID'
+  homeTeam?: string | null
+  awayTeam?: string | null
+  league?: string | null
   createdAt: Date
   updatedAt: Date
   creatorId: string
@@ -36,7 +41,7 @@ export interface Order {
   id: string
   type: 'LIMIT' | 'MARKET'
   side: 'BUY' | 'SELL'
-  outcome: 'YES' | 'NO'
+  outcome: 'YES' | 'NO' | 'HOME' | 'DRAW' | 'AWAY'
   price: number
   amount: number
   filled: number
@@ -52,7 +57,7 @@ export interface Order {
 
 export interface Position {
   id: string
-  outcome: 'YES' | 'NO'
+  outcome: 'YES' | 'NO' | 'HOME' | 'DRAW' | 'AWAY'
   size: number
   averagePrice: number
   unrealizedPnl: number
@@ -90,7 +95,7 @@ export interface MarketData {
 
 export interface TradeRequest {
   marketId: string
-  outcome: 'YES' | 'NO'
+  outcome: 'YES' | 'NO' | 'HOME' | 'DRAW' | 'AWAY'
   side: 'BUY' | 'SELL'
   type: 'LIMIT' | 'MARKET'
   amount: number

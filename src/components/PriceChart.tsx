@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 
 interface PriceChartProps {
   marketId: string
-  outcome: 'YES' | 'NO'
+  outcome: 'YES' | 'NO' | 'HOME' | 'DRAW' | 'AWAY'
   currentPrice: number
   onClose: () => void
   onBuy?: (amount: number) => void
