@@ -47,17 +47,24 @@ interface BetItem {
   amount: number
 }
 
-// Sports-focused categories with Zambian leagues
+// Polymarket-style categories — broad + sports sub-leagues
 const SPORTS_CATEGORIES = [
-  { value: 'all', label: 'All Sports' },
-  { value: 'premier-league', label: 'Premier League' },
-  { value: 'la-liga', label: 'La Liga' },
-  { value: 'bundesliga', label: 'Bundesliga' },
-  { value: 'serie-a', label: 'Serie A' },
-  { value: 'ligue-1', label: 'Ligue 1' },
-  { value: 'zambia-super-league', label: 'Zambia Super League' },
-  { value: 'champions-league', label: 'Champions League' },
-  { value: 'other-sports', label: 'Other Sports' },
+  { value: 'all', label: 'All', icon: '' },
+  { value: 'sports', label: 'Sports', icon: '⚽' },
+  { value: 'premier-league', label: 'Premier League', icon: '' },
+  { value: 'la-liga', label: 'La Liga', icon: '' },
+  { value: 'bundesliga', label: 'Bundesliga', icon: '' },
+  { value: 'serie-a', label: 'Serie A', icon: '' },
+  { value: 'ligue-1', label: 'Ligue 1', icon: '' },
+  { value: 'champions-league', label: 'Champions League', icon: '' },
+  { value: 'zambia-super-league', label: 'Zambia Super League', icon: '' },
+  { value: 'politics', label: 'Politics', icon: '🏛️' },
+  { value: 'crypto', label: 'Crypto', icon: '₿' },
+  { value: 'finance', label: 'Finance', icon: '📈' },
+  { value: 'entertainment', label: 'Entertainment', icon: '🎬' },
+  { value: 'tech', label: 'Tech', icon: '💻' },
+  { value: 'culture', label: 'Culture', icon: '🎭' },
+  { value: 'other', label: 'Other', icon: '🌍' },
 ]
 
 
@@ -322,6 +329,7 @@ export default function PolymarketStyleHomePage() {
 
   // Map UI category slugs to match against API subcategory/league values
   const categoryMatchMap: Record<string, string[]> = {
+    'sports': ['sports'],
     'premier-league': ['premier league', 'pl', 'championship', 'elc'],
     'la-liga': ['la liga', 'primera division', 'pd'],
     'bundesliga': ['bundesliga', 'bl1'],
@@ -329,27 +337,35 @@ export default function PolymarketStyleHomePage() {
     'ligue-1': ['ligue 1', 'fl1'],
     'zambia-super-league': ['zambia super league', 'zsl'],
     'champions-league': ['champions league', 'cl', 'uefa champions league'],
+    'politics': ['politics'],
+    'crypto': ['crypto', 'cryptocurrency', 'bitcoin', 'ethereum'],
+    'finance': ['finance', 'stocks', 'economics'],
+    'entertainment': ['entertainment', 'movies', 'tv', 'music'],
+    'tech': ['tech', 'technology', 'ai', 'software'],
+    'culture': ['culture', 'science', 'weather'],
+    'other': [],
   }
 
   const filteredMarkets = normalizedMarkets.filter(market => {
     let matchesCategory = category === 'all'
     if (!matchesCategory) {
-      // Direct slug match
-      if (market.category === category) {
+      const sub = (market.subcategory || '').toLowerCase()
+      const league = (market.league || '').toLowerCase()
+      const cat = (market.category || '').toLowerCase()
+
+      if (market.category?.toLowerCase() === category || cat === category) {
         matchesCategory = true
-      } else if (category === 'other-sports') {
-        // "Other Sports" = anything NOT in the known categories
-        const sub = (market.subcategory || '').toLowerCase()
-        const league = (market.league || '').toLowerCase()
-        const cat = (market.category || '').toLowerCase()
+      } else if (category === 'sports') {
+        // "Sports" = any market with category "Sports" or any known league
+        const sportLeagues = ['premier league', 'pl', 'la liga', 'pd', 'bundesliga', 'bl1', 'serie a', 'sa', 'ligue 1', 'fl1', 'champions league', 'cl', 'zambia super league', 'zsl']
+        matchesCategory = cat === 'sports' || sportLeagues.some(t => sub.includes(t) || league.includes(t))
+      } else if (category === 'other') {
+        // "Other" = anything NOT in the known categories
         const allKnown = Object.values(categoryMatchMap).flat()
-        matchesCategory = !allKnown.some(t => sub.includes(t) || league.includes(t) || cat.includes(t))
+        matchesCategory = !allKnown.some(t => t && (sub.includes(t) || league.includes(t) || cat.includes(t)))
       } else {
         // Match against subcategory/league for API markets
         const targets = categoryMatchMap[category] || [category]
-        const sub = (market.subcategory || '').toLowerCase()
-        const league = (market.league || '').toLowerCase()
-        const cat = (market.category || '').toLowerCase()
         matchesCategory = targets.some(t => sub.includes(t) || league.includes(t) || cat.includes(t))
       }
     }
@@ -539,19 +555,20 @@ export default function PolymarketStyleHomePage() {
       />
 
       {/* Categories Nav */}
-      <nav className={`border-b ${borderColor} ${surfaceColor} sticky top-14 z-30`}>
+      <nav className={`border-b ${borderColor} ${surfaceColor} sticky ${process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'top-[84px]' : 'top-14'} z-30`}>
         <div className="max-w-[1400px] mx-auto px-4">
           <div className="flex items-center gap-1.5 h-11 overflow-x-auto no-scrollbar">
             {SPORTS_CATEGORIES.map((cat) => (
               <button
                 key={cat.value}
                 onClick={() => setCategory(cat.value)}
-                className={`whitespace-nowrap px-3.5 py-1.5 text-xs font-medium rounded-full transition-all duration-200 flex items-center gap-1.5 ${
+                className={`whitespace-nowrap px-3.5 py-1.5 text-xs font-medium rounded-full transition-all duration-200 flex items-center gap-1 ${
                   category === cat.value
                     ? isDarkMode ? 'bg-green-500/15 text-green-400 ring-1 ring-green-500/30' : 'bg-green-50 text-green-700 ring-1 ring-green-200'
                     : isDarkMode ? 'text-gray-400 hover:text-white hover:bg-[#232637]' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'
                 }`}
               >
+                {cat.icon && <span className="text-[11px]">{cat.icon}</span>}
                 {cat.value === 'zambia-super-league' && <Trophy className="w-3 h-3 text-yellow-500" />}
                 {cat.label}
               </button>
@@ -889,7 +906,6 @@ export default function PolymarketStyleHomePage() {
         const modalBorder = isDarkMode ? 'border-gray-700' : 'border-gray-200'
         const inputBg = isDarkMode ? 'bg-[#252840]' : 'bg-gray-100'
         const isYesNo = market.marketType === 'yes-no'
-        // Price lookup for current selected outcome
         const price = (() => {
           if (market.isTri) {
             if (showChart.outcome === 'HOME') return market.homePrice ?? market.yesPrice
@@ -902,80 +918,76 @@ export default function PolymarketStyleHomePage() {
         const shares = tradeSide === 'BUY' ? (price > 0 ? (amt * 0.98) / price : 0) : amt
         const potentialReturn = tradeSide === 'BUY' ? (price > 0 ? amt * 0.98 / price : 0) : shares * price * 0.98
         const avgPriceDisplay = price
+        // Abbreviate team name for moneyline buttons
+        const abbrev = (name: string) => name.length > 10 ? name.substring(0, 8) + '…' : name
+        // Ngwee price display (like Polymarket's cents)
+        const ngweePrice = (p: number) => `${Math.round(p * 100)}n`
+        // Match time display
+        const matchTimeStr = market.resolveTime ? new Date(market.resolveTime).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' }) : ''
         return (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-start justify-center sm:pt-10 px-0 sm:px-4">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-start justify-center sm:pt-6 px-0 sm:px-4">
             <div className="absolute inset-0 bg-black/60" onClick={() => setShowChart(null)} />
-            <div className={`relative ${modalBg} border ${modalBorder} rounded-t-2xl sm:rounded-xl w-full max-w-4xl max-h-[92vh] sm:max-h-[85vh] overflow-y-auto shadow-2xl`}>
-              {/* Detail Header */}
-              <div className={`flex items-start gap-3 p-4 border-b ${modalBorder}`}>
-                <div className={`w-10 h-10 rounded-full ${inputBg} flex items-center justify-center text-lg flex-shrink-0 ${isDarkMode ? 'border border-gray-700' : 'border border-gray-200'}`}>⚽</div>
+            <div className={`relative ${modalBg} border ${modalBorder} rounded-t-2xl sm:rounded-xl w-full max-w-5xl max-h-[94vh] sm:max-h-[88vh] overflow-y-auto shadow-2xl`}>
+              {/* Polymarket-style header: league tag + title + close */}
+              <div className={`flex items-start gap-3 px-5 pt-4 pb-3 border-b ${modalBorder}`}>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-green-500/15 text-green-400' : 'bg-green-50 text-green-700'}`}>{market.league}</span>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-[11px] font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{market.league || market.category || 'Sports'}</span>
                     {market.status === 'ACTIVE' && <span className={`text-[11px] ${textMuted}`}>• Active</span>}
                   </div>
-                  <h2 className={`text-base sm:text-lg font-bold ${textColor} leading-snug`}>{market.question || market.title}</h2>
+                  <h2 className={`text-lg font-bold ${textColor} leading-snug`}>{market.title || market.question}</h2>
                 </div>
-                <button onClick={() => setShowChart(null)} className={`${textMuted} hover:${textColor} p-1 rounded-lg ${isDarkMode ? 'hover:bg-[#252840]' : 'hover:bg-gray-100'} transition-colors flex-shrink-0`}>
+                <button onClick={() => setShowChart(null)} className={`${textMuted} hover:${textColor} p-1.5 rounded-lg ${isDarkMode ? 'hover:bg-[#252840]' : 'hover:bg-gray-100'} transition-colors flex-shrink-0`}>
                   <span className="text-xl leading-none">×</span>
                 </button>
               </div>
 
               <div className="flex flex-col lg:flex-row">
-                {/* Left: Chart + Tabs */}
+                {/* Left: Team header + Chart + Moneyline + Tabs */}
                 <div className="flex-1 min-w-0">
-                  {/* Chart area */}
-                  <div className="p-4">
-                    {market.isTri ? (
-                      /* 3-outcome moneyline bar */
-                      <div className="mb-3">
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="flex items-center gap-1.5">
-                            {market.homeTeamCrest && <img src={market.homeTeamCrest} alt="" className="w-4 h-4 object-contain" />}
-                            <span className={`text-sm font-semibold ${textColor}`}>{market.homeTeam}</span>
+                  {/* Polymarket-style team header with logos and match time */}
+                  {market.isTri && market.homeTeam && market.awayTeam && (
+                    <div className={`flex items-center justify-center gap-6 py-5 border-b ${modalBorder}`}>
+                      {/* Home team */}
+                      <div className="flex flex-col items-center gap-1.5">
+                        {market.homeTeamCrest ? (
+                          <img src={market.homeTeamCrest} alt="" className="w-12 h-12 object-contain" />
+                        ) : (
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold ${isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
+                            {market.homeTeam.charAt(0)}
                           </div>
-                          <span className={`text-xs ${textMuted}`}>vs</span>
-                          <div className="flex items-center gap-1.5">
-                            {market.awayTeamCrest && <img src={market.awayTeamCrest} alt="" className="w-4 h-4 object-contain" />}
-                            <span className={`text-sm font-semibold ${textColor}`}>{market.awayTeam}</span>
-                          </div>
-                        </div>
-                        {/* Moneyline cost bar */}
-                        <div className="flex gap-1.5">
-                          <button
-                            onClick={() => setShowChart({ marketId: market.id, outcome: 'HOME' })}
-                            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                              showChart.outcome === 'HOME'
-                                ? 'bg-green-500 text-white shadow-md'
-                                : 'bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20'
-                            }`}
-                          >
-                            {market.homeTeam} K{(market.homePrice ?? market.yesPrice).toFixed(2)}
-                          </button>
-                          <button
-                            onClick={() => setShowChart({ marketId: market.id, outcome: 'DRAW' })}
-                            className={`px-3 py-2 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                              showChart.outcome === 'DRAW'
-                                ? `${isDarkMode ? 'bg-gray-500' : 'bg-gray-600'} text-white shadow-md`
-                                : `${inputBg} ${textMuted} border ${modalBorder} hover:border-gray-400`
-                            }`}
-                          >
-                            Draw K{(market.drawPrice ?? 0.25).toFixed(2)}
-                          </button>
-                          <button
-                            onClick={() => setShowChart({ marketId: market.id, outcome: 'AWAY' })}
-                            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                              showChart.outcome === 'AWAY'
-                                ? 'bg-blue-500 text-white shadow-md'
-                                : 'bg-blue-500/10 text-blue-500 border border-blue-500/30 hover:bg-blue-500/20'
-                            }`}
-                          >
-                            {market.awayTeam} K{(market.awayPrice ?? market.noPrice).toFixed(2)}
-                          </button>
-                        </div>
+                        )}
+                        <span className={`text-sm font-semibold ${textColor}`}>{abbrev(market.homeTeam)}</span>
                       </div>
-                    ) : (
-                      <div className="flex items-center gap-4 mb-3">
+                      {/* Match time center */}
+                      <div className="flex flex-col items-center">
+                        <span className={`text-xs font-medium ${textColor}`}>{matchTimeStr.split(',')[0]}</span>
+                        <span className={`text-[11px] ${textMuted}`}>{matchTimeStr.split(',')[1]?.trim() || ''}</span>
+                      </div>
+                      {/* Away team */}
+                      <div className="flex flex-col items-center gap-1.5">
+                        {market.awayTeamCrest ? (
+                          <img src={market.awayTeamCrest} alt="" className="w-12 h-12 object-contain" />
+                        ) : (
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold ${isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
+                            {market.awayTeam.charAt(0)}
+                          </div>
+                        )}
+                        <span className={`text-sm font-semibold ${textColor}`}>{abbrev(market.awayTeam)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Volume bar */}
+                  <div className={`flex items-center gap-3 px-5 py-2 text-xs ${textMuted}`}>
+                    <span>{formatVolume(market.volume)} Vol.</span>
+                  </div>
+
+                  {/* Chart area */}
+                  <div className="px-5 pb-2">
+                    {/* Price labels above chart for binary */}
+                    {!market.isTri && (
+                      <div className="flex items-center gap-4 mb-2">
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-green-500" />
                           <span className={`text-sm font-semibold ${textColor}`}>{market.optionA} {Math.round(market.yesPrice * 100)}%</span>
@@ -993,23 +1005,49 @@ export default function PolymarketStyleHomePage() {
                       onClose={() => setShowChart(null)}
                       onBuy={(amount) => handleBuyFromDetail(market, showChart.outcome, amount)}
                     />
-                    <div className={`flex items-center gap-4 mt-3 text-xs ${textMuted}`}>
-                      <div className="flex items-center gap-1">
-                        <BarChart3 className="w-3 h-3" />
-                        <span>{formatVolume(market.volume)} Vol.</span>
+                  </div>
+
+                  {/* Moneyline bar — Polymarket style (below chart) */}
+                  {market.isTri && (
+                    <div className={`mx-5 mb-4 p-3 rounded-xl border ${modalBorder} ${isDarkMode ? 'bg-[#171924]' : 'bg-gray-50'}`}>
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className={`text-sm font-bold ${textColor}`}>Moneyline</span>
+                        <span className={`text-xs ${textMuted}`}>{formatVolume(market.volume)} Vol.</span>
                       </div>
-                      {(market.liquidity > 0) && (
-                        <div className="flex items-center gap-1">
-                          <Droplets className="w-3 h-3 text-blue-400" />
-                          <span>{formatVolume(market.liquidity)} Liq.</span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        <span>{market.matchDate}</span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setShowChart({ marketId: market.id, outcome: 'HOME' })}
+                          className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                            showChart.outcome === 'HOME'
+                              ? 'bg-green-500 text-white shadow-md'
+                              : `${inputBg} ${textColor} border ${modalBorder} hover:border-green-500/50`
+                          }`}
+                        >
+                          {abbrev(market.homeTeam)} {ngweePrice(market.homePrice ?? market.yesPrice)}
+                        </button>
+                        <button
+                          onClick={() => setShowChart({ marketId: market.id, outcome: 'DRAW' })}
+                          className={`px-4 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                            showChart.outcome === 'DRAW'
+                              ? `${isDarkMode ? 'bg-gray-500' : 'bg-gray-600'} text-white shadow-md`
+                              : `${inputBg} ${textColor} border ${modalBorder} hover:border-gray-400`
+                          }`}
+                        >
+                          DRAW {ngweePrice(market.drawPrice ?? 0.25)}
+                        </button>
+                        <button
+                          onClick={() => setShowChart({ marketId: market.id, outcome: 'AWAY' })}
+                          className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                            showChart.outcome === 'AWAY'
+                              ? 'bg-blue-500 text-white shadow-md'
+                              : `${inputBg} ${textColor} border ${modalBorder} hover:border-blue-500/50`
+                          }`}
+                        >
+                          {abbrev(market.awayTeam)} {ngweePrice(market.awayPrice ?? market.noPrice)}
+                        </button>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Tabbed content: Comments | Top Holders | Positions | Activity */}
                   <div className={`border-t ${modalBorder}`}>
@@ -1239,204 +1277,220 @@ export default function PolymarketStyleHomePage() {
                 </div>
 
                 {/* Right: Trading Panel — Polymarket style */}
-                <div className={`w-full lg:w-[280px] border-t lg:border-t-0 lg:border-l ${modalBorder} p-4 flex-shrink-0`}>
-                  {/* Buy / Sell toggle */}
-                  <div className="flex items-center gap-1 mb-3">
-                    <button
-                      onClick={() => { setTradeSide('BUY'); setDetailAmount('') }}
-                      className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${
-                        tradeSide === 'BUY'
-                          ? 'bg-green-500/15 text-green-500 ring-1 ring-green-500/30'
-                          : `${textMuted} hover:${textColor}`
-                      }`}
-                    >
-                      Buy
-                    </button>
-                    <button
-                      onClick={() => { setTradeSide('SELL'); setDetailAmount('') }}
-                      className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${
-                        tradeSide === 'SELL'
-                          ? 'bg-red-500/15 text-red-500 ring-1 ring-red-500/30'
-                          : `${textMuted} hover:${textColor}`
-                      }`}
-                    >
-                      Sell
-                    </button>
-                    <div className={`ml-auto text-xs ${textMuted}`}>Market ▾</div>
-                  </div>
-
-                  {/* Outcome selector buttons */}
+                <div className={`w-full lg:w-[300px] border-t lg:border-t-0 lg:border-l ${modalBorder} flex-shrink-0`}>
+                  {/* Outcome header tabs — like Polymarket "ATM 1 vs BRU" with Draw */}
                   {market.isTri ? (
-                    <div className="flex items-center gap-1.5 mb-4">
-                      <button
-                        onClick={() => setShowChart({ ...showChart, outcome: 'HOME' })}
-                        className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all truncate ${
-                          showChart.outcome === 'HOME'
-                            ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
-                            : `${inputBg} ${textMuted} border ${modalBorder}`
-                        }`}
-                      >
-                        {market.homeTeam} {formatPriceAsNgwee(market.homePrice ?? market.yesPrice)}
-                      </button>
-                      <button
-                        onClick={() => setShowChart({ ...showChart, outcome: 'DRAW' })}
-                        className={`px-2 py-2 rounded-lg text-xs font-semibold transition-all ${
-                          showChart.outcome === 'DRAW'
-                            ? `${isDarkMode ? 'bg-gray-500' : 'bg-gray-600'} text-white shadow-md`
-                            : `${inputBg} ${textMuted} border ${modalBorder}`
-                        }`}
-                      >
-                        Draw {formatPriceAsNgwee(market.drawPrice ?? 0.25)}
-                      </button>
-                      <button
-                        onClick={() => setShowChart({ ...showChart, outcome: 'AWAY' })}
-                        className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all truncate ${
-                          showChart.outcome === 'AWAY'
-                            ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
-                            : `${inputBg} ${textMuted} border ${modalBorder}`
-                        }`}
-                      >
-                        {market.awayTeam} {formatPriceAsNgwee(market.awayPrice ?? market.noPrice)}
-                      </button>
+                    <div className={`flex items-center border-b ${modalBorder}`}>
+                      {[
+                        { key: 'HOME', label: abbrev(market.homeTeam) },
+                        { key: 'DRAW', label: 'Draw' },
+                        { key: 'AWAY', label: abbrev(market.awayTeam) },
+                      ].map(tab => (
+                        <button
+                          key={tab.key}
+                          onClick={() => setShowChart({ ...showChart, outcome: tab.key as any })}
+                          className={`flex-1 py-3 text-sm font-semibold transition-colors border-b-2 ${
+                            showChart.outcome === tab.key
+                              ? isDarkMode ? 'border-white text-white' : 'border-gray-900 text-gray-900'
+                              : `border-transparent ${textMuted} hover:${textColor}`
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
                     </div>
                   ) : (
+                    <div className={`flex items-center border-b ${modalBorder}`}>
+                      {[
+                        { key: 'YES', label: isYesNo ? 'Yes' : market.optionA },
+                        { key: 'NO', label: isYesNo ? 'No' : market.optionB },
+                      ].map(tab => (
+                        <button
+                          key={tab.key}
+                          onClick={() => setShowChart({ ...showChart, outcome: tab.key as any })}
+                          className={`flex-1 py-3 text-sm font-semibold transition-colors border-b-2 ${
+                            showChart.outcome === tab.key
+                              ? isDarkMode ? 'border-white text-white' : 'border-gray-900 text-gray-900'
+                              : `border-transparent ${textMuted} hover:${textColor}`
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="p-4">
+                    {/* Buy / Sell toggle */}
                     <div className="flex items-center gap-2 mb-4">
                       <button
-                        onClick={() => setShowChart({ ...showChart, outcome: 'YES' })}
-                        className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                          showChart.outcome === 'YES'
-                            ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
-                            : `${inputBg} ${textMuted} border ${modalBorder}`
+                        onClick={() => { setTradeSide('BUY'); setDetailAmount('') }}
+                        className={`text-sm font-semibold pb-1 transition-colors ${
+                          tradeSide === 'BUY'
+                            ? `${textColor} border-b-2 ${isDarkMode ? 'border-white' : 'border-gray-900'}`
+                            : `${textMuted} border-b-2 border-transparent hover:${textColor}`
                         }`}
                       >
-                        {isYesNo ? 'Yes' : market.optionA} {formatPriceAsNgwee(market.yesPrice)}
+                        Buy
                       </button>
                       <button
-                        onClick={() => setShowChart({ ...showChart, outcome: 'NO' })}
-                        className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                          showChart.outcome === 'NO'
-                            ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
-                            : `${inputBg} ${textMuted} border ${modalBorder}`
+                        onClick={() => { setTradeSide('SELL'); setDetailAmount('') }}
+                        className={`text-sm font-semibold pb-1 transition-colors ${
+                          tradeSide === 'SELL'
+                            ? `${textColor} border-b-2 ${isDarkMode ? 'border-white' : 'border-gray-900'}`
+                            : `${textMuted} border-b-2 border-transparent hover:${textColor}`
                         }`}
                       >
-                        {isYesNo ? 'No' : market.optionB} {formatPriceAsNgwee(market.noPrice)}
+                        Sell
                       </button>
+                      <div className={`ml-auto text-xs ${textMuted} px-2 py-1 rounded ${inputBg} border ${modalBorder}`}>Market ▾</div>
                     </div>
-                  )}
 
-                  {/* Amount input */}
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-sm ${textMuted}`}>{tradeSide === 'BUY' ? 'Amount' : 'Shares'}</span>
-                    </div>
-                    <div className="relative">
-                      <span className={`absolute left-3 top-1/2 -translate-y-1/2 ${textMuted} text-lg font-medium`}>{tradeSide === 'BUY' ? 'K' : ''}</span>
-                      <input
-                        type="number"
-                        value={detailAmount}
-                        onChange={(e) => setDetailAmount(e.target.value)}
-                        placeholder="0"
-                        className={`w-full ${tradeSide === 'BUY' ? 'pl-8' : 'pl-3'} pr-3 py-3 text-right text-2xl font-bold ${inputBg} border ${modalBorder} rounded-lg ${textColor} focus:outline-none focus:border-green-500`}
-                      />
-                    </div>
-                  </div>
+                    {/* Outcome price buttons — Polymarket Yes/No style */}
+                    {market.isTri ? (
+                      <div className="flex gap-2 mb-4">
+                        <button
+                          onClick={() => setShowChart({ ...showChart, outcome: 'HOME' })}
+                          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                            showChart.outcome === 'HOME'
+                              ? 'bg-green-500 text-white'
+                              : `${inputBg} ${textMuted} border ${modalBorder}`
+                          }`}
+                        >
+                          Yes {ngweePrice(market.homePrice ?? market.yesPrice)}
+                        </button>
+                        <button
+                          onClick={() => {
+                            const otherOutcomes = ['HOME', 'DRAW', 'AWAY'].filter(o => o !== showChart.outcome)
+                            // No button not applicable in 3-outcome — keep current
+                          }}
+                          className={`flex-1 py-2.5 rounded-lg text-sm font-bold ${inputBg} ${textMuted} border ${modalBorder}`}
+                          disabled
+                        >
+                          No {ngweePrice(1 - (market.homePrice ?? market.yesPrice))}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2 mb-4">
+                        <button
+                          onClick={() => setShowChart({ ...showChart, outcome: 'YES' })}
+                          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                            showChart.outcome === 'YES'
+                              ? 'bg-green-500 text-white'
+                              : `${inputBg} ${textMuted} border ${modalBorder}`
+                          }`}
+                        >
+                          Yes {ngweePrice(market.yesPrice)}
+                        </button>
+                        <button
+                          onClick={() => setShowChart({ ...showChart, outcome: 'NO' })}
+                          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                            showChart.outcome === 'NO'
+                              ? 'bg-red-500 text-white'
+                              : `${inputBg} ${textMuted} border ${modalBorder}`
+                          }`}
+                        >
+                          No {ngweePrice(market.noPrice)}
+                        </button>
+                      </div>
+                    )}
 
-                  {/* Quick-add buttons */}
-                  <div className="flex gap-1.5 mb-3">
-                    {(tradeSide === 'BUY' ? [1, 5, 10, 100] : [10, 50, 100, 500]).map(val => (
+                    {/* Amount input */}
+                    <div className="mb-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className={`text-sm font-medium ${textColor}`}>{tradeSide === 'BUY' ? 'Amount' : 'Shares'}</span>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          value={detailAmount}
+                          onChange={(e) => setDetailAmount(e.target.value)}
+                          placeholder="K0"
+                          className={`w-full pl-3 pr-3 py-3 text-right text-2xl font-bold ${inputBg} border ${modalBorder} rounded-lg ${textColor} focus:outline-none focus:border-green-500`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick-add buttons */}
+                    <div className="flex gap-1.5 mb-4">
+                      {(tradeSide === 'BUY' ? [1, 5, 10, 100] : [10, 50, 100, 500]).map(val => (
+                        <button
+                          key={val}
+                          onClick={() => setDetailAmount(prev => String((parseFloat(prev) || 0) + val))}
+                          className={`flex-1 py-1.5 text-xs font-medium ${inputBg} border ${modalBorder} rounded-md ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} hover:border-green-500/50 transition-colors`}
+                        >
+                          +K{val}
+                        </button>
+                      ))}
                       <button
-                        key={val}
-                        onClick={() => setDetailAmount(prev => String((parseFloat(prev) || 0) + val))}
-                        className={`flex-1 py-1.5 text-xs font-medium ${inputBg} border ${modalBorder} rounded ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} hover:border-green-500/50 transition-colors`}
+                        onClick={() => setDetailAmount(tradeSide === 'BUY' ? String(Math.floor(userBalance)) : 'Max')}
+                        className={`px-2 py-1.5 text-xs font-medium ${inputBg} border ${modalBorder} rounded-md ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} hover:border-green-500/50 transition-colors`}
                       >
-                        +{tradeSide === 'BUY' ? 'K' : ''}{val}
+                        Max
                       </button>
-                    ))}
+                    </div>
+
+                    {/* Trade button */}
                     <button
-                      onClick={() => setDetailAmount(tradeSide === 'BUY' ? String(userBalance) : 'Max')}
-                      className={`px-2 py-1.5 text-xs font-medium ${inputBg} border ${modalBorder} rounded ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} hover:border-green-500/50 transition-colors`}
+                      onClick={() => {
+                        if (!isLoggedIn && !isOnChain) { signIn(); return }
+                        if (amt <= 0) return
+                        if (tradeSide === 'BUY') {
+                          handleBuyFromDetail(market, showChart.outcome, amt)
+                        } else {
+                          handleSellFromDetail(market, showChart.outcome, amt)
+                        }
+                      }}
+                      disabled={placingBets || onChainLoading || amt <= 0 || (tradeSide === 'BUY' && !isOnChain && amt > userBalance) || (tradeSide === 'BUY' && isOnChain && amt > tokenBalance)}
+                      className={`w-full py-3.5 text-base font-bold rounded-xl transition-colors disabled:opacity-50 ${
+                        tradeSide === 'SELL'
+                          ? 'bg-red-500 hover:bg-red-600 text-white'
+                          : 'bg-green-500 hover:bg-green-600 text-white'
+                      }`}
                     >
-                      Max
+                      {placingBets || onChainLoading ? 'Processing...' : !isLoggedIn && !isOnChain ? 'Sign In to Trade' : amt > 0 ? 'Trade' : 'Trade'}
                     </button>
-                  </div>
 
-                  {/* To Win / Proceeds display */}
-                  {amt > 0 && (
-                    <div className="space-y-1.5 mb-3">
-                      {tradeSide === 'BUY' ? (
-                        <>
-                          <div className="flex items-center justify-between">
-                            <span className={`text-sm ${textMuted} flex items-center gap-1`}>
-                              To win <span className="text-green-500">🍀</span>
-                            </span>
-                            <span className="text-green-500 font-bold text-xl tabular-nums">
-                              {formatZambianCurrency(potentialReturn)}
-                            </span>
-                          </div>
+                    {/* To Win / Proceeds */}
+                    {amt > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        {tradeSide === 'BUY' ? (
+                          <>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className={textMuted}>Avg. Price</span>
+                              <span className={textColor}>{ngweePrice(avgPriceDisplay)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className={textMuted}>Shares</span>
+                              <span className={textColor}>{shares.toFixed(2)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className={textMuted}>Potential return</span>
+                              <span className="text-green-500 font-semibold">{formatZambianCurrency(potentialReturn)} ({((potentialReturn / (amt || 1) - 1) * 100).toFixed(0)}%)</span>
+                            </div>
+                            {amt > userBalance && !isOnChain && (
+                              <div className="text-xs text-red-500 mt-1">Insufficient balance ({formatZambianCurrency(userBalance)})</div>
+                            )}
+                          </>
+                        ) : (
                           <div className="flex items-center justify-between text-xs">
-                            <span className={textMuted}>Avg. Price</span>
-                            <span className={textColor}>{formatPriceAsNgwee(avgPriceDisplay)} ⓘ</span>
+                            <span className={textMuted}>Est. proceeds</span>
+                            <span className="text-green-500 font-semibold">{formatZambianCurrency(potentialReturn)}</span>
                           </div>
-                          {amt > userBalance && (
-                            <div className="text-xs text-red-500">Insufficient balance ({formatZambianCurrency(userBalance)})</div>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <div className="flex items-center justify-between">
-                            <span className={`text-sm ${textMuted}`}>Est. proceeds</span>
-                            <span className="text-green-500 font-bold text-xl tabular-nums">
-                              {formatZambianCurrency(potentialReturn)}
-                            </span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
+                        )}
+                      </div>
+                    )}
 
-                  {error && (
-                    <div className="mb-3 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                      {error}
-                    </div>
-                  )}
+                    {error && (
+                      <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-400">
+                        {error}
+                      </div>
+                    )}
 
-                  {/* On-chain wallet info */}
-                  {isOnChain && (
-                    <div className={`flex items-center justify-between mb-2 px-2 py-1.5 rounded-lg text-xs ${isDarkMode ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-blue-50 border border-blue-200'}`}>
-                      <span className={isDarkMode ? 'text-blue-300' : 'text-blue-600'}>
-                        <span className="inline-block w-2 h-2 bg-green-400 rounded-full mr-1.5 animate-pulse" />
-                        On-chain ({tokenSymbol})
-                      </span>
-                      <span className={`font-semibold ${isDarkMode ? 'text-blue-200' : 'text-blue-700'}`}>
-                        {tokenBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} {tokenSymbol}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Trade button */}
-                  <button
-                    onClick={() => {
-                      if (!isLoggedIn && !isOnChain) { signIn(); return }
-                      if (amt <= 0) return
-                      if (tradeSide === 'BUY') {
-                        handleBuyFromDetail(market, showChart.outcome, amt)
-                      } else {
-                        handleSellFromDetail(market, showChart.outcome, amt)
-                      }
-                    }}
-                    disabled={placingBets || onChainLoading || amt <= 0 || (tradeSide === 'BUY' && !isOnChain && amt > userBalance) || (tradeSide === 'BUY' && isOnChain && amt > tokenBalance)}
-                    className={`w-full py-3 text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 ${
-                      tradeSide === 'SELL'
-                        ? 'bg-red-500 hover:bg-red-600 text-white'
-                        : 'bg-green-500 hover:bg-green-600 text-white'
-                    }`}
-                  >
-                    {placingBets || onChainLoading ? 'Processing...' : !isLoggedIn && !isOnChain ? 'Sign In to Trade' : amt > 0 ? (isOnChain ? `Trade On-Chain` : 'Trade') : 'Enter amount'}
-                  </button>
-
-                  <p className={`text-[10px] ${textMuted} text-center mt-2`}>
-                    By trading, you agree to the <a href="/terms" className="underline hover:text-green-500 transition-colors">Terms of Use</a>.
-                  </p>
+                    <p className={`text-[10px] ${textMuted} text-center mt-3`}>
+                      By trading, you agree to the <a href="/terms" className="underline hover:text-green-500 transition-colors">Terms of Use</a>.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
