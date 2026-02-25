@@ -171,17 +171,9 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
   const textMuted = isDarkMode ? 'text-gray-400' : 'text-gray-500'
   const hoverBg = isDarkMode ? 'hover:bg-[#1e2130]' : 'hover:bg-gray-100'
 
-  const isTestMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true'
-
   return (
     <>
-      {/* Test Mode Banner */}
-      {isTestMode && (
-        <div className="bg-yellow-500 text-black text-center text-xs font-semibold py-1 px-2 z-[60] relative">
-          TEST MODE — Using prop money. Deposits and withdrawals are simulated.
-        </div>
-      )}
-      <header className={`sticky ${isTestMode ? 'top-[28px]' : 'top-0'} z-50 ${bgColor} border-b ${borderColor}`}>
+      <header className={`sticky top-0 z-50 ${bgColor} border-b ${borderColor}`}>
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center h-14">
             {/* Logo - Left */}

@@ -8,12 +8,21 @@ interface PriceChartProps {
   currentPrice: number
   onClose: () => void
   onBuy?: (amount: number) => void
+  isTri?: boolean
+  homeTeam?: string
+  awayTeam?: string
+  homePrice?: number
+  drawPrice?: number
+  awayPrice?: number
 }
 
 interface HistoryPoint {
   time: string
   yesPrice: number
   noPrice: number
+  homePrice?: number
+  drawPrice?: number
+  awayPrice?: number
   volume: number
 }
 
@@ -25,7 +34,17 @@ const RANGES = [
   { key: 'max', label: 'MAX' },
 ]
 
-export function PriceChart({ marketId, outcome, currentPrice, onClose }: PriceChartProps) {
+// Line config for tri-outcome charts (Polymarket style)
+const TRI_LINES = [
+  { key: 'homePrice' as const, color: '#ef4444', label: '' },  // Red
+  { key: 'awayPrice' as const, color: '#3b82f6', label: '' },  // Blue
+  { key: 'drawPrice' as const, color: '#9ca3af', label: 'Draw' }, // Gray
+]
+
+export function PriceChart({
+  marketId, outcome, currentPrice, onClose, onBuy,
+  isTri, homeTeam, awayTeam, homePrice, drawPrice, awayPrice,
+}: PriceChartProps) {
   const [history, setHistory] = useState<HistoryPoint[]>([])
   const [range, setRange] = useState('1w')
   const [loading, setLoading] = useState(false)
@@ -45,137 +64,170 @@ export function PriceChart({ marketId, outcome, currentPrice, onClose }: PriceCh
       }
     } catch {}
 
-    // Fallback: generate synthetic history from current price
-    const points: HistoryPoint[] = []
+    // Fallback: generate flat line from current prices (no fake variation)
     const now = new Date()
     const durationMs = range === '1h' ? 3600000 : range === '1d' ? 86400000 : range === '1w' ? 604800000 : range === '1m' ? 2592000000 : 7776000000
     const numPoints = range === '1h' ? 12 : range === '1d' ? 24 : 30
-    let yP = currentPrice
+    const points: HistoryPoint[] = []
+    const hp = homePrice ?? currentPrice
+    const ap = awayPrice ?? (1 - currentPrice)
+    const dp = drawPrice ?? 0.28
     for (let i = numPoints; i >= 0; i--) {
       const t = new Date(now.getTime() - (durationMs / numPoints) * i)
-      const variation = (Math.random() - 0.5) * 0.06
-      yP = Math.max(0.01, Math.min(0.99, yP + variation))
-      points.push({ time: t.toISOString(), yesPrice: yP, noPrice: 1 - yP, volume: 0 })
+      const pt: HistoryPoint = { time: t.toISOString(), yesPrice: hp, noPrice: ap, volume: 0 }
+      if (isTri) { pt.homePrice = hp; pt.drawPrice = dp; pt.awayPrice = ap }
+      points.push(pt)
     }
-    // Ensure last point matches current price
-    points[points.length - 1] = { time: now.toISOString(), yesPrice: currentPrice, noPrice: 1 - currentPrice, volume: 0 }
     setHistory(points)
     setLoading(false)
-  }, [marketId, range, currentPrice])
+  }, [marketId, range, currentPrice, isTri, homePrice, drawPrice, awayPrice])
 
   useEffect(() => { fetchHistory() }, [fetchHistory])
 
-  // Derive display data
-  const prices = history.map(p => outcome === 'YES' ? p.yesPrice : p.noPrice)
-  const minPrice = prices.length > 0 ? Math.min(...prices) : 0
-  const maxPrice = prices.length > 0 ? Math.max(...prices) : 1
-  const priceRange = maxPrice - minPrice || 0.01
-  const lineColor = outcome === 'YES' ? '#22c55e' : '#3b82f6'
-  const fillColor = outcome === 'YES' ? 'rgba(34,197,94,0.08)' : 'rgba(59,130,246,0.08)'
+  // Chart dimensions
+  const W = 300, H = 120, LABEL_W = 0 // label space is outside SVG
 
-  // Grid percentages for Y-axis
-  const gridLines = [0, 25, 50, 75, 100]
+  // For tri-outcome: render all 3 lines. For binary: single line.
+  const lines = isTri
+    ? TRI_LINES.map(l => ({
+        ...l,
+        label: l.key === 'homePrice' ? (homeTeam || 'Home') : l.key === 'awayPrice' ? (awayTeam || 'Away') : 'Draw',
+        prices: history.map(p => p[l.key] ?? (l.key === 'homePrice' ? p.yesPrice : l.key === 'awayPrice' ? p.noPrice : 0.28)),
+      }))
+    : [{
+        key: 'selected' as any,
+        color: outcome === 'YES' || outcome === 'HOME' ? '#22c55e' : outcome === 'DRAW' ? '#9ca3af' : '#ef4444',
+        label: '',
+        prices: history.map(p => outcome === 'NO' || outcome === 'AWAY' ? p.noPrice : p.yesPrice),
+      }]
+
+  // Global min/max across all lines for consistent Y-axis
+  const allPrices = lines.flatMap(l => l.prices)
+  const minPrice = allPrices.length > 0 ? Math.max(0, Math.min(...allPrices) - 0.02) : 0
+  const maxPrice = allPrices.length > 0 ? Math.min(1, Math.max(...allPrices) + 0.02) : 1
+  const priceRange = maxPrice - minPrice || 0.01
+
+  const toY = (price: number) => H - ((price - minPrice) / priceRange) * (H - 10)
+  const toX = (i: number, len: number) => len > 1 ? (i / (len - 1)) * W : W / 2
 
   // Hovered point info
   const hoveredPoint = hoveredIndex !== null && history[hoveredIndex] ? history[hoveredIndex] : null
-  const displayPrice = hoveredPoint ? (outcome === 'YES' ? hoveredPoint.yesPrice : hoveredPoint.noPrice) : currentPrice
   const displayTime = hoveredPoint ? new Date(hoveredPoint.time).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
 
   return (
     <div className="rounded-lg">
-      {/* Hover info or current price */}
+      {/* Hover info */}
       {hoveredPoint && (
-        <div className="flex items-center gap-2 mb-1 text-xs">
-          <span className="font-bold" style={{ color: lineColor }}>{Math.round(displayPrice * 100)}%</span>
+        <div className="flex items-center gap-3 mb-1 text-xs flex-wrap">
+          {lines.map(l => {
+            const val = hoveredIndex !== null ? l.prices[hoveredIndex] : 0
+            return (
+              <span key={l.key} className="font-bold" style={{ color: l.color }}>
+                {l.label ? `${l.label} ` : ''}{Math.round(val * 100)}%
+              </span>
+            )
+          })}
           <span className="text-gray-500">{displayTime}</span>
         </div>
       )}
 
-      {/* SVG Chart */}
-      <div className="h-44 relative" onMouseLeave={() => setHoveredIndex(null)}>
-        {loading ? (
-          <div className="w-full h-full flex items-center justify-center">
-            <div className="w-5 h-5 border-2 border-gray-600 border-t-green-500 rounded-full animate-spin" />
+      {/* Chart area with labels */}
+      <div className="flex items-stretch">
+        {/* SVG Chart */}
+        <div className="flex-1 h-52 relative" onMouseLeave={() => setHoveredIndex(null)}>
+          {loading ? (
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="w-5 h-5 border-2 border-gray-600 border-t-green-500 rounded-full animate-spin" />
+            </div>
+          ) : (
+            <svg
+              className="w-full h-full"
+              viewBox={`0 0 ${W} ${H + 10}`}
+              preserveAspectRatio="none"
+              onMouseMove={(e) => {
+                if (history.length < 2) return
+                const rect = e.currentTarget.getBoundingClientRect()
+                const x = (e.clientX - rect.left) / rect.width
+                const idx = Math.min(Math.max(Math.round(x * (history.length - 1)), 0), history.length - 1)
+                setHoveredIndex(idx)
+              }}
+            >
+              {/* Grid lines */}
+              {[0, 0.25, 0.5, 0.75, 1].map(frac => {
+                const yVal = minPrice + frac * priceRange
+                const y = toY(yVal)
+                return <line key={frac} x1="0" y1={y} x2={W} y2={y} stroke="#2d3148" strokeWidth="0.5" strokeDasharray="4 4" />
+              })}
+
+              {/* Render each line */}
+              {lines.map(l => {
+                if (l.prices.length < 2) return null
+                const pts = l.prices.map((p, i) => `${toX(i, l.prices.length)},${toY(p)}`).join(' ')
+                const lastX = toX(l.prices.length - 1, l.prices.length)
+                const lastY = toY(l.prices[l.prices.length - 1])
+                return (
+                  <g key={l.key}>
+                    <polyline
+                      fill="none"
+                      stroke={l.color}
+                      strokeWidth="2"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={pts}
+                    />
+                    {/* End dot */}
+                    <circle cx={lastX} cy={lastY} r="3.5" fill={l.color} opacity="0.3" />
+                    <circle cx={lastX} cy={lastY} r="2" fill={l.color} />
+                  </g>
+                )
+              })}
+
+              {/* Hover crosshair */}
+              {hoveredIndex !== null && history[hoveredIndex] && (() => {
+                const x = toX(hoveredIndex, history.length)
+                return (
+                  <g>
+                    <line x1={x} y1="0" x2={x} y2={H + 10} stroke="#4b5563" strokeWidth="0.5" strokeDasharray="3 3" />
+                    {lines.map(l => {
+                      const y = toY(l.prices[hoveredIndex])
+                      return <circle key={l.key} cx={x} cy={y} r="3.5" fill={l.color} stroke="#1e2130" strokeWidth="1.5" />
+                    })}
+                  </g>
+                )
+              })()}
+            </svg>
+          )}
+
+          {/* Y-axis labels */}
+          <div className="absolute top-0 right-1 text-[10px] text-gray-500">{Math.round(maxPrice * 100)}%</div>
+          <div className="absolute top-1/2 right-1 -translate-y-1/2 text-[10px] text-gray-500">{Math.round(((maxPrice + minPrice) / 2) * 100)}%</div>
+          <div className="absolute bottom-4 right-1 text-[10px] text-gray-500">{Math.round(minPrice * 100)}%</div>
+        </div>
+
+        {/* Right-side labels at end of lines (Polymarket style) */}
+        {isTri && !loading && (
+          <div className="flex flex-col justify-center gap-0 ml-2 w-[90px] flex-shrink-0 relative" style={{ height: '208px' }}>
+            {lines.map(l => {
+              const lastPrice = l.prices.length > 0 ? l.prices[l.prices.length - 1] : 0
+              // Position label vertically aligned with the line end
+              const topPct = ((maxPrice - lastPrice) / priceRange) * 100
+              return (
+                <div
+                  key={l.key}
+                  className="absolute left-0 right-0 text-right pr-1"
+                  style={{ top: `${Math.max(2, Math.min(88, topPct))}%` }}
+                >
+                  <div className="text-xs font-bold truncate" style={{ color: l.color }}>
+                    {l.label}
+                  </div>
+                  <div className="text-lg font-bold" style={{ color: l.color }}>
+                    {Math.round(lastPrice * 100)}%
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        ) : (
-          <svg
-            className="w-full h-full"
-            viewBox="0 0 300 130"
-            preserveAspectRatio="none"
-            onMouseMove={(e) => {
-              if (prices.length < 2) return
-              const rect = e.currentTarget.getBoundingClientRect()
-              const x = (e.clientX - rect.left) / rect.width
-              const idx = Math.min(Math.max(Math.round(x * (prices.length - 1)), 0), prices.length - 1)
-              setHoveredIndex(idx)
-            }}
-          >
-            {/* Dotted grid lines */}
-            {gridLines.map(pct => (
-              <line key={pct} x1="0" y1={120 - pct * 1.1} x2="300" y2={120 - pct * 1.1} stroke="#2d3148" strokeWidth="0.5" strokeDasharray="4 4" />
-            ))}
-
-            {/* Area fill under line */}
-            {prices.length > 1 && (
-              <polygon
-                fill={fillColor}
-                points={
-                  prices.map((price, i) => {
-                    const x = (i / (prices.length - 1)) * 300
-                    const y = 120 - ((price - minPrice) / priceRange) * 100
-                    return `${x},${y}`
-                  }).join(' ') + ` 300,120 0,120`
-                }
-              />
-            )}
-
-            {/* Price line */}
-            {prices.length > 1 && (
-              <polyline
-                fill="none"
-                stroke={lineColor}
-                strokeWidth="2"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                points={prices.map((price, i) => {
-                  const x = (i / (prices.length - 1)) * 300
-                  const y = 120 - ((price - minPrice) / priceRange) * 100
-                  return `${x},${y}`
-                }).join(' ')}
-              />
-            )}
-
-            {/* End dot */}
-            {prices.length > 0 && (() => {
-              const last = prices[prices.length - 1]
-              const x = 300
-              const y = 120 - ((last - minPrice) / priceRange) * 100
-              return (
-                <>
-                  <circle cx={x} cy={y} r="4" fill={lineColor} opacity="0.3" />
-                  <circle cx={x} cy={y} r="2.5" fill={lineColor} />
-                </>
-              )
-            })()}
-
-            {/* Hover crosshair */}
-            {hoveredIndex !== null && prices[hoveredIndex] !== undefined && (() => {
-              const x = (hoveredIndex / (prices.length - 1)) * 300
-              const y = 120 - ((prices[hoveredIndex] - minPrice) / priceRange) * 100
-              return (
-                <>
-                  <line x1={x} y1="0" x2={x} y2="120" stroke="#4b5563" strokeWidth="0.5" strokeDasharray="3 3" />
-                  <circle cx={x} cy={y} r="4" fill={lineColor} stroke="#1e2130" strokeWidth="1.5" />
-                </>
-              )
-            })()}
-          </svg>
         )}
-
-        {/* Y-axis labels */}
-        <div className="absolute top-0 right-1 text-[10px] text-gray-500">{Math.round(maxPrice * 100)}%</div>
-        <div className="absolute top-1/2 right-1 -translate-y-1/2 text-[10px] text-gray-500">{Math.round(((maxPrice + minPrice) / 2) * 100)}%</div>
-        <div className="absolute bottom-4 right-1 text-[10px] text-gray-500">{Math.round(minPrice * 100)}%</div>
       </div>
 
       {/* Time labels */}

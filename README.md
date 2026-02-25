@@ -1,175 +1,136 @@
 # BetiPredict - African Prediction Market Platform
 
-BetiPredict is a Polymarket-style prediction market platform specifically designed for the African market, with initial focus on Zambia. It allows users to bet on sports outcomes using a peer-to-peer trading system.
+BetiPredict is a Polymarket-style prediction market platform for the African market, with initial focus on Zambia. Users trade on sports outcomes using a Central Limit Order Book (CLOB) for real-time price discovery.
 
-## 🚀 Features
+## Features
 
-### Core MVP Features
-- **Prediction Markets**: Binary YES/NO markets for sports events
-- **Order Book System**: Limit and market orders with price discovery
-- **Real-time Trading**: Live price updates and order matching
-- **Sports Focus**: Football (soccer) with emphasis on Zambian and African leagues
-- **User-friendly Interface**: Clean, responsive design optimized for mobile
-- **Demo Mode**: Pre-loaded with sample markets and demo balance
+### Core Platform
+- **CLOB Trading Engine**: Central Limit Order Book with price-time priority matching, limit and market orders
+- **Tri-Outcome Markets**: HOME / DRAW / AWAY for football matches (plus legacy binary YES/NO)
+- **Auto Market Creation**: Cron job syncs upcoming matches from football-data.org (PL, La Liga, Bundesliga, Serie A, Ligue 1, Champions League)
+- **Real-time SSE**: Live price updates, trade toasts, and order book streaming
+- **Polymarket-style UI**: Market cards, trading panel overlay, multi-line price charts with team name labels
+- **Mobile Money**: Airtel Money and MTN MoMo integration (Zambia)
+- **Test Mode**: Instant deposits/withdrawals with prop money (`NEXT_PUBLIC_TEST_MODE=true`)
 
-### Technical Architecture
+### Technical Stack
 - **Frontend**: Next.js 14 + React + TypeScript + TailwindCSS
 - **Backend**: Next.js API routes + Prisma ORM
-- **Database**: SQLite (development), PostgreSQL (production)
-- **Real-time**: WebSockets for live updates
-- **Authentication**: Ready for Supabase integration
+- **Database**: PostgreSQL (Supabase)
+- **Auth**: NextAuth.js with email/password
+- **Payments**: Airtel Money / MTN MoMo APIs
+- **Sports Data**: football-data.org v4 API
 
-## 📋 Market Categories
+## Currency Display
 
-### Primary Focus
-- **Football**: Zambian Super League, Premier League, Champions League, Africa Cup of Nations
+All prices are displayed in **Zambian Kwacha (K)** and **ngwee (n)**:
+- Share prices: `40n`, `28n` (1n = K0.01)
+- Balances and amounts: `K100.00`, `K5,000`
+- Shares trade between 1n and 99n (K0.01 - K0.99)
+- Winning shares pay K1.00 at resolution
 
-### Popular Markets
-- Match Results (Win/Draw/Loss converted to YES/NO)
-- Over/Under Goals
-- First Goal Scorer
-- Correct Score
+## CLOB Pricing
 
-## 🛠 Installation & Setup
+Markets use a Central Limit Order Book for organic price discovery:
+- **No automated market maker**: Prices are set by real orders from traders
+- **Initial indicative prices**: New markets start with a home-advantage model (Home ~40%, Draw ~28%, Away ~32%) as starting points
+- **Price updates**: Each filled trade updates the displayed price
+- **Order book**: Bids and asks visible in trading panel
+- Limit orders rest on the book until matched or cancelled
+- Market orders sweep the book immediately
+
+## Installation
 
 ### Prerequisites
-- Node.js 18+ 
-- npm or yarn
+- Node.js 18+
+- PostgreSQL (or Supabase account)
 
-### Local Development
-
-1. **Clone and Install**
+### Setup
 ```bash
 git clone <repository-url>
 cd betipredict
 npm install
-```
-
-2. **Database Setup**
-```bash
-npx prisma migrate dev --name init
 npx prisma generate
-```
-
-3. **Environment Variables**
-Create `.env.local`:
-```env
-DATABASE_URL="file:./dev.db"
-NEXTAUTH_URL="http://localhost:3000"
-NEXTAUTH_SECRET="your-secret-key-here"
-```
-
-4. **Run Development Server**
-```bash
+npx prisma db push
 npm run dev
 ```
 
-5. **Access Application**
-Open http://localhost:3000
-
-### Database Schema
-
-The application uses the following main entities:
-- **Users**: Account management and balance tracking
-- **Markets**: Prediction events with YES/NO outcomes
-- **Orders**: Buy/sell orders in the order book
-- **Positions**: User holdings in each market
-- **Transactions**: Financial transaction history
-
-## 💰 Trading System
-
-### How It Works
-1. **Market Creation**: Event organizers create markets with specific questions
-2. **Price Discovery**: Users place buy/sell orders, creating a liquid market
-3. **Trading**: Users trade YES/NO shares representing outcomes
-4. **Resolution**: When the event concludes, correct shares pay out K1.00 each
-
-### Price Mechanics
-- Prices represent probabilities (0.00 to 1.00)
-- YES price + NO price = 1.00 (fully collateralized)
-- Market prices reflect real-time supply and demand
-
-### Order Types
-- **Market Orders**: Execute immediately at current market price
-- **Limit Orders**: Execute only at specified price or better
-
-## 🌍 African Market Focus
-
-### Zambia-Specific Features
-- **Mobile Money Integration**: Ready for Airtel Money and MTN Mobile Money
-- **Local Sports**: Zambian Super League markets
-- **Cultural Design**: UI optimized for African users
-- **Regulatory Compliance**: Designed for Zambian betting regulations
-
-### Popular Sports
-- Football (primary focus)
-- Basketball
-- Tennis
-- Rugby
-
-## 📱 Mobile Optimization
-
-The application is fully responsive and optimized for:
-- Mobile-first design
-- Touch interactions
-- Slow internet connections
-- Low-end devices
-
-## 🔮 Future Roadmap
-
-### Phase 2 Features
-- **User Authentication**: Complete signup/login system
-- **Payment Integration**: Mobile money deposits/withdrawals
-- **Smart Contracts**: Blockchain-based settlement
-- **Live Betting**: In-play markets
-- **Social Features**: User profiles and leaderboards
-
-### Phase 3 Features
-- **Mobile Apps**: Native iOS/Android applications
-- **Advanced Markets**: Multiple outcome markets
-- **API**: Public API for third-party integration
-- **Analytics**: Market insights and predictions
-
-## 🚀 Deployment
-
-### Production Deployment
-1. **Database**: Switch to PostgreSQL
-2. **Environment**: Set production environment variables
-3. **Build**: `npm run build`
-4. **Deploy**: Deploy to Vercel, AWS, or similar
-
-### Environment Variables (Production)
+### Environment Variables (`.env.local`)
 ```env
 DATABASE_URL="postgresql://..."
-NEXTAUTH_URL="https://your-domain.com"
-NEXTAUTH_SECRET="production-secret"
-AIRTEL_MONEY_API_KEY="..."
-MTN_MOBILE_MONEY_API_KEY="..."
+DIRECT_URL="postgresql://..."
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="your-secret"
+FOOTBALL_DATA_API_KEY="your-api-key"
+CRON_SECRET="your-cron-secret"
+NEXT_PUBLIC_TEST_MODE="true"
 ```
 
-## 🤝 Contributing
+### Key Environment Variables
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Supabase pooled connection string |
+| `DIRECT_URL` | Supabase direct connection string |
+| `FOOTBALL_DATA_API_KEY` | football-data.org API key (free tier) |
+| `CRON_SECRET` | Secret for cron job authentication |
+| `NEXT_PUBLIC_TEST_MODE` | `true` to enable instant deposits/withdrawals |
+| `AIRTEL_API_*` | Airtel Money API credentials |
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+## Project Structure
 
-## 📄 License
+```
+src/
+  app/
+    page.tsx              # Main homepage with market cards + trading overlay
+    api/
+      trade/route.ts      # CLOB + legacy CPMM trade execution
+      orderbook/route.ts  # Order book state per market/outcome
+      orders/cancel/      # Cancel resting CLOB orders
+      cron/sync-games/    # Auto-sync matches from football-data.org
+      deposit/            # Mobile money deposits
+      withdraw/           # Mobile money withdrawals
+      markets/[id]/history/ # Price history for charts
+  components/
+    PriceChart.tsx        # Multi-line chart with Polymarket-style labels
+    LiveMatchBanner.tsx   # Live match cards with real-time scores
+    Header.tsx            # App header with search and navigation
+    DepositModal.tsx      # Deposit via mobile money or test mode
+    WithdrawModal.tsx     # Withdraw via mobile money or test mode
+  lib/
+    clob.ts              # OrderBook engine (bid/ask matching, serialize/deserialize)
+    sports-api.ts        # football-data.org API client
+    market-resolution.ts # Market resolution + CLOB order refunds
+  utils/
+    currency.ts          # formatZambianCurrency, formatPriceAsNgwee
+prisma/
+  schema.prisma          # Database schema (User, Market, Order, Position, etc.)
+```
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+## Deployment
 
-## 🆘 Support
+### Production (Vercel)
+1. Push to GitHub
+2. Connect to Vercel
+3. Set environment variables in Vercel dashboard
+4. Set `NEXT_PUBLIC_TEST_MODE=false` for real money mode
+5. Configure cron job (e.g., cron-job.org) to call `/api/cron/sync-games` hourly
 
-For support, please contact:
-- Email: support@betipredict.com
-- Discord: [Community Discord]
-- Twitter: @BetiPredict
+### Cron Job Setup
+```
+URL: https://betipredict.com/api/cron/sync-games
+Method: GET
+Header: Authorization: Bearer <CRON_SECRET>
+Schedule: Every hour
+```
 
-## ⚠️ Disclaimer
+## License
 
-BetiPredict is a prediction market platform for entertainment purposes. Users must be of legal betting age in their jurisdiction. Please bet responsibly and within your means.
+MIT License - see LICENSE file for details.
+
+## Disclaimer
+
+BetiPredict is a prediction market platform. Users must be of legal betting age in their jurisdiction. Please trade responsibly.
 
 ---
 
-**BetiPredict - The Future of African Sports Betting** 🇿🇲⚽
+**BetiPredict** - The Future of African Sports Prediction 🇿🇲

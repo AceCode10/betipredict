@@ -97,6 +97,13 @@ export async function GET(request: NextRequest) {
 
         const market = await prisma.$transaction(async (tx) => {
           // Create the market with CLOB engine — no seeded prices, pure price discovery
+          // Initial indicative prices based on home-advantage model
+          // On a CLOB these are just starting points until real orders set the price
+          // Home advantage: ~40% home, ~28% draw, ~32% away (typical football distribution)
+          const initHome = 0.40
+          const initDraw = 0.28
+          const initAway = 0.32
+
           const newMarket = await tx.market.create({
             data: {
               title,
@@ -109,9 +116,9 @@ export async function GET(request: NextRequest) {
               status: 'ACTIVE',
               marketType: 'TRI_OUTCOME',
               pricingEngine: 'CLOB',
-              yesPrice: 0.50,  // placeholder until first trade
-              noPrice: 0.50,
-              drawPrice: 0.25,
+              yesPrice: initHome,
+              noPrice: initAway,
+              drawPrice: initDraw,
               liquidity: 0,
               volume: 0,
               homeTeam: homeShort,

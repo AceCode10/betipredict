@@ -604,7 +604,7 @@ export default function PolymarketStyleHomePage() {
       />
 
       {/* Categories Nav */}
-      <nav className={`border-b ${borderColor} ${surfaceColor} sticky ${process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'top-[84px]' : 'top-14'} z-30`}>
+      <nav className={`border-b ${borderColor} ${surfaceColor} sticky top-14 z-30`}>
         <div className="max-w-[1400px] mx-auto px-4">
           <div className="flex items-center gap-1.5 h-11 overflow-x-auto no-scrollbar">
             {SPORTS_CATEGORIES.map((cat) => (
@@ -1053,6 +1053,12 @@ export default function PolymarketStyleHomePage() {
                       currentPrice={price}
                       onClose={() => setShowChart(null)}
                       onBuy={(amount) => handleBuyFromDetail(market, showChart.outcome, amount)}
+                      isTri={market.isTri}
+                      homeTeam={market.homeTeam}
+                      awayTeam={market.awayTeam}
+                      homePrice={market.homePrice ?? market.yesPrice}
+                      drawPrice={market.drawPrice ?? 0.28}
+                      awayPrice={market.awayPrice ?? market.noPrice}
                     />
                   </div>
 

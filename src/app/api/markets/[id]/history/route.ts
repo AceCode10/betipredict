@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 
 // Returns price history for a market based on filled orders
 // Supports time ranges: 1h, 1d, 1w, 1m, max
+// For TRI_OUTCOME markets, returns homePrice/drawPrice/awayPrice alongside yesPrice/noPrice
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -27,18 +28,23 @@ export async function GET(
     // Verify market exists
     const market = await prisma.market.findUnique({
       where: { id },
-      select: { id: true, yesPrice: true, noPrice: true, createdAt: true },
+      select: {
+        id: true, yesPrice: true, noPrice: true, drawPrice: true,
+        marketType: true, homeTeam: true, awayTeam: true, createdAt: true,
+      },
     })
 
     if (!market) {
       return NextResponse.json({ error: 'Market not found' }, { status: 404 })
     }
 
+    const isTri = market.marketType === 'TRI_OUTCOME'
+
     // Get filled orders as price points
     const orders = await prisma.order.findMany({
       where: {
         marketId: id,
-        status: 'FILLED',
+        status: { in: ['FILLED', 'PARTIALLY_FILLED'] },
         createdAt: { gte: since },
       },
       select: {
@@ -52,53 +58,99 @@ export async function GET(
     })
 
     // Build price history from orders
-    // Each order represents a price point after that trade
-    const history: { time: string; yesPrice: number; noPrice: number; volume: number }[] = []
+    interface HistoryPoint {
+      time: string
+      yesPrice: number
+      noPrice: number
+      homePrice?: number
+      drawPrice?: number
+      awayPrice?: number
+      volume: number
+    }
+    const history: HistoryPoint[] = []
+
+    // Initial prices from market creation
+    const initHome = market.yesPrice  // yesPrice stores HOME price for tri markets
+    const initAway = market.noPrice   // noPrice stores AWAY price for tri markets
+    const initDraw = market.drawPrice ?? 0.28
 
     // Add market creation as first data point
     if (market.createdAt >= since) {
-      history.push({
+      const point: HistoryPoint = {
         time: market.createdAt.toISOString(),
-        yesPrice: 0.5,
-        noPrice: 0.5,
+        yesPrice: initHome,
+        noPrice: initAway,
         volume: 0,
-      })
+      }
+      if (isTri) {
+        point.homePrice = initHome
+        point.drawPrice = initDraw
+        point.awayPrice = initAway
+      }
+      history.push(point)
     }
 
-    let runningYes = 0.5
-    let runningNo = 0.5
+    let runningHome = initHome
+    let runningAway = initAway
+    let runningDraw = initDraw
 
     for (const order of orders) {
-      if (order.outcome === 'YES') {
-        runningYes = Math.max(0.01, Math.min(0.99, order.price))
-        runningNo = Math.max(0.01, 1 - runningYes)
+      const p = Math.max(0.01, Math.min(0.99, order.price))
+
+      if (isTri) {
+        // TRI_OUTCOME: each outcome has its own independent price
+        if (order.outcome === 'HOME') runningHome = p
+        else if (order.outcome === 'DRAW') runningDraw = p
+        else if (order.outcome === 'AWAY') runningAway = p
       } else {
-        runningNo = Math.max(0.01, Math.min(0.99, order.price))
-        runningYes = Math.max(0.01, 1 - runningNo)
+        // BINARY: YES + NO ≈ 1.00
+        if (order.outcome === 'YES') {
+          runningHome = p
+          runningAway = Math.max(0.01, 1 - p)
+        } else {
+          runningAway = p
+          runningHome = Math.max(0.01, 1 - p)
+        }
       }
 
-      history.push({
+      const point: HistoryPoint = {
         time: order.createdAt.toISOString(),
-        yesPrice: runningYes,
-        noPrice: runningNo,
+        yesPrice: runningHome,
+        noPrice: runningAway,
         volume: order.amount,
-      })
+      }
+      if (isTri) {
+        point.homePrice = runningHome
+        point.drawPrice = runningDraw
+        point.awayPrice = runningAway
+      }
+      history.push(point)
     }
 
     // Always end with current price
-    history.push({
+    const endPoint: HistoryPoint = {
       time: now.toISOString(),
       yesPrice: market.yesPrice,
       noPrice: market.noPrice,
       volume: 0,
-    })
+    }
+    if (isTri) {
+      endPoint.homePrice = market.yesPrice
+      endPoint.drawPrice = market.drawPrice ?? runningDraw
+      endPoint.awayPrice = market.noPrice
+    }
+    history.push(endPoint)
 
     return NextResponse.json({
       marketId: id,
       range,
       history,
+      isTri,
+      homeTeam: market.homeTeam,
+      awayTeam: market.awayTeam,
       currentYesPrice: market.yesPrice,
       currentNoPrice: market.noPrice,
+      currentDrawPrice: market.drawPrice,
     })
   } catch (error) {
     console.error('Error fetching price history:', error)

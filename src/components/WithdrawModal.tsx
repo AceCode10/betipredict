@@ -219,12 +219,6 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
               <div className="text-xl font-bold text-white">{formatZambianCurrency(currentBalance)}</div>
             </div>
 
-            {isTestMode && (
-              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-xs text-yellow-400 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <span><strong>Test Mode</strong> — Withdrawals are instant with prop money. No real money is involved.</span>
-              </div>
-            )}
 
             {!isTestMode && (
               <>
@@ -351,7 +345,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
                   Processing...
                 </>
               ) : (
-                isTestMode ? 'Withdraw (Test Mode)' : `Withdraw to ${providerLabel}`
+                isTestMode ? 'Withdraw' : `Withdraw to ${providerLabel}`
               )}
             </button>
 
