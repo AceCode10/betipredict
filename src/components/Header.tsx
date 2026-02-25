@@ -15,7 +15,8 @@ import {
   Wallet,
   Search,
   X,
-  Plus
+  Plus,
+  BarChart3
 } from 'lucide-react'
 import { useTheme } from '@/contexts/ThemeContext'
 import { formatZambianCurrency } from '@/utils/currency'
@@ -346,13 +347,22 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
                             </button>
                           )}
                           {isAdmin && (
-                            <button
-                              onClick={() => { router.push('/admin'); setShowAccountMenu(false) }}
-                              className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} text-green-500`}
-                            >
-                              <Settings className="w-4 h-4" />
-                              <span className="text-sm">Admin Dashboard</span>
-                            </button>
+                            <>
+                              <button
+                                onClick={() => { router.push('/market-maker'); setShowAccountMenu(false) }}
+                                className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} text-green-500`}
+                              >
+                                <BarChart3 className="w-4 h-4" />
+                                <span className="text-sm">Market Maker</span>
+                              </button>
+                              <button
+                                onClick={() => { router.push('/admin'); setShowAccountMenu(false) }}
+                                className={`w-full flex items-center gap-3 px-4 py-2 ${hoverBg} text-green-500`}
+                              >
+                                <Settings className="w-4 h-4" />
+                                <span className="text-sm">Admin Dashboard</span>
+                              </button>
+                            </>
                           )}
                         </div>
 

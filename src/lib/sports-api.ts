@@ -112,22 +112,24 @@ export async function getUpcomingMatches(
 }
 
 // Free-tier competition codes
-const FREE_TIER_COMPS: CompetitionCode[] = ['PL', 'BL1', 'SA', 'PD', 'FL1', 'CL']
+export const FREE_TIER_COMPS: CompetitionCode[] = ['PL', 'BL1', 'SA', 'PD', 'FL1', 'CL']
 
 // Helper: delay to respect rate limits (free tier: 10 req/min)
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-// Get all scheduled matches across multiple competitions (free tier compatible)
-// Fetches sequentially with delay to avoid 429 rate limits.
-// No artificial cap — returns every match within the date window.
-export async function getAllUpcomingMatches(daysAhead: number = 14): Promise<Match[]> {
+// Get matches for specific leagues only (avoids timeout on serverless)
+// Pass 1-2 league codes to stay within ~10s execution time
+export async function getMatchesForLeagues(
+  leagues: CompetitionCode[],
+  daysAhead: number = 14
+): Promise<Match[]> {
   const allMatches: Match[] = []
-  const seen = new Set<number>() // deduplicate by match ID
+  const seen = new Set<number>()
 
-  for (let i = 0; i < FREE_TIER_COMPS.length; i++) {
-    const code = FREE_TIER_COMPS[i]
+  for (let i = 0; i < leagues.length; i++) {
+    const code = leagues[i]
     try {
       const matches = await getUpcomingMatches(code, daysAhead)
       for (const m of matches) {
@@ -140,16 +142,19 @@ export async function getAllUpcomingMatches(daysAhead: number = 14): Promise<Mat
     } catch (error) {
       console.error(`[sports-api] Failed to fetch ${code}:`, error)
     }
-    // Wait 2s between requests (10 req/min = 1 every 6s; 2s is safe with margin)
-    if (i < FREE_TIER_COMPS.length - 1) {
-      await delay(2000)
+    if (i < leagues.length - 1) {
+      await delay(1500)
     }
   }
 
-  // Sort by date — no limit, return everything
   allMatches.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime())
-  console.log(`[sports-api] Total unique matches fetched: ${allMatches.length}`)
   return allMatches
+}
+
+// Get all scheduled matches across ALL competitions (free tier compatible)
+// WARNING: Takes 12-20s due to rate limiting. Use getMatchesForLeagues for serverless.
+export async function getAllUpcomingMatches(daysAhead: number = 14): Promise<Match[]> {
+  return getMatchesForLeagues(FREE_TIER_COMPS, daysAhead)
 }
 
 // Get live matches

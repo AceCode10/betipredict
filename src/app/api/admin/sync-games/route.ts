@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { getAllUpcomingMatches } from '@/lib/sports-api'
-import { initializePool } from '@/lib/cpmm'
+import { getMatchesForLeagues, FREE_TIER_COMPS, type CompetitionCode } from '@/lib/sports-api'
 import crypto from 'crypto'
 
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase())
 
+// Admin sync now creates markets as PENDING_APPROVAL (Market Maker must set prices)
+// Accepts optional ?league=PL to sync a single league and avoid timeout
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -21,27 +22,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
     }
 
-    const results: { created: number; skipped: number; errors: string[] } = {
+    // Accept league param from body or query
+    let leagueParam: string | null = null
+    try {
+      const body = await request.json()
+      leagueParam = body?.league || null
+    } catch {}
+    if (!leagueParam) {
+      leagueParam = new URL(request.url).searchParams.get('league')
+    }
+
+    // Determine which leagues to sync
+    const leagues: CompetitionCode[] = leagueParam && FREE_TIER_COMPS.includes(leagueParam as CompetitionCode)
+      ? [leagueParam as CompetitionCode]
+      : FREE_TIER_COMPS.slice(0, 2) // Default: first 2 leagues to avoid timeout
+
+    const results: { created: number; skipped: number; errors: string[]; leagues: string[] } = {
       created: 0,
       skipped: 0,
-      errors: []
+      errors: [],
+      leagues,
     }
 
-    // Fetch upcoming matches from sports API
-    const matches = await getAllUpcomingMatches(14)
+    const matches = await getMatchesForLeagues(leagues, 14)
 
     if (!matches || matches.length === 0) {
-      return NextResponse.json({
-        message: 'No upcoming matches found',
-        ...results
-      })
+      return NextResponse.json({ message: 'No upcoming matches found', ...results })
     }
 
-    // Get system user for market creation (or create one if doesn't exist)
-    let systemUser = await prisma.user.findFirst({
-      where: { email: 'system@betipredict.com' }
-    })
-
+    let systemUser = await prisma.user.findFirst({ where: { email: 'system@betipredict.com' } })
     if (!systemUser) {
       systemUser = await prisma.user.create({
         data: {
@@ -55,33 +64,30 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Process each match
     for (const match of matches) {
       try {
-        // Check if market already exists for this game
         const existingGame = await prisma.scheduledGame.findUnique({
-          where: { externalId: match.id }
+          where: { externalId: match.id },
+          include: { market: { select: { id: true, status: true } } }
         })
 
-        if (existingGame?.marketId) {
-          results.skipped++
-          continue
+        if (existingGame?.marketId && existingGame.market) {
+          if (['PENDING_APPROVAL', 'ACTIVE', 'RESOLVED', 'FINALIZING'].includes(existingGame.market.status)) {
+            results.skipped++
+            continue
+          }
         }
 
-        // Check if match is in the future (at least 1 hour from now)
         const matchDate = new Date(match.utcDate)
-        const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000)
-        if (matchDate <= oneHourFromNow) {
+        if (matchDate <= new Date(Date.now() + 60 * 60 * 1000)) {
           results.skipped++
           continue
         }
 
-        // Create market for this match
-        const title = `${match.homeTeam.name} vs ${match.awayTeam.name}`
+        const homeShort = match.homeTeam.shortName || match.homeTeam.name
+        const awayShort = match.awayTeam.shortName || match.awayTeam.name
+        const title = `${homeShort} vs ${awayShort}`
         const question = `Who will win: ${match.homeTeam.name} vs ${match.awayTeam.name}?`
-
-        const initialLiquidity = 10000
-        const pool = initializePool(initialLiquidity, 0.5)
 
         await prisma.$transaction(async (tx) => {
           const newMarket = await tx.market.create({
@@ -93,17 +99,17 @@ export async function POST(request: NextRequest) {
               question,
               resolveTime: matchDate,
               creatorId: systemUser!.id,
-              status: 'ACTIVE',
-              yesPrice: 0.5,
-              noPrice: 0.5,
-              liquidity: initialLiquidity,
+              status: 'PENDING_APPROVAL',
+              marketType: 'TRI_OUTCOME',
+              pricingEngine: 'CLOB',
+              yesPrice: 0.33,
+              noPrice: 0.33,
+              drawPrice: 0.33,
+              liquidity: 0,
               volume: 0,
-              homeTeam: match.homeTeam.name,
-              awayTeam: match.awayTeam.name,
+              homeTeam: homeShort,
+              awayTeam: awayShort,
               league: match.competition.name,
-              poolYesShares: pool.yesShares,
-              poolNoShares: pool.noShares,
-              poolK: pool.k,
             }
           })
 
@@ -118,8 +124,8 @@ export async function POST(request: NextRequest) {
                 externalId: match.id,
                 competition: match.competition.name,
                 competitionCode: match.competition.code || '',
-                homeTeam: match.homeTeam.name,
-                awayTeam: match.awayTeam.name,
+                homeTeam: homeShort,
+                awayTeam: awayShort,
                 homeTeamCrest: match.homeTeam.crest || null,
                 awayTeamCrest: match.awayTeam.crest || null,
                 matchday: match.matchday || null,
@@ -138,15 +144,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({
-      message: `Processed ${matches.length} matches`,
-      ...results
-    })
+    return NextResponse.json({ message: `Synced ${leagues.join(',')}`, ...results })
   } catch (error: any) {
     console.error('[admin/sync-games] Sync error:', error)
-    return NextResponse.json(
-      { error: 'Sync failed', message: error.message },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Sync failed', message: error.message }, { status: 500 })
   }
 }

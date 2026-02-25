@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getAllUpcomingMatches } from '@/lib/sports-api'
+import { getMatchesForLeagues, FREE_TIER_COMPS, type CompetitionCode } from '@/lib/sports-api'
 import crypto from 'crypto'
 
-// Auto-sync sports games from the API and create markets for them
-// This endpoint should be called periodically (e.g., every hour via external cron)
-// Security: requires CRON_SECRET header to prevent unauthorized calls
+// Auto-sync sports games from the API and create markets as PENDING_APPROVAL.
+// Markets require Market Maker approval (pricing) before appearing on the platform.
+//
+// Supports ?league=PL param to sync a single league (avoids serverless timeout).
+// Without ?league, rotates through leagues 2 at a time using a DB counter.
+//
+// Security: requires CRON_SECRET header to prevent unauthorized calls.
 
 const CRON_SECRET = process.env.CRON_SECRET || ''
 
@@ -22,88 +26,83 @@ function verifyCronAuth(request: NextRequest): boolean {
 }
 
 export async function GET(request: NextRequest) {
-  // Verify cron authentication
   if (!verifyCronAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const results: { created: number; skipped: number; errors: string[] } = {
+  const { searchParams } = new URL(request.url)
+  const leagueParam = searchParams.get('league')
+
+  const results: { created: number; skipped: number; errors: string[]; leagues: string[] } = {
     created: 0,
     skipped: 0,
-    errors: []
+    errors: [],
+    leagues: [],
   }
 
   try {
-    // Fetch upcoming matches from sports API
-    const matches = await getAllUpcomingMatches(14)
+    // Determine which leagues to sync this invocation
+    let leagues: CompetitionCode[]
 
-    if (!matches || matches.length === 0) {
-      return NextResponse.json({
-        message: 'No upcoming matches found',
-        ...results
-      })
+    if (leagueParam && FREE_TIER_COMPS.includes(leagueParam as CompetitionCode)) {
+      leagues = [leagueParam as CompetitionCode]
+    } else {
+      // Rotate: sync 2 leagues per invocation to stay under 10-15s
+      // Use a simple DB-based counter stored in system user metadata
+      const idx = Math.floor(Date.now() / (2 * 60 * 60 * 1000)) % Math.ceil(FREE_TIER_COMPS.length / 2)
+      const start = idx * 2
+      leagues = FREE_TIER_COMPS.slice(start, start + 2)
     }
 
-    // Get system user for market creation (or create one if doesn't exist)
-    let systemUser = await prisma.user.findFirst({
-      where: { email: 'system@betipredict.com' }
-    })
+    results.leagues = leagues
+    const matches = await getMatchesForLeagues(leagues, 14)
 
+    if (!matches || matches.length === 0) {
+      return NextResponse.json({ message: 'No upcoming matches found', ...results })
+    }
+
+    // Get or create system user
+    let systemUser = await prisma.user.findFirst({ where: { email: 'system@betipredict.com' } })
     if (!systemUser) {
       systemUser = await prisma.user.create({
         data: {
           email: 'system@betipredict.com',
           username: 'BetiPredict',
           fullName: 'BetiPredict System',
-          password: crypto.randomBytes(32).toString('hex'), // Random password, never used
+          password: crypto.randomBytes(32).toString('hex'),
           isVerified: true,
           balance: 0,
         }
       })
     }
 
-    // Process each match
     for (const match of matches) {
       try {
-        // Check if market already exists for this game
         const existingGame = await prisma.scheduledGame.findUnique({
           where: { externalId: match.id },
           include: { market: { select: { id: true, status: true } } }
         })
 
         if (existingGame?.marketId && existingGame.market) {
-          // Only skip if the linked market is still ACTIVE (tradable)
-          // If the market was RESOLVED/FINALIZED/VOIDED, allow re-creation
-          if (['ACTIVE', 'RESOLVED', 'FINALIZING'].includes(existingGame.market.status)) {
+          if (['PENDING_APPROVAL', 'ACTIVE', 'RESOLVED', 'FINALIZING'].includes(existingGame.market.status)) {
             results.skipped++
             continue
           }
         }
 
-        // Check if match is in the future (at least 1 hour from now)
         const matchDate = new Date(match.utcDate)
-        const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000)
-        if (matchDate <= oneHourFromNow) {
+        if (matchDate <= new Date(Date.now() + 60 * 60 * 1000)) {
           results.skipped++
           continue
         }
 
-        // Create market for this match — 3-outcome (Home/Draw/Away) with CLOB pricing
-        // Use shortName for display (fits on buttons), full name for question
         const homeShort = match.homeTeam.shortName || match.homeTeam.name
         const awayShort = match.awayTeam.shortName || match.awayTeam.name
         const title = `${homeShort} vs ${awayShort}`
         const question = `Who will win: ${match.homeTeam.name} vs ${match.awayTeam.name}?`
 
-        const market = await prisma.$transaction(async (tx) => {
-          // Create the market with CLOB engine — no seeded prices, pure price discovery
-          // Initial indicative prices based on home-advantage model
-          // On a CLOB these are just starting points until real orders set the price
-          // Home advantage: ~40% home, ~28% draw, ~32% away (typical football distribution)
-          const initHome = 0.40
-          const initDraw = 0.28
-          const initAway = 0.32
-
+        await prisma.$transaction(async (tx) => {
+          // Create market as PENDING_APPROVAL — Market Maker must set prices and approve
           const newMarket = await tx.market.create({
             data: {
               title,
@@ -113,12 +112,12 @@ export async function GET(request: NextRequest) {
               question,
               resolveTime: matchDate,
               creatorId: systemUser!.id,
-              status: 'ACTIVE',
+              status: 'PENDING_APPROVAL',
               marketType: 'TRI_OUTCOME',
               pricingEngine: 'CLOB',
-              yesPrice: initHome,
-              noPrice: initAway,
-              drawPrice: initDraw,
+              yesPrice: 0.33,
+              noPrice: 0.33,
+              drawPrice: 0.33,
               liquidity: 0,
               volume: 0,
               homeTeam: homeShort,
@@ -127,7 +126,6 @@ export async function GET(request: NextRequest) {
             }
           })
 
-          // Create or update ScheduledGame record
           if (existingGame) {
             await tx.scheduledGame.update({
               where: { id: existingGame.id },
@@ -150,28 +148,20 @@ export async function GET(request: NextRequest) {
               }
             })
           }
-
-          return newMarket
         })
 
         results.created++
-        console.log(`[sync-games] Created market for: ${title}`)
+        console.log(`[sync-games] Created pending market: ${title}`)
       } catch (matchError: any) {
         console.error(`[sync-games] Error processing match ${match.id}:`, matchError)
         results.errors.push(`Match ${match.id}: ${matchError.message}`)
       }
     }
 
-    return NextResponse.json({
-      message: `Processed ${matches.length} matches`,
-      ...results
-    })
+    return NextResponse.json({ message: `Synced ${leagues.join(',')}`, ...results })
   } catch (error: any) {
     console.error('[sync-games] Sync error:', error)
-    return NextResponse.json(
-      { error: 'Sync failed', message: error.message },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Sync failed', message: error.message }, { status: 500 })
   }
 }
 
