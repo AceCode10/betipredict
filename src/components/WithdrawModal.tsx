@@ -342,7 +342,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
             {/* Withdraw Button */}
             <button
               onClick={handleWithdraw}
-              disabled={isProcessing || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > currentBalance || !phoneNumber}
+              disabled={isProcessing || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > currentBalance || (!isTestMode && !phoneNumber)}
               className="w-full py-3 bg-orange-500 text-white font-semibold rounded-lg hover:bg-orange-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {isProcessing ? (
@@ -351,7 +351,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
                   Processing...
                 </>
               ) : (
-                `Withdraw to ${providerLabel}`
+                isTestMode ? 'Withdraw (Test Mode)' : `Withdraw to ${providerLabel}`
               )}
             </button>
 

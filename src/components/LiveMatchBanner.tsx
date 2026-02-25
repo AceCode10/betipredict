@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Radio, BarChart3, Bookmark } from 'lucide-react'
 import { useTheme } from '@/contexts/ThemeContext'
-import { formatVolume } from '@/utils/currency'
+import { formatVolume, formatPriceAsNgwee } from '@/utils/currency'
 
 interface LiveMatch {
   id: number
@@ -135,6 +135,18 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLive
 
   const isLive = (status: string) => ['IN_PLAY', 'LIVE', 'PAUSED'].includes(status)
 
+  // Abbreviate long team names for buttons
+  const abbreviateName = (name: string, maxLen: number = 12): string => {
+    if (!name || name.length <= maxLen) return name
+    let short = name.replace(/\s+de\s+\w+$/i, '').trim()
+    if (short.length <= maxLen) return short
+    short = short.replace(/^(RCD|SSC|RC|AS|AC|SC|FC|CF)\s+/i, '').trim()
+    if (short.length <= maxLen) return short
+    short = short.replace(/\bUnited\b/gi, 'Utd')
+    if (short.length <= maxLen) return short
+    return short.slice(0, maxLen - 1) + '…'
+  }
+
   return (
     <div className="mb-4">
       <div className="flex items-center gap-2 mb-2">
@@ -235,8 +247,8 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLive
                       : isDarkMode ? 'bg-gray-800 text-gray-600' : 'bg-gray-100 text-gray-400'
                   }`}
                 >
-                  {match.homeTeam.length > 12 ? match.homeTeam.substring(0, 12) + '…' : match.homeTeam}
-                  {match.yesPrice != null && <span className="opacity-60 ml-1">K{match.yesPrice.toFixed(2)}</span>}
+                  {abbreviateName(match.homeTeam)}
+                  {match.yesPrice != null && <span className="opacity-60 ml-1">{formatPriceAsNgwee(match.yesPrice)}</span>}
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); hasMkt && onMarketClick?.(match.marketId!, 'DRAW') }}
@@ -261,8 +273,8 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLive
                       : isDarkMode ? 'bg-gray-800 text-gray-600' : 'bg-gray-100 text-gray-400'
                   }`}
                 >
-                  {match.awayTeam.length > 12 ? match.awayTeam.substring(0, 12) + '…' : match.awayTeam}
-                  {match.noPrice != null && <span className="opacity-60 ml-1">K{match.noPrice.toFixed(2)}</span>}
+                  {abbreviateName(match.awayTeam)}
+                  {match.noPrice != null && <span className="opacity-60 ml-1">{formatPriceAsNgwee(match.noPrice)}</span>}
                 </button>
               </div>
 

@@ -299,7 +299,7 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
             {/* Deposit Button */}
             <button
               onClick={handleDeposit}
-              disabled={isProcessing || !amount || parseFloat(amount) <= 0 || !phoneNumber}
+              disabled={isProcessing || !amount || parseFloat(amount) <= 0 || (!isTestMode && !phoneNumber)}
               className="w-full py-3 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {isProcessing ? (
@@ -308,7 +308,7 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
                   Initiating...
                 </>
               ) : (
-                `Deposit via ${providerLabel}`
+                isTestMode ? 'Deposit (Test Mode)' : `Deposit via ${providerLabel}`
               )}
             </button>
 

@@ -140,9 +140,9 @@ export async function getAllUpcomingMatches(daysAhead: number = 14): Promise<Mat
     } catch (error) {
       console.error(`[sports-api] Failed to fetch ${code}:`, error)
     }
-    // Wait 7s between requests to stay well within 10 req/min
+    // Wait 2s between requests (10 req/min = 1 every 6s; 2s is safe with margin)
     if (i < FREE_TIER_COMPS.length - 1) {
-      await delay(7000)
+      await delay(2000)
     }
   }
 

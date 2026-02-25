@@ -107,6 +107,7 @@ model Market {
   positions       Position[]
   disputes        MarketDispute[]
   chatMessages    ChatMessage[]
+  scheduledGame   ScheduledGame?
 
   @@index([groupId])
   @@map("markets")
@@ -237,6 +238,7 @@ model ScheduledGame {
   updatedAt       DateTime @updatedAt
 
   marketId        String?  @unique // Link to market if one was created
+  market          Market?  @relation(fields: [marketId], references: [id])
   
   @@map("scheduled_games")
 }

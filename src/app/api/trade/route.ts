@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Type must be MARKET or LIMIT' }, { status: 400 })
     }
     if (type === 'LIMIT' && (limitPrice == null || limitPrice < 0.01 || limitPrice > 0.99)) {
-      return NextResponse.json({ error: 'Limit price must be between 0.01 and 0.99 (1¢–99¢)' }, { status: 400 })
+      return NextResponse.json({ error: 'Limit price must be between 0.01 and 0.99 (1n–99n)' }, { status: 400 })
     }
     if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000) {
       return NextResponse.json({ error: 'Amount must be between 0.01 and 1,000,000' }, { status: 400 })
@@ -356,7 +356,7 @@ async function handleCLOBTrade(
         await tx.transaction.create({
           data: {
             type: 'TRADE', amount: -filledCost, feeAmount: fee.feeAmount,
-            description: `Bought ${totalFilled.toFixed(2)} ${outcome} shares @ ${(avgPrice * 100).toFixed(1)}¢ in "${market.title}"`,
+            description: `Bought ${totalFilled.toFixed(2)} ${outcome} shares @ ${(avgPrice * 100).toFixed(0)}n in "${market.title}"`,
             status: 'COMPLETED', userId: session.user.id,
             metadata: JSON.stringify({ orderId: dbOrder.id, marketId, outcome, shares: totalFilled, avgPrice, cost: filledCost, resting: restingShares })
           }
@@ -413,7 +413,7 @@ async function handleCLOBTrade(
         await tx.transaction.create({
           data: {
             type: 'TRADE', amount: sellerFee.netAmount, feeAmount: sellerFee.feeAmount,
-            description: `Sold ${fill.size.toFixed(2)} ${outcome} shares @ ${(fill.price * 100).toFixed(1)}¢ in "${market.title}" (filled)`,
+            description: `Sold ${fill.size.toFixed(2)} ${outcome} shares @ ${(fill.price * 100).toFixed(0)}n in "${market.title}" (filled)`,
             status: 'COMPLETED', userId: fill.makerId,
           }
         })
@@ -471,7 +471,7 @@ async function handleCLOBTrade(
         await tx.transaction.create({
           data: {
             type: 'TRADE', amount: netProceeds, feeAmount: fee.feeAmount,
-            description: `Sold ${totalFilled.toFixed(2)} ${outcome} shares @ ${(avgPrice * 100).toFixed(1)}¢ in "${market.title}"`,
+            description: `Sold ${totalFilled.toFixed(2)} ${outcome} shares @ ${(avgPrice * 100).toFixed(0)}n in "${market.title}"`,
             status: 'COMPLETED', userId: session.user.id,
             metadata: JSON.stringify({ orderId: dbOrder.id, marketId, outcome, shares: totalFilled, avgPrice, grossProceeds, resting: restingShares })
           }
@@ -530,7 +530,7 @@ async function handleCLOBTrade(
         await tx.transaction.create({
           data: {
             type: 'TRADE', amount: -buyCost, feeAmount: buyerFee.feeAmount,
-            description: `Bought ${fill.size.toFixed(2)} ${outcome} shares @ ${(fill.price * 100).toFixed(1)}¢ in "${market.title}" (filled)`,
+            description: `Bought ${fill.size.toFixed(2)} ${outcome} shares @ ${(fill.price * 100).toFixed(0)}n in "${market.title}" (filled)`,
             status: 'COMPLETED', userId: fill.makerId,
           }
         })
@@ -653,7 +653,7 @@ async function handleCPMMTrade(
       await tx.transaction.create({
         data: {
           type: 'TRADE', amount: -grossAmount, feeAmount: fee.feeAmount,
-          description: `Bought ${shares.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(avgPrice * 100).toFixed(1)}¢`,
+          description: `Bought ${shares.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(avgPrice * 100).toFixed(0)}n`,
           status: 'COMPLETED', userId: session.user.id,
           metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares, avgPrice, spent: grossAmount })
         }
@@ -796,7 +796,7 @@ async function handleCPMMTrade(
       await tx.transaction.create({
         data: {
           type: 'TRADE', amount: netProceeds, feeAmount: sellFee.feeAmount,
-          description: `Sold ${sharesToSell.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(sellAvgPrice * 100).toFixed(1)}¢`,
+          description: `Sold ${sharesToSell.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(sellAvgPrice * 100).toFixed(0)}n`,
           status: 'COMPLETED', userId: session.user.id,
           metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares: sharesToSell, price: sellAvgPrice, grossProceeds })
         }

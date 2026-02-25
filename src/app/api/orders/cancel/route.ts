@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
             type: 'TRADE',
             amount: refundTotal,
             feeAmount: 0,
-            description: `Cancelled BUY order: refund ${order.remaining.toFixed(2)} ${outcome} shares @ ${(order.price * 100).toFixed(1)}¢`,
+            description: `Cancelled BUY order: refund ${order.remaining.toFixed(2)} ${outcome} shares @ ${(order.price * 100).toFixed(0)}n`,
             status: 'COMPLETED',
             userId: session.user.id,
           },

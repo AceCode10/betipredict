@@ -438,8 +438,8 @@ export default function AccountPage() {
                       <div className="grid grid-cols-4 gap-3">
                         {[
                           { label: 'Shares', value: pos.size?.toFixed(2) },
-                          { label: 'Avg Price', value: `${(pos.averagePrice * 100).toFixed(1)}¢` },
-                          { label: 'Current', value: pos.isClosed ? '—' : `${(pos.currentPrice * 100).toFixed(1)}¢` },
+                          { label: 'Avg Price', value: `${(pos.averagePrice * 100).toFixed(0)}n` },
+                          { label: 'Current', value: pos.isClosed ? '—' : `${(pos.currentPrice * 100).toFixed(0)}n` },
                           { label: 'Value', value: pos.isClosed ? formatZambianCurrency(pos.realizedPnl || 0) : formatZambianCurrency(pos.currentValue || 0) },
                         ].map(item => (
                           <div key={item.label}>

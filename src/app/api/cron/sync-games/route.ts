@@ -67,13 +67,17 @@ export async function GET(request: NextRequest) {
       try {
         // Check if market already exists for this game
         const existingGame = await prisma.scheduledGame.findUnique({
-          where: { externalId: match.id }
+          where: { externalId: match.id },
+          include: { market: { select: { id: true, status: true } } }
         })
 
-        if (existingGame?.marketId) {
-          // Market already exists for this game
-          results.skipped++
-          continue
+        if (existingGame?.marketId && existingGame.market) {
+          // Only skip if the linked market is still ACTIVE (tradable)
+          // If the market was RESOLVED/FINALIZED/VOIDED, allow re-creation
+          if (['ACTIVE', 'RESOLVED', 'FINALIZING'].includes(existingGame.market.status)) {
+            results.skipped++
+            continue
+          }
         }
 
         // Check if match is in the future (at least 1 hour from now)
@@ -85,7 +89,10 @@ export async function GET(request: NextRequest) {
         }
 
         // Create market for this match — 3-outcome (Home/Draw/Away) with CLOB pricing
-        const title = `${match.homeTeam.name} vs ${match.awayTeam.name}`
+        // Use shortName for display (fits on buttons), full name for question
+        const homeShort = match.homeTeam.shortName || match.homeTeam.name
+        const awayShort = match.awayTeam.shortName || match.awayTeam.name
+        const title = `${homeShort} vs ${awayShort}`
         const question = `Who will win: ${match.homeTeam.name} vs ${match.awayTeam.name}?`
 
         const market = await prisma.$transaction(async (tx) => {
@@ -107,8 +114,8 @@ export async function GET(request: NextRequest) {
               drawPrice: 0.25,
               liquidity: 0,
               volume: 0,
-              homeTeam: match.homeTeam.name,
-              awayTeam: match.awayTeam.name,
+              homeTeam: homeShort,
+              awayTeam: awayShort,
               league: match.competition.name,
             }
           })
@@ -125,8 +132,8 @@ export async function GET(request: NextRequest) {
                 externalId: match.id,
                 competition: match.competition.name,
                 competitionCode: match.competition.code || '',
-                homeTeam: match.homeTeam.name,
-                awayTeam: match.awayTeam.name,
+                homeTeam: homeShort,
+                awayTeam: awayShort,
                 homeTeamCrest: match.homeTeam.crest || null,
                 awayTeamCrest: match.awayTeam.crest || null,
                 matchday: match.matchday || null,

@@ -284,6 +284,31 @@ export default function PolymarketStyleHomePage() {
     return 'yes-no'
   }
 
+  // Abbreviate long team names to fit on buttons (max ~14 chars)
+  const abbreviateTeam = (name: string, maxLen: number = 14): string => {
+    if (!name || name.length <= maxLen) return name
+    // Common prefixes/suffixes to strip
+    const strips = [
+      /\bFC\b/i, /\bCF\b/i, /\bSC\b/i, /\bAC\b/i, /\bAS\b/i,
+      /\bRCD\b/i, /\bRCD\b/i, /\bSSC\b/i, /\bRC\b/i,
+      /\bde\s+\w+$/i,    // "de Barcelona" → strip
+      /\bUnited\b/i,     // replace with Utd
+      /\bCity\b/i,
+    ]
+    let short = name
+    // Try removing "de <City>" suffix first
+    short = short.replace(/\s+de\s+\w+$/i, '').trim()
+    if (short.length <= maxLen) return short
+    // Try removing common prefixes
+    short = short.replace(/^(RCD|SSC|RC|AS|AC|SC|FC|CF)\s+/i, '').trim()
+    if (short.length <= maxLen) return short
+    // Try abbreviating common words
+    short = short.replace(/\bUnited\b/gi, 'Utd').replace(/\bCity\b/gi, 'City')
+    if (short.length <= maxLen) return short
+    // Last resort: truncate with ellipsis
+    return short.slice(0, maxLen - 1) + '…'
+  }
+
   // Normalize market data from API to ensure consistent shape
   const normalizeMarket = (m: any) => {
     // Use DB marketType if available; fall back to heuristic detection for legacy markets
@@ -839,20 +864,20 @@ export default function PolymarketStyleHomePage() {
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'HOME' : 'YES' }) }}
                       className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200 truncate`}
                     >
-                      {market.optionA} <span className="opacity-70">K{((market.homePrice ?? market.yesPrice) * 1).toFixed(2)}</span>
+                      {abbreviateTeam(market.optionA)} <span className="opacity-70">{formatPriceAsNgwee(market.homePrice ?? market.yesPrice)}</span>
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'DRAW' : 'YES' }) }}
                       className={`px-3 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-all duration-200`}
                       title={market.isTri ? 'Trade Draw outcome' : 'Draw results in market void — all traders are refunded'}
                     >
-                      Draw {market.isTri ? `K${(market.drawPrice ?? 0.25).toFixed(2)}` : ''}
+                      Draw {market.isTri ? formatPriceAsNgwee(market.drawPrice ?? 0.25) : ''}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'AWAY' : 'NO' }) }}
                       className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200 truncate`}
                     >
-                      {market.optionB} <span className="opacity-70">K{((market.awayPrice ?? market.noPrice) * 1).toFixed(2)}</span>
+                      {abbreviateTeam(market.optionB)} <span className="opacity-70">{formatPriceAsNgwee(market.awayPrice ?? market.noPrice)}</span>
                     </button>
                   </>
                 )}
@@ -1207,7 +1232,7 @@ export default function PolymarketStyleHomePage() {
                                         </div>
                                         <div className="flex-1 min-w-0">
                                           <span className={`text-sm ${textColor} truncate block`}>{p.username}</span>
-                                          <span className={`text-[10px] ${textMuted}`}>avg K{p.avgPrice.toFixed(2)}</span>
+                                          <span className={`text-[10px] ${textMuted}`}>avg {formatPriceAsNgwee(p.avgPrice)}</span>
                                         </div>
                                         <span className={`text-sm font-semibold tabular-nums ${p.pnl >= 0 ? 'text-green-500' : 'text-red-400'}`}>
                                           {formatZambianCurrency(Math.abs(p.pnl))}
@@ -1234,7 +1259,7 @@ export default function PolymarketStyleHomePage() {
                                         </div>
                                         <div className="flex-1 min-w-0">
                                           <span className={`text-sm ${textColor} truncate block`}>{p.username}</span>
-                                          <span className={`text-[10px] ${textMuted}`}>avg K{p.avgPrice.toFixed(2)}</span>
+                                          <span className={`text-[10px] ${textMuted}`}>avg {formatPriceAsNgwee(p.avgPrice)}</span>
                                         </div>
                                         <span className={`text-sm font-semibold tabular-nums ${p.pnl >= 0 ? 'text-green-500' : 'text-red-400'}`}>
                                           {formatZambianCurrency(Math.abs(p.pnl))}
@@ -1394,7 +1419,7 @@ export default function PolymarketStyleHomePage() {
                     {/* Limit price input (only for LIMIT orders) */}
                     {orderType === 'LIMIT' && (
                       <div className="mb-3">
-                        <label className={`text-xs ${textMuted} mb-1 block`}>Price (1¢–99¢)</label>
+                        <label className={`text-xs ${textMuted} mb-1 block`}>Price (1n–99n)</label>
                         <div className={`flex items-center rounded-lg border ${modalBorder} ${inputBg} px-3 py-2`}>
                           <input
                             type="number"
@@ -1403,10 +1428,10 @@ export default function PolymarketStyleHomePage() {
                             max="0.99"
                             value={limitPrice}
                             onChange={(e) => setLimitPrice(e.target.value)}
-                            placeholder={`${(price * 100).toFixed(0)}¢`}
+                            placeholder={`${(price * 100).toFixed(0)}n`}
                             className={`flex-1 bg-transparent outline-none text-sm ${textColor}`}
                           />
-                          <span className={`text-xs ${textMuted} ml-1`}>¢ per share</span>
+                          <span className={`text-xs ${textMuted} ml-1`}>n per share</span>
                         </div>
                       </div>
                     )}
