@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { OrderBook } from '@/lib/clob'
+import { FEES } from '@/lib/fees'
 
 /**
  * POST /api/orders/cancel
@@ -84,8 +85,7 @@ export async function POST(request: NextRequest) {
       if (order.side === 'BUY') {
         // Refund reserved Kwacha: remaining shares * price + fee on that amount
         const refundBase = order.remaining * order.price
-        const feeRate = 0.02 // TRADE_FEE_RATE
-        const refundTotal = refundBase * (1 + feeRate)
+        const refundTotal = refundBase * (1 + FEES.TRADE_FEE_RATE)
 
         await tx.user.update({
           where: { id: session.user.id },

@@ -382,6 +382,45 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Suggestion denied' })
     }
 
+    // ─── REVERT ACTIVE MARKETS TO PENDING (for legacy 50% markets) ───
+    if (action === 'revert-to-pending') {
+      const { marketId } = body
+      if (!marketId) return NextResponse.json({ error: 'marketId required' }, { status: 400 })
+
+      const market = await prisma.market.findUnique({ where: { id: marketId } })
+      if (!market) return NextResponse.json({ error: 'Market not found' }, { status: 404 })
+
+      await prisma.market.update({
+        where: { id: marketId },
+        data: { status: 'PENDING_APPROVAL' }
+      })
+
+      return NextResponse.json({ message: 'Market reverted to pending approval' })
+    }
+
+    // ─── REVERT ALL LEGACY ACTIVE MARKETS (with default 50% pricing) ───
+    if (action === 'revert-legacy') {
+      // Find ACTIVE sports markets still at 50/50 or 33/33/33 default pricing with zero volume
+      const legacy = await prisma.market.findMany({
+        where: {
+          status: 'ACTIVE',
+          category: 'Sports',
+          volume: 0,
+        }
+      })
+
+      let reverted = 0
+      for (const m of legacy) {
+        await prisma.market.update({
+          where: { id: m.id },
+          data: { status: 'PENDING_APPROVAL' }
+        })
+        reverted++
+      }
+
+      return NextResponse.json({ message: `Reverted ${reverted} legacy markets to pending approval` })
+    }
+
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   } catch (error: any) {
     console.error('[market-maker] POST error:', error)

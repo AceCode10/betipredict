@@ -75,9 +75,13 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
   const checkAdminStatus = async () => {
     if (!session?.user?.email) return
     try {
-      const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
-      const adminStatus = adminEmails.includes(session.user.email.toLowerCase())
-      setIsAdmin(adminStatus)
+      const res = await fetch('/api/admin/check')
+      if (res.ok) {
+        const data = await res.json()
+        setIsAdmin(data.isAdmin === true)
+      } else {
+        setIsAdmin(false)
+      }
     } catch (error) {
       console.error('Error checking admin status:', error)
       setIsAdmin(false)

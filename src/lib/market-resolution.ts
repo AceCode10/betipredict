@@ -1,5 +1,5 @@
 import { prisma } from './prisma'
-import { calculateResolutionFee } from './fees'
+import { calculateResolutionFee, FEES } from './fees'
 
 // Dispute window duration: 2 hours (Polymarket-style challenge period)
 // Sports markets with clear API-verified outcomes use short windows.
@@ -52,7 +52,7 @@ export class MarketResolver {
         try {
           if (order.side === 'BUY') {
             // Refund: remaining shares * price * (1 + fee rate)
-            const refund = order.remaining * order.price * 1.02
+            const refund = order.remaining * order.price * (1 + FEES.TRADE_FEE_RATE)
             if (refund > 0) {
               await prisma.user.update({
                 where: { id: order.userId },

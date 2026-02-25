@@ -19,6 +19,7 @@ export interface MarketPriceUpdate {
   id: string
   yesPrice: number
   noPrice: number
+  drawPrice?: number | null
   volume: number
   liquidity: number
 }

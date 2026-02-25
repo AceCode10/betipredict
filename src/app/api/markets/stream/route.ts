@@ -24,18 +24,20 @@ export async function GET(request: NextRequest) {
       // Send initial market snapshot
       try {
         const markets = await prisma.market.findMany({
-          where: { status: { in: ['ACTIVE', 'PENDING'] } },
+          where: { status: 'ACTIVE' },
           select: {
             id: true,
             title: true,
             question: true,
             yesPrice: true,
             noPrice: true,
+            drawPrice: true,
             volume: true,
             liquidity: true,
             status: true,
             category: true,
             subcategory: true,
+            marketType: true,
             resolveTime: true,
           },
           orderBy: { volume: 'desc' },
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest) {
         console.error('[SSE] snapshot error:', err)
       }
 
-      // Poll for updates every 10 seconds (gentle on connection pool)
+      // Poll for updates every 5 seconds for snappy real-time feel
       let consecutiveErrors = 0
       const interval = setInterval(async () => {
         // Back off if DB is struggling — skip polls after repeated failures
@@ -62,6 +64,7 @@ export async function GET(request: NextRequest) {
               id: true,
               yesPrice: true,
               noPrice: true,
+              drawPrice: true,
               volume: true,
               liquidity: true,
             },
@@ -69,12 +72,12 @@ export async function GET(request: NextRequest) {
           send('prices', { markets, timestamp: Date.now() })
           consecutiveErrors = 0
 
-          // Fetch recent trades (last 15 seconds)
-          const since = new Date(Date.now() - 15_000)
+          // Fetch recent trades (last 8 seconds to overlap with poll interval)
+          const since = new Date(Date.now() - 8_000)
           const recentOrders = await prisma.order.findMany({
             where: {
               createdAt: { gte: since },
-              status: 'FILLED',
+              status: { in: ['FILLED', 'PARTIALLY_FILLED'] },
             },
             select: {
               id: true,
@@ -101,7 +104,7 @@ export async function GET(request: NextRequest) {
             console.warn('[SSE] poll error (will back off):', err?.code || err?.message || 'unknown')
           }
         }
-      }, 10000)
+      }, 5000)
 
       // Heartbeat every 30s to keep connection alive
       const heartbeat = setInterval(() => {

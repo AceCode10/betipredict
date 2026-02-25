@@ -115,6 +115,7 @@ export default function PolymarketStyleHomePage() {
             ...m,
             yesPrice: u.yesPrice,
             noPrice: u.noPrice,
+            drawPrice: u.drawPrice ?? m.drawPrice,
             volume: u.volume,
             liquidity: u.liquidity,
           }

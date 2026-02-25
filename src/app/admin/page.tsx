@@ -145,9 +145,20 @@ export default function AdminPage() {
     if (status === 'unauthenticated') router.push('/auth/signin')
   }, [status, router])
 
+  // Server-side admin check — redirect non-admins
   useEffect(() => {
     if (status !== 'authenticated') return
-    loadData()
+    fetch('/api/admin/check')
+      .then(r => r.json())
+      .then(data => {
+        if (data.isAdmin) {
+          setIsAdmin(true)
+          loadData()
+        } else {
+          router.push('/')
+        }
+      })
+      .catch(() => router.push('/'))
   }, [status])
 
   const loadData = async () => {

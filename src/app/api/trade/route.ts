@@ -502,16 +502,11 @@ async function handleCLOBTrade(
         }
       }
 
-      // Process fills — debit buyers (makers)
+      // Process fills — give shares to BUY makers (their balance was already reserved at order placement)
       for (const fill of matchResult.fills) {
         if (fill.makerId === session.user.id) continue
-        const buyCost = fill.price * fill.size
-        const buyerFee = calculateTradeFee(buyCost)
-        await tx.user.update({
-          where: { id: fill.makerId },
-          data: { balance: { decrement: buyCost + buyerFee.feeAmount } }
-        })
-        // Update buyer position
+        // BUY maker already paid when placing their resting order — do NOT debit again.
+        // Only update their position (give them the shares they bought).
         const buyerPos = await tx.position.findUnique({
           where: { userId_marketId_outcome: { userId: fill.makerId, marketId, outcome } }
         })
@@ -527,9 +522,10 @@ async function handleCLOBTrade(
             data: { userId: fill.makerId, marketId, outcome, size: fill.size, averagePrice: fill.price }
           })
         }
+        const buyCost = fill.price * fill.size
         await tx.transaction.create({
           data: {
-            type: 'TRADE', amount: -buyCost, feeAmount: buyerFee.feeAmount,
+            type: 'TRADE', amount: -buyCost, feeAmount: 0,
             description: `Bought ${fill.size.toFixed(2)} ${outcome} shares @ ${(fill.price * 100).toFixed(0)}n in "${market.title}" (filled)`,
             status: 'COMPLETED', userId: fill.makerId,
           }

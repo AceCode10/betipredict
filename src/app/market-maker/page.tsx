@@ -111,8 +111,25 @@ export default function MarketMakerPage() {
   const textMuted = isDarkMode ? 'text-gray-400' : 'text-gray-500'
   const inputBg = isDarkMode ? 'bg-[#252840]' : 'bg-gray-100'
 
+  const [authorized, setAuthorized] = useState(false)
+
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/auth/signin')
+  }, [status, router])
+
+  // Server-side admin check — redirect non-admins
+  useEffect(() => {
+    if (status !== 'authenticated') return
+    fetch('/api/admin/check')
+      .then(r => r.json())
+      .then(data => {
+        if (data.isAdmin) {
+          setAuthorized(true)
+        } else {
+          router.push('/')
+        }
+      })
+      .catch(() => router.push('/'))
   }, [status, router])
 
   const loadData = useCallback(async () => {
@@ -148,8 +165,8 @@ export default function MarketMakerPage() {
   }, [])
 
   useEffect(() => {
-    if (status === 'authenticated') loadData()
-  }, [status, loadData])
+    if (status === 'authenticated' && authorized) loadData()
+  }, [status, authorized, loadData])
 
   // ─── Actions ───
 
@@ -302,6 +319,46 @@ export default function MarketMakerPage() {
       })
       if (!res.ok) throw new Error('Failed')
       setMessage({ type: 'success', text: 'Suggestion denied' })
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setProcessing(null)
+    }
+  }
+
+  const revertToPending = async (marketId: string) => {
+    setProcessing(marketId)
+    setMessage(null)
+    try {
+      const res = await fetch('/api/market-maker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'revert-to-pending', marketId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setMessage({ type: 'success', text: 'Market reverted to pending — set new prices and re-approve' })
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setProcessing(null)
+    }
+  }
+
+  const revertLegacy = async () => {
+    setProcessing('revert-legacy')
+    setMessage(null)
+    try {
+      const res = await fetch('/api/market-maker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'revert-legacy' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setMessage({ type: 'success', text: data.message })
       await loadData()
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message })
@@ -752,13 +809,25 @@ export default function MarketMakerPage() {
                             </div>
                           </div>
 
-                          <button
-                            onClick={() => router.push(`/?market=${market.id}`)}
-                            className={`p-2 rounded-lg ${isDarkMode ? 'hover:bg-[#252840]' : 'hover:bg-gray-100'} ${textMuted} transition-colors`}
-                            title="View on platform"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              onClick={() => router.push(`/?market=${market.id}`)}
+                              className={`p-2 rounded-lg ${isDarkMode ? 'hover:bg-[#252840]' : 'hover:bg-gray-100'} ${textMuted} transition-colors`}
+                              title="View on platform"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            {market.volume === 0 && (
+                              <button
+                                onClick={() => revertToPending(market.id)}
+                                disabled={processing === market.id}
+                                className={`p-2 rounded-lg ${isDarkMode ? 'hover:bg-[#252840]' : 'hover:bg-gray-100'} text-yellow-500 transition-colors`}
+                                title="Revert to pending (re-price)"
+                              >
+                                <AlertTriangle className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )
@@ -927,6 +996,28 @@ export default function MarketMakerPage() {
                       <span className={`text-xs ${textMuted} ml-auto`}>{l.code}</span>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Revert Legacy Markets */}
+              <div className={`mt-4 ${surfaceColor} border border-yellow-500/30 rounded-xl p-4`}>
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className={`text-sm font-semibold ${textColor} mb-1`}>Revert Legacy Markets</h4>
+                    <p className={`text-xs ${textMuted} mb-3`}>
+                      Move all ACTIVE sports markets with zero volume back to Pending Approval.
+                      Use this to fix markets created with default 50% or 33% pricing before the Market Maker flow was enabled.
+                    </p>
+                    <button
+                      onClick={revertLegacy}
+                      disabled={processing === 'revert-legacy'}
+                      className="px-4 py-2 text-xs font-medium bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 hover:bg-yellow-500/20 rounded-lg disabled:opacity-50 flex items-center gap-2 transition-colors"
+                    >
+                      {processing === 'revert-legacy' ? <Loader2 className="w-3 h-3 animate-spin" /> : <AlertTriangle className="w-3 h-3" />}
+                      Revert Legacy Markets
+                    </button>
+                  </div>
                 </div>
               </div>
 
