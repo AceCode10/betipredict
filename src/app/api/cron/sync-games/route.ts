@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getMatchesForLeagues, FREE_TIER_COMPS, type CompetitionCode } from '@/lib/sports-api'
+import { fetchOddsForLeague, findMatchOdds, isOddsApiConfigured, type MatchOdds } from '@/lib/odds-api'
+import { LEAGUE_DISPLAY_NAMES } from '@/lib/league-names'
 import crypto from 'crypto'
 
 // Auto-sync sports games from the API and create markets as PENDING_APPROVAL.
@@ -61,6 +63,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ message: 'No upcoming matches found', ...results })
     }
 
+    // Fetch odds for each league (if Odds API is configured)
+    const oddsMap = new Map<string, MatchOdds[]>()
+    if (isOddsApiConfigured()) {
+      for (const league of leagues) {
+        try {
+          const odds = await fetchOddsForLeague(league)
+          if (odds.length > 0) {
+            oddsMap.set(league, odds)
+            console.log(`[sync-games] Fetched ${odds.length} odds for ${league}`)
+          }
+        } catch (err: any) {
+          console.warn(`[sync-games] Failed to fetch odds for ${league}:`, err.message)
+        }
+      }
+    }
+
     // Get or create system user
     let systemUser = await prisma.user.findFirst({ where: { email: 'system@betipredict.com' } })
     if (!systemUser) {
@@ -101,12 +119,46 @@ export async function GET(request: NextRequest) {
         const title = `${homeShort} vs ${awayShort}`
         const question = `Who will win: ${match.homeTeam.name} vs ${match.awayTeam.name}?`
 
+        // Look up odds for this match
+        const leagueCode = match.competition.code || ''
+        const leagueOdds = oddsMap.get(leagueCode as string) || []
+        const matchOdds = findMatchOdds(
+          leagueOdds,
+          match.homeTeam.name,
+          match.awayTeam.name,
+          matchDate
+        )
+
+        // Use odds-based pricing if available, otherwise default 33/33/33
+        let yesPrice = 0.33
+        let noPrice = 0.33
+        let drawPrice = 0.33
+        let oddsSource: string | null = null
+
+        if (matchOdds) {
+          yesPrice = matchOdds.homePrice
+          drawPrice = matchOdds.drawPrice
+          noPrice = matchOdds.awayPrice
+          oddsSource = JSON.stringify({
+            source: 'the-odds-api',
+            confidence: matchOdds.confidence,
+            bookmakerCount: matchOdds.bookmakerCount,
+            homeDecimal: matchOdds.homeDecimal,
+            drawDecimal: matchOdds.drawDecimal,
+            awayDecimal: matchOdds.awayDecimal,
+          })
+          console.log(`[sync-games] Odds for ${title}: H=${yesPrice} D=${drawPrice} A=${noPrice} (${matchOdds.confidence}, ${matchOdds.bookmakerCount} bookmakers)`)
+        }
+
+        // Use display name for the league
+        const displayLeague = LEAGUE_DISPLAY_NAMES[match.competition.name] || match.competition.name
+
         await prisma.$transaction(async (tx) => {
           // Create market as PENDING_APPROVAL — Market Maker must set prices and approve
           const newMarket = await tx.market.create({
             data: {
               title,
-              description: `${match.competition.name} - Matchday ${match.matchday || 'N/A'}`,
+              description: `${displayLeague} - Matchday ${match.matchday || 'N/A'}`,
               category: 'Football',
               subcategory: match.competition.name,
               question,
@@ -115,14 +167,14 @@ export async function GET(request: NextRequest) {
               status: 'PENDING_APPROVAL',
               marketType: 'TRI_OUTCOME',
               pricingEngine: 'CLOB',
-              yesPrice: 0.33,
-              noPrice: 0.33,
-              drawPrice: 0.33,
+              yesPrice,
+              noPrice,
+              drawPrice,
               liquidity: 0,
               volume: 0,
               homeTeam: homeShort,
               awayTeam: awayShort,
-              league: match.competition.name,
+              league: displayLeague,
             }
           })
 

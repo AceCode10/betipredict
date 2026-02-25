@@ -17,6 +17,12 @@ import {
   generateMtnTransactionRef,
   MtnMoneyError,
 } from '@/lib/mtn-money'
+import {
+  initiateDisbursement as lencoInitiateDisbursement,
+  isLencoConfigured,
+  generateLencoRef,
+  LencoError,
+} from '@/lib/lenco'
 import { checkRateLimit } from '@/lib/rate-limit'
 import {
   getIdempotencyKeyFromRequest,
@@ -191,7 +197,20 @@ export async function POST(request: NextRequest) {
     let providerName: string
     let externalRef: string
 
-    if (method === 'airtel_money') {
+    if (method === 'mobile_money') {
+      // Lenco unified mobile money disbursement (auto-detects MTN/Airtel)
+      if (!isLencoConfigured()) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+        return NextResponse.json({ error: 'Payment gateway is not configured. Please contact support.' }, { status: 503 })
+      }
+      const digits = phoneNumber.replace(/\D/g, '')
+      if (digits.length < 9 || digits.length > 13) {
+        if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+        return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 })
+      }
+      providerName = 'LENCO'
+      externalRef = generateLencoRef('WDR')
+    } else if (method === 'airtel_money') {
       if (!isAirtelMoneyConfigured()) {
         if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
         return NextResponse.json({ error: 'Airtel Money is not configured. Please contact support.' }, { status: 503 })
@@ -215,10 +234,10 @@ export async function POST(request: NextRequest) {
       externalRef = generateMtnTransactionRef('WDR')
     } else {
       if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
-      return NextResponse.json({ error: 'Unsupported payment method. Please use Airtel Money or MTN MoMo.' }, { status: 400 })
+      return NextResponse.json({ error: 'Unsupported payment method.' }, { status: 400 })
     }
 
-    const providerLabel = method === 'airtel_money' ? 'Airtel Money' : 'MTN MoMo'
+    const providerLabel = method === 'mobile_money' ? 'Mobile Money' : method === 'airtel_money' ? 'Airtel Money' : 'MTN MoMo'
 
     // Deduct balance first (atomically), then initiate disbursement
     const result = await prisma.$transaction(async (tx) => {
@@ -287,7 +306,14 @@ export async function POST(request: NextRequest) {
     try {
       let disbursementExternalId: string | null = null
 
-      if (method === 'airtel_money') {
+      if (method === 'mobile_money') {
+        const lencoResponse = await lencoInitiateDisbursement({
+          phoneNumber,
+          amount: Math.round(fee.netAmount),
+          reference: externalRef,
+        })
+        disbursementExternalId = lencoResponse.data?.id || lencoResponse.data?.reference || null
+      } else if (method === 'airtel_money') {
         const airtelResponse = await airtelInitiateDisbursement({
           phoneNumber,
           amount: Math.round(fee.netAmount),
@@ -366,7 +392,7 @@ export async function POST(request: NextRequest) {
 
       await prisma.$transaction(refundOps)
 
-      const errorMessage = (err instanceof AirtelMoneyError || err instanceof MtnMoneyError)
+      const errorMessage = (err instanceof AirtelMoneyError || err instanceof MtnMoneyError || err instanceof LencoError)
         ? err.message
         : `Failed to send ${providerLabel} withdrawal. Your balance has been refunded.`
 

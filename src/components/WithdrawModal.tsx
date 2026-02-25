@@ -1,20 +1,14 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Smartphone, CheckCircle2, Loader2, AlertCircle, ArrowDownToLine } from 'lucide-react'
+import { X, CheckCircle2, Loader2, AlertCircle, ArrowDownToLine } from 'lucide-react'
 import { formatZambianCurrency } from '@/utils/currency'
 
 type WithdrawStep = 'input' | 'processing' | 'success' | 'failed'
-type MobileProvider = 'airtel_money' | 'mtn_money'
 
 // Fee constants (mirrored from server for display only)
 const WITHDRAW_FEE_RATE = 0.015 // 1.5%
 const WITHDRAW_FEE_MIN = 5 // K5
-
-const PROVIDERS = [
-  { id: 'airtel_money' as MobileProvider, name: 'Airtel Money', color: 'text-red-500', activeBg: 'bg-red-500/20 border-red-500', prefix: '097 / 077', hint: 'Airtel Zambia number (097X, 077X)' },
-  { id: 'mtn_money' as MobileProvider, name: 'MTN MoMo', color: 'text-yellow-500', activeBg: 'bg-yellow-500/20 border-yellow-500', prefix: '096 / 076', hint: 'MTN Zambia number (096X, 076X)' },
-]
 
 interface WithdrawModalProps {
   isOpen: boolean
@@ -26,7 +20,6 @@ interface WithdrawModalProps {
 export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: WithdrawModalProps) {
   const [amount, setAmount] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
-  const [provider, setProvider] = useState<MobileProvider>('airtel_money')
   const [step, setStep] = useState<WithdrawStep>('input')
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState('')
@@ -67,9 +60,6 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
 
   if (!isOpen) return null
 
-  const selectedProvider = PROVIDERS.find(p => p.id === provider)!
-  const providerLabel = provider === 'airtel_money' ? 'Airtel Money' : 'MTN MoMo'
-
   const handleClose = () => {
     resetState()
     onClose()
@@ -96,14 +86,12 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
         if (data.status === 'COMPLETED') {
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('success')
-          setSuccess(`K${(data.netAmount || feeInfo?.net || 0).toFixed(2)} sent to your ${providerLabel}!`)
-          // Trigger parent data refresh
+          setSuccess(`K${(data.netAmount || feeInfo?.net || 0).toFixed(2)} sent to your mobile wallet!`)
           onWithdraw(parseFloat(amount), phoneNumber || undefined).catch(() => {})
         } else if (data.status === 'FAILED' || data.status === 'CANCELLED') {
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('failed')
           setError(data.statusMessage || 'Withdrawal failed. Your balance has been refunded.')
-          // Trigger parent data refresh (balance was refunded)
           onWithdraw(0).catch(() => {})
         } else {
           setStatusMessage(data.statusMessage || 'Processing withdrawal...')
@@ -159,7 +147,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
         body: JSON.stringify({
           amount: withdrawAmount,
           phoneNumber: isTestMode ? '0970000000' : phoneNumber,
-          method: provider,
+          method: 'mobile_money',
         })
       })
 
@@ -176,7 +164,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
         setPaymentId(data.paymentId)
         setFeeInfo({ fee: data.fee, net: data.netAmount })
         setStep('processing')
-        setStatusMessage(data.message || `Sending to your ${providerLabel}...`)
+        setStatusMessage(data.message || 'Sending to your mobile wallet...')
         pollPaymentStatus(data.paymentId)
       } else {
         setFeeInfo({ fee: data.fee || 0, net: data.netAmount || withdrawAmount })
@@ -203,7 +191,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <ArrowDownToLine className="w-5 h-5 text-orange-500" />
-            Withdraw via Mobile Money
+            {isTestMode ? 'Test Withdrawal' : 'Withdraw to Mobile Money'}
           </h2>
           <button onClick={handleClose} className="text-gray-400 hover:text-white p-1">
             <X className="w-5 h-5" />
@@ -219,46 +207,32 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
               <div className="text-xl font-bold text-white">{formatZambianCurrency(currentBalance)}</div>
             </div>
 
-
             {!isTestMode && (
               <>
-                {/* Provider Selection */}
-                <div>
-                  <label className="block text-sm text-gray-400 mb-2">Payment Provider</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {PROVIDERS.map(p => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => { setProvider(p.id); setError('') }}
-                        className={`flex flex-col items-center gap-1 px-3 py-3 rounded-lg border text-sm font-semibold transition-all ${
-                          provider === p.id
-                            ? `${p.activeBg} ${p.color}`
-                            : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                        }`}
-                      >
-                        <span className={p.color}>{p.name}</span>
-                        <span className="text-[10px] text-gray-500 font-normal">{p.prefix}</span>
-                      </button>
-                    ))}
+                {/* Supported Providers */}
+                <div className="bg-[#232637] rounded-lg p-3">
+                  <div className="text-xs text-gray-400 mb-2">Withdraw to</div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="px-2 py-1 text-[10px] font-medium bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded">MTN MoMo</span>
+                    <span className="px-2 py-1 text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded">Airtel Money</span>
                   </div>
                 </div>
 
                 {/* Phone Number Input */}
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">{providerLabel} Number</label>
+                  <label className="block text-sm text-gray-400 mb-1">Mobile Money Number</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">+260</span>
                     <input
                       type="tel"
                       value={phoneNumber}
                       onChange={(e) => { setPhoneNumber(e.target.value.replace(/[^\d]/g, '').slice(0, 10)); setError('') }}
-                      placeholder={provider === 'airtel_money' ? '97XXXXXXX' : '96XXXXXXX'}
+                      placeholder="97XXXXXXX"
                       className="w-full pl-14 pr-3 py-3 text-lg font-medium bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-orange-500"
                       maxLength={10}
                     />
                   </div>
-                  <p className="text-[10px] text-gray-500 mt-1">{selectedProvider.hint}</p>
+                  <p className="text-[10px] text-gray-500 mt-1">MTN (096X, 076X) or Airtel (097X, 077X)</p>
                 </div>
               </>
             )}
@@ -345,12 +319,14 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
                   Processing...
                 </>
               ) : (
-                isTestMode ? 'Withdraw' : `Withdraw to ${providerLabel}`
+                isTestMode ? 'Withdraw (Test)' : 'Withdraw'
               )}
             </button>
 
             <p className="text-[10px] text-gray-600 text-center">
-              1.5% withdrawal fee (min K5). Funds sent directly to your mobile money wallet.
+              {isTestMode
+                ? 'Test mode: withdrawals are processed instantly with prop money.'
+                : '1.5% withdrawal fee (min K5). Funds sent directly to your mobile money wallet. Powered by Lenco.'}
             </p>
           </div>
         )}
@@ -361,7 +337,7 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
             <div className="w-16 h-16 rounded-full bg-orange-500/10 flex items-center justify-center mx-auto">
               <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
             </div>
-            <h3 className="text-lg font-semibold text-white">Sending to {providerLabel}</h3>
+            <h3 className="text-lg font-semibold text-white">Sending to Mobile Wallet</h3>
             <p className="text-sm text-gray-400">
               {statusMessage || 'Your withdrawal is being processed...'}
             </p>
@@ -370,10 +346,12 @@ export function WithdrawModal({ isOpen, onClose, onWithdraw, currentBalance }: W
                 <span className="text-gray-400">Sending</span>
                 <span className="text-white font-medium">{formatZambianCurrency(feeInfo?.net || 0)}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">To</span>
-                <span className="text-white font-medium">+260{phoneNumber}</span>
-              </div>
+              {phoneNumber && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">To</span>
+                  <span className="text-white font-medium">+260{phoneNumber}</span>
+                </div>
+              )}
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Fee</span>
                 <span className="text-orange-400">{formatZambianCurrency(feeInfo?.fee || 0)}</span>

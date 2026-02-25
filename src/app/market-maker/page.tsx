@@ -692,6 +692,12 @@ export default function MarketMakerPage() {
                               <span>{matchDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                               <span>{matchDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
                               {market.scheduledGame?.matchday && <span>• MD {market.scheduledGame.matchday}</span>}
+                              {/* Odds source badge — shows if prices were auto-set by odds API */}
+                              {market.yesPrice !== 0.33 && market.noPrice !== 0.33 && (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">
+                                  ODDS
+                                </span>
+                              )}
                             </div>
                           </div>
 

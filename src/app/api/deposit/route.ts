@@ -292,9 +292,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ─── Lenco method — handled via /api/payments/lenco/initialize ───
+    if (method === 'lenco') {
+      if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
+      return NextResponse.json({ error: 'Lenco deposits should use /api/payments/lenco/initialize endpoint.' }, { status: 400 })
+    }
+
     // ─── Unsupported method ──────────────────────────────────────
     if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)
-    return NextResponse.json({ error: 'Unsupported payment method. Please use Airtel Money or MTN MoMo.' }, { status: 400 })
+    return NextResponse.json({ error: 'Unsupported payment method.' }, { status: 400 })
   } catch (error) {
     console.error('Error processing deposit:', error)
     if (idempotencyKey) await releaseIdempotencyKey(idempotencyKey)

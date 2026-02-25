@@ -52,6 +52,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        {/* Lenco Payment Widget — loaded based on environment */}
+        {process.env.NEXT_PUBLIC_LENCO_ENVIRONMENT === 'sandbox' ? (
+          <script src="https://pay.sandbox.lenco.co/js/v1/inline.js" async />
+        ) : (
+          <script src="https://pay.lenco.co/js/v1/inline.js" async />
+        )}
+      </head>
       <body className="antialiased">
         <Providers>
           <ThemeProvider>

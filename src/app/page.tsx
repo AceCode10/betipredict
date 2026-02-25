@@ -320,7 +320,19 @@ export default function PolymarketStyleHomePage() {
       if (!awayTeam && vsMatch) awayTeam = vsMatch[2].trim()
     }
 
-    const league = m.league || m.subcategory || m.category || ''
+    const rawLeague = m.league || m.subcategory || m.category || ''
+    // Apply display name mapping for known leagues
+    const LEAGUE_SHORT: Record<string, string> = {
+      'Premier League': 'EPL',
+      'Serie A': 'Serie A',
+      'Ligue 1': 'Ligue 1',
+      'Primera Division': 'La Liga',
+      'La Liga': 'La Liga',
+      'Bundesliga': 'Bundesliga',
+      'UEFA Champions League': 'UCL',
+      'Champions League': 'UCL',
+    }
+    const league = LEAGUE_SHORT[rawLeague] || rawLeague
     const rawDate = m.matchDate || m.resolveTime
     const matchDate = rawDate ? new Date(rawDate).toLocaleDateString() : ''
     const trend = m.trend || (m.yesPrice > 0.5 ? 'up' : 'down')
@@ -343,13 +355,13 @@ export default function PolymarketStyleHomePage() {
   // Map UI category slugs to match against API subcategory/league values
   const categoryMatchMap: Record<string, string[]> = {
     'football': ['sports', 'football'],
-    'premier-league': ['premier league', 'pl', 'championship', 'elc'],
+    'premier-league': ['premier league', 'pl', 'championship', 'elc', 'epl'],
     'la-liga': ['la liga', 'primera division', 'pd'],
     'bundesliga': ['bundesliga', 'bl1'],
     'serie-a': ['serie a', 'sa'],
     'ligue-1': ['ligue 1', 'fl1'],
     'zambia-super-league': ['zambia super league', 'zsl'],
-    'champions-league': ['champions league', 'cl', 'uefa champions league'],
+    'champions-league': ['champions league', 'cl', 'uefa champions league', 'ucl'],
     'politics': ['politics'],
     'finance': ['finance', 'stocks', 'economics'],
     'entertainment': ['entertainment', 'movies', 'tv', 'music'],
