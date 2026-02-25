@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
                 data: {
                   title,
                   description: `${match.competition} - Live Match`,
-                  category: 'Sports',
+                  category: 'Football',
                   subcategory: match.competition,
                   question,
                   resolveTime: new Date(Date.now() + 4 * 60 * 60 * 1000),

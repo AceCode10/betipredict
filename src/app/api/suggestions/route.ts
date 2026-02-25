@@ -178,7 +178,7 @@ export async function PUT(request: NextRequest) {
       }
     })
 
-    // If approved, create the market with (possibly edited) fields
+    // If approved, create the market as PENDING_APPROVAL for Market Maker to set prices
     if (action === 'APPROVED') {
       const market = await prisma.market.create({
         data: {
@@ -187,7 +187,7 @@ export async function PUT(request: NextRequest) {
           category: finalCategory,
           question: finalQuestion,
           creatorId: suggestion.suggesterId,
-          status: 'ACTIVE',
+          status: 'PENDING_APPROVAL',
           resolveTime: finalResolveTime,
           pricingEngine: 'CLOB',
           liquidity: 0,

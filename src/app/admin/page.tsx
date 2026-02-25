@@ -165,7 +165,7 @@ export default function AdminPage() {
     setLoading(true)
     try {
       const [marketsRes, suggestionsRes, statsRes, disputesRes, usersRes, auditRes] = await Promise.all([
-        fetch('/api/markets'),
+        fetch('/api/markets?status=ALL'),
         fetch('/api/suggestions?admin=true&status=PENDING'),
         fetch('/api/admin/stats'),
         fetch('/api/admin/disputes?status=OPEN'),
@@ -516,7 +516,7 @@ export default function AdminPage() {
   const q = searchQuery.toLowerCase()
   const matchSearch = (text: string | null | undefined) => !q || (text || '').toLowerCase().includes(q)
 
-  const activeMarkets = markets.filter((m: any) => (m.status === 'ACTIVE' || m.status === 'PENDING') && matchSearch(m.title))
+  const activeMarkets = markets.filter((m: any) => ['ACTIVE', 'PENDING', 'PENDING_APPROVAL'].includes(m.status) && matchSearch(m.title))
   const resolvedMarkets = markets.filter((m: any) => m.status === 'RESOLVED' && matchSearch(m.title))
   const finalizedMarkets = markets.filter((m: any) => m.status === 'FINALIZED' && matchSearch(m.title))
   const filteredSuggestions = suggestions.filter(s => matchSearch(s.title) || matchSearch(s.question) || matchSearch(s.suggester?.username))
@@ -770,32 +770,41 @@ export default function AdminPage() {
                     </div>
                   </div>
 
+                  {market.status === 'ACTIVE' && (
                   <div className={`flex gap-2 mt-3 pt-3 border-t ${borderColor}`}>
-                    <button
-                      onClick={() => resolveMarket(market.id, 'YES')}
-                      disabled={resolving === market.id}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-green-500/10 border border-green-500/30 text-green-400 rounded-lg hover:bg-green-500/20 disabled:opacity-50 transition-colors"
-                    >
-                      {resolving === market.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                      YES Wins
-                    </button>
-                    <button
-                      onClick={() => resolveMarket(market.id, 'NO')}
-                      disabled={resolving === market.id}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/20 disabled:opacity-50 transition-colors"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      NO Wins
-                    </button>
-                    <button
-                      onClick={() => resolveMarket(market.id, 'VOID')}
-                      disabled={resolving === market.id}
-                      className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 rounded-lg hover:bg-yellow-500/20 disabled:opacity-50 transition-colors"
-                    >
-                      <AlertTriangle className="w-4 h-4" />
-                      Void
+                    {market.marketType === 'TRI_OUTCOME' ? (
+                      <>
+                        <button onClick={() => resolveMarket(market.id, 'HOME')} disabled={resolving === market.id}
+                          className="flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium bg-green-500/10 border border-green-500/30 text-green-400 rounded-lg hover:bg-green-500/20 disabled:opacity-50 transition-colors">
+                          {resolving === market.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />} Home
+                        </button>
+                        <button onClick={() => resolveMarket(market.id, 'DRAW')} disabled={resolving === market.id}
+                          className="flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium bg-gray-500/10 border border-gray-500/30 text-gray-400 rounded-lg hover:bg-gray-500/20 disabled:opacity-50 transition-colors">
+                          Draw
+                        </button>
+                        <button onClick={() => resolveMarket(market.id, 'AWAY')} disabled={resolving === market.id}
+                          className="flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/20 disabled:opacity-50 transition-colors">
+                          <XCircle className="w-3 h-3" /> Away
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => resolveMarket(market.id, 'YES')} disabled={resolving === market.id}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-green-500/10 border border-green-500/30 text-green-400 rounded-lg hover:bg-green-500/20 disabled:opacity-50 transition-colors">
+                          {resolving === market.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} YES Wins
+                        </button>
+                        <button onClick={() => resolveMarket(market.id, 'NO')} disabled={resolving === market.id}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/20 disabled:opacity-50 transition-colors">
+                          <XCircle className="w-4 h-4" /> NO Wins
+                        </button>
+                      </>
+                    )}
+                    <button onClick={() => resolveMarket(market.id, 'VOID')} disabled={resolving === market.id}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 rounded-lg hover:bg-yellow-500/20 disabled:opacity-50 transition-colors">
+                      <AlertTriangle className="w-4 h-4" /> Void
                     </button>
                   </div>
+                  )}
                 </div>
               ))}
             </div>

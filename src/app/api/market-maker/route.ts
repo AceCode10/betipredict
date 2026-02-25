@@ -26,6 +26,15 @@ export async function GET(request: NextRequest) {
 
   try {
     if (tab === 'pending') {
+      // Auto-cancel expired pending markets (resolveTime already passed)
+      await prisma.market.updateMany({
+        where: {
+          status: 'PENDING_APPROVAL',
+          resolveTime: { lte: new Date() },
+        },
+        data: { status: 'CANCELLED' },
+      })
+
       const markets = await prisma.market.findMany({
         where: { status: 'PENDING_APPROVAL' },
         include: {
@@ -130,6 +139,9 @@ export async function POST(request: NextRequest) {
       if (hp < 0.01 || hp > 0.99 || dp < 0.01 || dp > 0.99 || ap < 0.01 || ap > 0.99) {
         return NextResponse.json({ error: 'Prices must be between 1% and 99%' }, { status: 400 })
       }
+      if (hp + dp + ap > 1.0) {
+        return NextResponse.json({ error: `Prices sum to ${((hp + dp + ap) * 100).toFixed(0)}% which exceeds 100%. Reduce prices before approving.` }, { status: 400 })
+      }
 
       const market = await prisma.market.findUnique({ where: { id: marketId } })
       if (!market) return NextResponse.json({ error: 'Market not found' }, { status: 404 })
@@ -163,6 +175,9 @@ export async function POST(request: NextRequest) {
 
       if (isNaN(hp) || isNaN(dp) || isNaN(ap)) {
         return NextResponse.json({ error: 'All three prices are required' }, { status: 400 })
+      }
+      if (hp + dp + ap > 1.0) {
+        return NextResponse.json({ error: `Prices sum to ${((hp + dp + ap) * 100).toFixed(0)}% which exceeds 100%. Reduce prices before approving.` }, { status: 400 })
       }
 
       const result = await prisma.market.updateMany({
@@ -271,7 +286,7 @@ export async function POST(request: NextRequest) {
               data: {
                 title,
                 description: `${match.competition.name} - Matchday ${match.matchday || 'N/A'}`,
-                category: 'Sports',
+                category: 'Football',
                 subcategory: match.competition.name,
                 question,
                 resolveTime: matchDate,
@@ -325,7 +340,7 @@ export async function POST(request: NextRequest) {
 
     // ─── APPROVE SUGGESTION ───
     if (action === 'approve-suggestion') {
-      const { suggestionId, homePrice, drawPrice, awayPrice } = body
+      const { suggestionId, homePrice, drawPrice, awayPrice, category, title, question } = body
       if (!suggestionId) return NextResponse.json({ error: 'suggestionId required' }, { status: 400 })
 
       const suggestion = await prisma.marketSuggestion.findUnique({
@@ -338,21 +353,34 @@ export async function POST(request: NextRequest) {
       const dp = parseFloat(drawPrice) || 0
       const ap = parseFloat(awayPrice) || 0.5
 
+      // Validate price sum
+      const sum = hp + dp + ap
+      if (sum > 1.0) {
+        return NextResponse.json({ error: `Prices sum to ${(sum * 100).toFixed(0)}% which exceeds 100%` }, { status: 400 })
+      }
+
+      const finalTitle = (title || '').trim() || suggestion.title
+      const finalQuestion = (question || '').trim() || suggestion.question
+      const finalCategory = (category || '').trim() || suggestion.category
+      const isTri = dp > 0
+      const marketType = isTri ? 'TRI_OUTCOME' : 'BINARY'
+
       // Create market from suggestion
       const market = await prisma.$transaction(async (tx) => {
         const newMarket = await tx.market.create({
           data: {
-            title: suggestion.title,
+            title: finalTitle,
             description: suggestion.description || '',
-            category: suggestion.category,
-            question: suggestion.question,
+            category: finalCategory,
+            question: finalQuestion,
             resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 days
             creatorId: suggestion.suggesterId,
             status: 'ACTIVE',
             pricingEngine: 'CLOB',
+            marketType,
             yesPrice: hp,
             noPrice: ap,
-            drawPrice: dp > 0 ? dp : undefined,
+            drawPrice: isTri ? dp : undefined,
             liquidity: 0,
             volume: 0,
           }
@@ -360,7 +388,13 @@ export async function POST(request: NextRequest) {
 
         await tx.marketSuggestion.update({
           where: { id: suggestionId },
-          data: { status: 'APPROVED', marketId: newMarket.id }
+          data: {
+            status: 'APPROVED',
+            marketId: newMarket.id,
+            title: finalTitle,
+            question: finalQuestion,
+            category: finalCategory,
+          }
         })
 
         return newMarket
@@ -404,7 +438,7 @@ export async function POST(request: NextRequest) {
       const legacy = await prisma.market.findMany({
         where: {
           status: 'ACTIVE',
-          category: 'Sports',
+          category: { in: ['Sports', 'Football'] },
           volume: 0,
         }
       })
@@ -419,6 +453,46 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({ message: `Reverted ${reverted} legacy markets to pending approval` })
+    }
+
+    // ─── MANAGE CATEGORIES ───
+    if (action === 'get-categories') {
+      // Return current categories from settings or defaults
+      try {
+        const setting = await (prisma as any).platformSetting.findUnique({ where: { key: 'categories' } })
+        if (setting?.value) {
+          return NextResponse.json({ categories: JSON.parse(setting.value) })
+        }
+      } catch {
+        // PlatformSetting model may not exist yet
+      }
+      // Return defaults
+      const { DEFAULT_CATEGORIES } = await import('@/lib/categories')
+      return NextResponse.json({ categories: DEFAULT_CATEGORIES })
+    }
+
+    if (action === 'save-categories') {
+      const { categories } = body
+      if (!Array.isArray(categories)) {
+        return NextResponse.json({ error: 'categories array required' }, { status: 400 })
+      }
+      // Validate each category has value, label, icon
+      for (const cat of categories) {
+        if (!cat.value || !cat.label) {
+          return NextResponse.json({ error: 'Each category must have value and label' }, { status: 400 })
+        }
+      }
+      // Store in platformSetting if the model exists, otherwise just acknowledge
+      try {
+        await (prisma as any).platformSetting.upsert({
+          where: { key: 'categories' },
+          create: { key: 'categories', value: JSON.stringify(categories) },
+          update: { value: JSON.stringify(categories) },
+        })
+      } catch {
+        // PlatformSetting model may not exist yet — categories will use defaults
+      }
+      return NextResponse.json({ message: `Saved ${categories.length} categories` })
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })

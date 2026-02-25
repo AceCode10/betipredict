@@ -104,8 +104,10 @@ export async function GET(request: NextRequest) {
       // Filter: only show tradable ACTIVE markets by default.
       // Resolved/finalized markets are only returned when explicitly requested via ?status= param.
       .filter(m => {
+        // Admin "ALL" view — return everything
+        if (status === 'ALL') return true
         // If a specific status was requested, respect it
-        if (status) return true
+        if (status) return m.status === status
         // Default feed: only tradable ACTIVE markets
         if (m.status === 'ACTIVE') return m.isTradable
         return false

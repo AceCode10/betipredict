@@ -47,25 +47,9 @@ interface BetItem {
   amount: number
 }
 
-// Polymarket-style categories — broad + sports sub-leagues
-const SPORTS_CATEGORIES = [
-  { value: 'all', label: 'All', icon: '' },
-  { value: 'sports', label: 'Sports', icon: '⚽' },
-  { value: 'premier-league', label: 'Premier League', icon: '' },
-  { value: 'la-liga', label: 'La Liga', icon: '' },
-  { value: 'bundesliga', label: 'Bundesliga', icon: '' },
-  { value: 'serie-a', label: 'Serie A', icon: '' },
-  { value: 'ligue-1', label: 'Ligue 1', icon: '' },
-  { value: 'champions-league', label: 'Champions League', icon: '' },
-  { value: 'zambia-super-league', label: 'Zambia Super League', icon: '' },
-  { value: 'politics', label: 'Politics', icon: '🏛️' },
-  { value: 'crypto', label: 'Crypto', icon: '₿' },
-  { value: 'finance', label: 'Finance', icon: '📈' },
-  { value: 'entertainment', label: 'Entertainment', icon: '🎬' },
-  { value: 'tech', label: 'Tech', icon: '💻' },
-  { value: 'culture', label: 'Culture', icon: '🎭' },
-  { value: 'other', label: 'Other', icon: '🌍' },
-]
+// Categories from shared config
+import { getNavCategories } from '@/lib/categories'
+const SPORTS_CATEGORIES = getNavCategories()
 
 
 
@@ -358,7 +342,7 @@ export default function PolymarketStyleHomePage() {
 
   // Map UI category slugs to match against API subcategory/league values
   const categoryMatchMap: Record<string, string[]> = {
-    'sports': ['sports'],
+    'football': ['sports', 'football'],
     'premier-league': ['premier league', 'pl', 'championship', 'elc'],
     'la-liga': ['la liga', 'primera division', 'pd'],
     'bundesliga': ['bundesliga', 'bl1'],
@@ -367,11 +351,10 @@ export default function PolymarketStyleHomePage() {
     'zambia-super-league': ['zambia super league', 'zsl'],
     'champions-league': ['champions league', 'cl', 'uefa champions league'],
     'politics': ['politics'],
-    'crypto': ['crypto', 'cryptocurrency', 'bitcoin', 'ethereum'],
     'finance': ['finance', 'stocks', 'economics'],
     'entertainment': ['entertainment', 'movies', 'tv', 'music'],
-    'tech': ['tech', 'technology', 'ai', 'software'],
-    'culture': ['culture', 'science', 'weather'],
+    'social': ['social', 'community', 'trending'],
+    'weather': ['weather', 'climate', 'temperature'],
     'other': [],
   }
 
@@ -384,17 +367,17 @@ export default function PolymarketStyleHomePage() {
 
       if (market.category?.toLowerCase() === category || cat === category) {
         matchesCategory = true
-      } else if (category === 'sports') {
-        // "Sports" = any market with category "Sports" or any known league
+      } else if (category === 'Football') {
+        // "Football" = any market with category "Sports" or "Football" or any known league
         const sportLeagues = ['premier league', 'pl', 'la liga', 'pd', 'bundesliga', 'bl1', 'serie a', 'sa', 'ligue 1', 'fl1', 'champions league', 'cl', 'zambia super league', 'zsl']
-        matchesCategory = cat === 'sports' || sportLeagues.some(t => sub.includes(t) || league.includes(t))
+        matchesCategory = cat === 'sports' || cat === 'football' || sportLeagues.some(t => sub.includes(t) || league.includes(t))
       } else if (category === 'other') {
         // "Other" = anything NOT in the known categories
         const allKnown = Object.values(categoryMatchMap).flat()
         matchesCategory = !allKnown.some(t => t && (sub.includes(t) || league.includes(t) || cat.includes(t)))
       } else {
         // Match against subcategory/league for API markets
-        const targets = categoryMatchMap[category] || [category]
+        const targets = categoryMatchMap[category.toLowerCase()] || [category.toLowerCase()]
         matchesCategory = targets.some(t => sub.includes(t) || league.includes(t) || cat.includes(t))
       }
     }

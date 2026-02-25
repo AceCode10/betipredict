@@ -77,7 +77,7 @@ const LEAGUES = [
   { code: 'CL', name: 'Champions League' },
 ]
 
-type TabType = 'pending' | 'active' | 'suggestions' | 'sync'
+type TabType = 'pending' | 'active' | 'suggestions' | 'sync' | 'categories'
 
 export default function MarketMakerPage() {
   const { data: session, status } = useSession()
@@ -101,8 +101,15 @@ export default function MarketMakerPage() {
   // Selected markets for bulk approve
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkPrices, setBulkPrices] = useState({ home: '40', draw: '28', away: '32' })
-  // Suggestion price modal
-  const [suggestionModal, setSuggestionModal] = useState<{ suggestion: Suggestion; prices: { yes: string; no: string } } | null>(null)
+  // Suggestion price modal — supports Yes/No and tri-outcome with category editing
+  const [suggestionModal, setSuggestionModal] = useState<{
+    suggestion: Suggestion;
+    prices: { home: string; draw: string; away: string };
+    isTri: boolean;
+    category: string;
+    title: string;
+    question: string;
+  } | null>(null)
 
   const bgColor = isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'
   const surfaceColor = isDarkMode ? 'bg-[#1c2030]' : 'bg-white'
@@ -288,14 +295,38 @@ export default function MarketMakerPage() {
     }
   }
 
-  const approveSuggestion = async (suggestionId: string, yesPrice: number, noPrice: number) => {
-    setProcessing(suggestionId)
+  const approveSuggestion = async () => {
+    if (!suggestionModal) return
+    const { suggestion, prices, isTri, category, title, question } = suggestionModal
+    const hp = parseFloat(prices.home) / 100
+    const dp = isTri ? parseFloat(prices.draw) / 100 : 0
+    const ap = isTri ? parseFloat(prices.away) / 100 : parseFloat(prices.away) / 100
+
+    if (isTri && (hp + dp + ap > 1.0)) {
+      setMessage({ type: 'error', text: `Prices sum to ${((hp + dp + ap) * 100).toFixed(0)}% which exceeds 100%` })
+      return
+    }
+    if (!isTri && (hp + ap > 1.0)) {
+      setMessage({ type: 'error', text: `Prices sum to ${((hp + ap) * 100).toFixed(0)}% which exceeds 100%` })
+      return
+    }
+
+    setProcessing(suggestion.id)
     setMessage(null)
     try {
       const res = await fetch('/api/market-maker', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'approve-suggestion', suggestionId, homePrice: yesPrice, awayPrice: noPrice }),
+        body: JSON.stringify({
+          action: 'approve-suggestion',
+          suggestionId: suggestion.id,
+          homePrice: hp,
+          drawPrice: dp,
+          awayPrice: ap,
+          category,
+          title,
+          question,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -429,6 +460,7 @@ export default function MarketMakerPage() {
     { id: 'active' as TabType, label: 'Active Markets', icon: TrendingUp, badge: activeMarkets.length },
     { id: 'suggestions' as TabType, label: 'Suggestions', icon: Zap, badge: suggestions.length },
     { id: 'sync' as TabType, label: 'Sync Games', icon: RefreshCw },
+    { id: 'categories' as TabType, label: 'Categories', icon: Settings },
   ]
 
   return (
@@ -863,7 +895,14 @@ export default function MarketMakerPage() {
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                           <button
-                            onClick={() => setSuggestionModal({ suggestion: s, prices: { yes: '50', no: '50' } })}
+                            onClick={() => setSuggestionModal({
+                              suggestion: s,
+                              prices: { home: '50', draw: '25', away: '25' },
+                              isTri: false,
+                              category: s.category,
+                              title: s.title,
+                              question: s.question,
+                            })}
                             disabled={processing === s.id}
                             className="px-3 py-2 text-xs font-medium bg-green-500 hover:bg-green-600 text-white rounded-lg disabled:opacity-40 flex items-center gap-1"
                           >
@@ -888,45 +927,94 @@ export default function MarketMakerPage() {
               {suggestionModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center">
                   <div className="absolute inset-0 bg-black/60" onClick={() => setSuggestionModal(null)} />
-                  <div className={`relative ${surfaceColor} border ${borderColor} rounded-xl p-6 w-full max-w-md shadow-2xl`}>
-                    <h3 className={`text-base font-bold ${textColor} mb-2`}>Set Initial Prices</h3>
-                    <p className={`text-sm ${textMuted} mb-4`}>{suggestionModal.suggestion.title}</p>
-                    <div className="flex gap-3 mb-4">
-                      <div className="flex-1">
-                        <label className={`text-xs ${textMuted} mb-1 block`}>Yes %</label>
-                        <input
-                          type="number" min="1" max="99"
-                          value={suggestionModal.prices.yes}
-                          onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, yes: e.target.value } } : null)}
-                          className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`}
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className={`text-xs ${textMuted} mb-1 block`}>No %</label>
-                        <input
-                          type="number" min="1" max="99"
-                          value={suggestionModal.prices.no}
-                          onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, no: e.target.value } } : null)}
-                          className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`}
-                        />
+                  <div className={`relative ${surfaceColor} border ${borderColor} rounded-xl p-6 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto`}>
+                    <h3 className={`text-base font-bold ${textColor} mb-3`}>Edit & Set Prices</h3>
+
+                    {/* Editable title */}
+                    <div className="mb-3">
+                      <label className={`text-xs ${textMuted} mb-1 block`}>Title</label>
+                      <input type="text" value={suggestionModal.title}
+                        onChange={e => setSuggestionModal(prev => prev ? { ...prev, title: e.target.value } : null)}
+                        className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                    </div>
+
+                    {/* Editable question */}
+                    <div className="mb-3">
+                      <label className={`text-xs ${textMuted} mb-1 block`}>Question</label>
+                      <input type="text" value={suggestionModal.question}
+                        onChange={e => setSuggestionModal(prev => prev ? { ...prev, question: e.target.value } : null)}
+                        className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                    </div>
+
+                    {/* Category selector */}
+                    <div className="mb-3">
+                      <label className={`text-xs ${textMuted} mb-1 block`}>Category</label>
+                      <select value={suggestionModal.category}
+                        onChange={e => setSuggestionModal(prev => prev ? { ...prev, category: e.target.value } : null)}
+                        className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor}`}>
+                        {['Football', 'Entertainment', 'Social', 'Politics', 'Finance', 'Weather', 'Other'].map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Market type toggle */}
+                    <div className="mb-3">
+                      <label className={`text-xs ${textMuted} mb-1 block`}>Market Type</label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setSuggestionModal(prev => prev ? { ...prev, isTri: false } : null)}
+                          className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-colors ${!suggestionModal.isTri ? 'border-green-500 bg-green-500/10 text-green-400' : `${borderColor} ${textMuted}`}`}>
+                          Yes / No
+                        </button>
+                        <button type="button" onClick={() => setSuggestionModal(prev => prev ? { ...prev, isTri: true } : null)}
+                          className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-colors ${suggestionModal.isTri ? 'border-green-500 bg-green-500/10 text-green-400' : `${borderColor} ${textMuted}`}`}>
+                          Home / Draw / Away
+                        </button>
                       </div>
                     </div>
+
+                    {/* Price inputs */}
+                    <div className={`flex gap-3 mb-2`}>
+                      <div className="flex-1">
+                        <label className={`text-xs ${textMuted} mb-1 block`}>{suggestionModal.isTri ? 'Home %' : 'Yes %'}</label>
+                        <input type="number" min="1" max="99" value={suggestionModal.prices.home}
+                          onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, home: e.target.value } } : null)}
+                          className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                      </div>
+                      {suggestionModal.isTri && (
+                        <div className="flex-1">
+                          <label className={`text-xs ${textMuted} mb-1 block`}>Draw %</label>
+                          <input type="number" min="1" max="99" value={suggestionModal.prices.draw}
+                            onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, draw: e.target.value } } : null)}
+                            className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <label className={`text-xs ${textMuted} mb-1 block`}>{suggestionModal.isTri ? 'Away %' : 'No %'}</label>
+                        <input type="number" min="1" max="99" value={suggestionModal.prices.away}
+                          onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, away: e.target.value } } : null)}
+                          className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                      </div>
+                    </div>
+
+                    {/* Price sum indicator */}
+                    {(() => {
+                      const sum = parseFloat(suggestionModal.prices.home || '0') + (suggestionModal.isTri ? parseFloat(suggestionModal.prices.draw || '0') : 0) + parseFloat(suggestionModal.prices.away || '0')
+                      return (
+                        <p className={`text-xs mb-4 ${sum > 100 ? 'text-red-400' : sum === 100 ? 'text-green-400' : textMuted}`}>
+                          Total: {sum}% {sum > 100 ? '— exceeds 100%!' : ''}
+                        </p>
+                      )
+                    })()}
+
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          const yp = parseFloat(suggestionModal.prices.yes) / 100
-                          const np = parseFloat(suggestionModal.prices.no) / 100
-                          approveSuggestion(suggestionModal.suggestion.id, yp, np)
-                        }}
+                      <button onClick={approveSuggestion}
                         disabled={processing === suggestionModal.suggestion.id}
-                        className="flex-1 py-2.5 text-sm font-medium bg-green-500 hover:bg-green-600 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-1"
-                      >
+                        className="flex-1 py-2.5 text-sm font-medium bg-green-500 hover:bg-green-600 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-1">
                         {processing === suggestionModal.suggestion.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Approve & Create Market'}
                       </button>
-                      <button
-                        onClick={() => setSuggestionModal(null)}
-                        className={`px-4 py-2.5 text-sm rounded-lg border ${borderColor} ${textMuted}`}
-                      >
+                      <button onClick={() => setSuggestionModal(null)}
+                        className={`px-4 py-2.5 text-sm rounded-lg border ${borderColor} ${textMuted}`}>
                         Cancel
                       </button>
                     </div>
@@ -1027,8 +1115,135 @@ export default function MarketMakerPage() {
               </p>
             </div>
           )}
+
+          {/* ─── CATEGORIES TAB ─── */}
+          {activeTab === 'categories' && (
+            <CategoriesManager
+              surfaceColor={surfaceColor} borderColor={borderColor} textColor={textColor}
+              textMuted={textMuted} inputBg={inputBg} isDarkMode={isDarkMode}
+              setMessage={setMessage}
+            />
+          )}
         </div>
       </main>
+    </div>
+  )
+}
+
+// ─── Categories Manager Component ───
+function CategoriesManager({ surfaceColor, borderColor, textColor, textMuted, inputBg, isDarkMode, setMessage }: {
+  surfaceColor: string; borderColor: string; textColor: string; textMuted: string; inputBg: string; isDarkMode: boolean;
+  setMessage: (msg: { type: 'success' | 'error'; text: string } | null) => void
+}) {
+  const [categories, setCategories] = useState<{ value: string; label: string; icon: string }[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [newCat, setNewCat] = useState({ value: '', label: '', icon: '🌍' })
+
+  useEffect(() => {
+    fetch('/api/market-maker', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get-categories' }),
+    })
+      .then(r => r.json())
+      .then(data => setCategories(data.categories || []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const addCategory = () => {
+    const val = newCat.value.trim()
+    const label = newCat.label.trim() || val
+    if (!val) return
+    if (categories.some(c => c.value.toLowerCase() === val.toLowerCase())) {
+      setMessage({ type: 'error', text: 'Category already exists' })
+      return
+    }
+    setCategories(prev => [...prev, { value: val, label, icon: newCat.icon || '🌍' }])
+    setNewCat({ value: '', label: '', icon: '🌍' })
+  }
+
+  const removeCategory = (value: string) => {
+    setCategories(prev => prev.filter(c => c.value !== value))
+  }
+
+  const saveCategories = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/market-maker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save-categories', categories }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setMessage({ type: 'success', text: data.message })
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-green-500" /></div>
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      <div className={`${surfaceColor} border ${borderColor} rounded-xl p-6`}>
+        <h3 className={`text-base font-semibold ${textColor} mb-1`}>Manage Categories</h3>
+        <p className={`text-sm ${textMuted} mb-4`}>
+          Add or remove categories that appear on the platform. Changes apply to market creation and the main page navigation.
+        </p>
+
+        {/* Current categories */}
+        <div className="space-y-2 mb-4">
+          {categories.map((cat, i) => (
+            <div key={cat.value} className={`flex items-center gap-3 px-3 py-2 rounded-lg ${inputBg}`}>
+              <span className="text-lg">{cat.icon}</span>
+              <span className={`text-sm font-medium ${textColor} flex-1`}>{cat.label}</span>
+              <span className={`text-xs ${textMuted}`}>{cat.value}</span>
+              <button
+                onClick={() => removeCategory(cat.value)}
+                className="text-red-400 hover:text-red-300 text-xs px-2 py-1 rounded hover:bg-red-500/10 transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Add new category */}
+        <div className={`flex gap-2 items-end pt-3 border-t ${borderColor}`}>
+          <div className="flex-1">
+            <label className={`text-xs ${textMuted} mb-1 block`}>Name</label>
+            <input type="text" value={newCat.label} placeholder="e.g. Esports"
+              onChange={e => setNewCat(prev => ({ ...prev, label: e.target.value, value: e.target.value }))}
+              className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+          </div>
+          <div className="w-16">
+            <label className={`text-xs ${textMuted} mb-1 block`}>Icon</label>
+            <input type="text" value={newCat.icon} maxLength={2}
+              onChange={e => setNewCat(prev => ({ ...prev, icon: e.target.value }))}
+              className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor} text-center`} />
+          </div>
+          <button onClick={addCategory}
+            className="px-4 py-2 text-sm font-medium bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors">
+            Add
+          </button>
+        </div>
+      </div>
+
+      {/* Save button */}
+      <button onClick={saveCategories} disabled={saving}
+        className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
+        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+        Save Categories
+      </button>
+
+      <p className={`text-xs ${textMuted}`}>
+        Note: Existing markets keep their original categories. New markets will use the updated list.
+      </p>
     </div>
   )
 }

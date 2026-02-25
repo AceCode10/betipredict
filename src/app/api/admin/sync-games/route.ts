@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
             data: {
               title,
               description: `${match.competition.name} - Matchday ${match.matchday || 'N/A'}`,
-              category: 'Sports',
+              category: 'Football',
               subcategory: match.competition.name,
               question,
               resolveTime: matchDate,

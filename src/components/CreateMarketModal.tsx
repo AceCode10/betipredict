@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { X, Loader2, CheckCircle, AlertCircle, Lightbulb, Eye, Zap } from 'lucide-react'
 import { useTheme } from '@/contexts/ThemeContext'
+import { DEFAULT_CATEGORIES } from '@/lib/categories'
 
 interface CreateMarketModalProps {
   isOpen: boolean
@@ -21,24 +22,7 @@ const QUESTION_TEMPLATES = [
   { label: 'Multi-Option', template: '', type: 'multi-option' as QuestionType, hint: 'Multiple options, each tradable. e.g. "Who will win the Ballon d\'Or?"' },
 ]
 
-const CATEGORIES = [
-  { value: 'Sports', label: 'Sports', icon: '⚽' },
-  { value: 'Football', label: 'Football', icon: '⚽' },
-  { value: 'Basketball', label: 'Basketball', icon: '🏀' },
-  { value: 'Tennis', label: 'Tennis', icon: '🎾' },
-  { value: 'Cricket', label: 'Cricket', icon: '🏏' },
-  { value: 'Politics', label: 'Politics', icon: '🏛️' },
-  { value: 'Entertainment', label: 'Entertainment', icon: '🎬' },
-  { value: 'Music', label: 'Music', icon: '🎵' },
-  { value: 'Finance', label: 'Finance', icon: '📈' },
-  { value: 'Crypto', label: 'Crypto', icon: '₿' },
-  { value: 'Tech', label: 'Tech', icon: '💻' },
-  { value: 'Science', label: 'Science', icon: '🔬' },
-  { value: 'Weather', label: 'Weather', icon: '🌤️' },
-  { value: 'Culture', label: 'Culture', icon: '🎭' },
-  { value: 'Gaming', label: 'Gaming', icon: '🎮' },
-  { value: 'Other', label: 'Other', icon: '🌍' },
-]
+const CATEGORIES = DEFAULT_CATEGORIES
 
 export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMarketModalProps) {
   const { isDarkMode } = useTheme()
@@ -48,7 +32,7 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
 
   const [suggestionTitle, setSuggestionTitle] = useState('')
   const [suggestionDescription, setSuggestionDescription] = useState('')
-  const [suggestionCategory, setSuggestionCategory] = useState('Sports')
+  const [suggestionCategory, setSuggestionCategory] = useState('Football')
   const [suggestionQuestion, setSuggestionQuestion] = useState('')
   const [suggestionResolution, setSuggestionResolution] = useState('')
   const [suggestionResolveDate, setSuggestionResolveDate] = useState('')
