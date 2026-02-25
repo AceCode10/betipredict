@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useSession, signIn } from 'next-auth/react'
 import { useWallet, WalletConnectButton } from '@/components/WalletConnect'
 import { useContractService } from '@/lib/contracts'
@@ -49,7 +49,33 @@ interface BetItem {
 
 // Categories from shared config
 import { getNavCategories } from '@/lib/categories'
+import { getLeagueDisplayName } from '@/lib/league-names'
 const SPORTS_CATEGORIES = getNavCategories()
+
+// Hoisted constant — category slug → match patterns (avoids re-creation each render)
+const CATEGORY_MATCH_MAP: Record<string, string[]> = {
+  'football': ['sports', 'football'],
+  'premier-league': ['premier league', 'pl', 'championship', 'elc', 'epl'],
+  'la-liga': ['la liga', 'primera division', 'pd'],
+  'bundesliga': ['bundesliga', 'bl1'],
+  'serie-a': ['serie a', 'sa'],
+  'ligue-1': ['ligue 1', 'fl1'],
+  'zambia-super-league': ['zambia super league', 'zsl'],
+  'champions-league': ['champions league', 'cl', 'uefa champions league', 'ucl'],
+  'politics': ['politics'],
+  'finance': ['finance', 'stocks', 'economics'],
+  'entertainment': ['entertainment', 'movies', 'tv', 'music'],
+  'social': ['social', 'community', 'trending'],
+  'weather': ['weather', 'climate', 'temperature'],
+  'other': [],
+}
+
+const SORT_TABS = [
+  { value: 'volume', label: 'Top Volume' },
+  { value: 'match-date', label: 'Match Date' },
+  { value: 'new', label: 'New' },
+  { value: 'closing', label: 'Closing Soon' },
+] as const
 
 
 
@@ -321,18 +347,7 @@ export default function PolymarketStyleHomePage() {
     }
 
     const rawLeague = m.league || m.subcategory || m.category || ''
-    // Apply display name mapping for known leagues
-    const LEAGUE_SHORT: Record<string, string> = {
-      'Premier League': 'EPL',
-      'Serie A': 'Serie A',
-      'Ligue 1': 'Ligue 1',
-      'Primera Division': 'La Liga',
-      'La Liga': 'La Liga',
-      'Bundesliga': 'Bundesliga',
-      'UEFA Champions League': 'UCL',
-      'Champions League': 'UCL',
-    }
-    const league = LEAGUE_SHORT[rawLeague] || rawLeague
+    const league = getLeagueDisplayName(rawLeague)
     const rawDate = m.matchDate || m.resolveTime
     const matchDate = rawDate ? new Date(rawDate).toLocaleDateString() : ''
     const trend = m.trend || (m.yesPrice > 0.5 ? 'up' : 'down')
@@ -350,27 +365,9 @@ export default function PolymarketStyleHomePage() {
     return { ...m, marketType: uiType, isTri, homeTeam, awayTeam, optionA, optionB, league, matchDate, trend, change, volume, homeTeamCrest, awayTeamCrest, gameStatus, liveHomeScore, liveAwayScore, homePrice, drawPrice, awayPrice }
   }
 
-  const normalizedMarkets = markets.map(normalizeMarket)
+  const normalizedMarkets = useMemo(() => markets.map(normalizeMarket), [markets])
 
-  // Map UI category slugs to match against API subcategory/league values
-  const categoryMatchMap: Record<string, string[]> = {
-    'football': ['sports', 'football'],
-    'premier-league': ['premier league', 'pl', 'championship', 'elc', 'epl'],
-    'la-liga': ['la liga', 'primera division', 'pd'],
-    'bundesliga': ['bundesliga', 'bl1'],
-    'serie-a': ['serie a', 'sa'],
-    'ligue-1': ['ligue 1', 'fl1'],
-    'zambia-super-league': ['zambia super league', 'zsl'],
-    'champions-league': ['champions league', 'cl', 'uefa champions league', 'ucl'],
-    'politics': ['politics'],
-    'finance': ['finance', 'stocks', 'economics'],
-    'entertainment': ['entertainment', 'movies', 'tv', 'music'],
-    'social': ['social', 'community', 'trending'],
-    'weather': ['weather', 'climate', 'temperature'],
-    'other': [],
-  }
-
-  const filteredMarkets = normalizedMarkets.filter(market => {
+  const filteredMarkets = useMemo(() => normalizedMarkets.filter(market => {
     let matchesCategory = category === 'all'
     if (!matchesCategory) {
       const sub = (market.subcategory || '').toLowerCase()
@@ -385,11 +382,11 @@ export default function PolymarketStyleHomePage() {
         matchesCategory = cat === 'sports' || cat === 'football' || sportLeagues.some(t => sub.includes(t) || league.includes(t))
       } else if (category === 'other') {
         // "Other" = anything NOT in the known categories
-        const allKnown = Object.values(categoryMatchMap).flat()
+        const allKnown = Object.values(CATEGORY_MATCH_MAP).flat()
         matchesCategory = !allKnown.some(t => t && (sub.includes(t) || league.includes(t) || cat.includes(t)))
       } else {
         // Match against subcategory/league for API markets
-        const targets = categoryMatchMap[category.toLowerCase()] || [category.toLowerCase()]
+        const targets = CATEGORY_MATCH_MAP[category.toLowerCase()] || [category.toLowerCase()]
         matchesCategory = targets.some(t => sub.includes(t) || league.includes(t) || cat.includes(t))
       }
     }
@@ -408,7 +405,7 @@ export default function PolymarketStyleHomePage() {
     if (sortBy === 'closing') return new Date(a.resolveTime).getTime() - new Date(b.resolveTime).getTime()
     if (sortBy === 'match-date') return new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime()
     return 0
-  })
+  }), [normalizedMarkets, category, searchQuery, sortBy])
 
   const handleSellFromDetail = async (market: any, outcome: string, shares: number) => {
     if (!isLoggedIn && !isOnChain) { signIn(); return }
@@ -639,12 +636,7 @@ export default function PolymarketStyleHomePage() {
       <main className="max-w-[1400px] mx-auto px-3 sm:px-4 py-4">
         {/* Sort Tabs */}
         <div className="flex items-center gap-1 mb-4 overflow-x-auto no-scrollbar">
-          {[
-            { value: 'volume', label: 'Top Volume' },
-            { value: 'match-date', label: 'Match Date' },
-            { value: 'new', label: 'New' },
-            { value: 'closing', label: 'Closing Soon' }
-          ].map((tab) => (
+          {SORT_TABS.map((tab) => (
             <button
               key={tab.value}
               onClick={() => setSortBy(tab.value)}
