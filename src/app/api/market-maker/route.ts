@@ -395,7 +395,7 @@ export async function POST(request: NextRequest) {
 
     // ─── APPROVE SUGGESTION ───
     if (action === 'approve-suggestion') {
-      const { suggestionId, homePrice, drawPrice, awayPrice, category, title, question } = body
+      const { suggestionId, homePrice, drawPrice, awayPrice, category, title, question, description } = body
       if (!suggestionId) return NextResponse.json({ error: 'suggestionId required' }, { status: 400 })
 
       const suggestion = await prisma.marketSuggestion.findUnique({
@@ -417,6 +417,7 @@ export async function POST(request: NextRequest) {
       const finalTitle = (title || '').trim() || suggestion.title
       const finalQuestion = (question || '').trim() || suggestion.question
       const finalCategory = (category || '').trim() || suggestion.category
+      const finalDescription = description !== undefined ? (description || '').trim() : (suggestion.description || '')
       const isTri = dp > 0
       const marketType = isTri ? 'TRI_OUTCOME' : 'BINARY'
 
@@ -430,7 +431,7 @@ export async function POST(request: NextRequest) {
           const g = await tx.marketGroup.create({
             data: {
               title: finalTitle,
-              description: suggestion.description,
+              description: finalDescription,
               category: finalCategory,
               displayType: suggestion.questionType === 'yes-no' ? 'multi-option' : suggestion.questionType,
               icon: suggestion.questionType === 'sentiment' ? '📊' : suggestion.questionType === 'range' ? '📈' : suggestion.questionType === 'date' ? '📅' : suggestion.questionType === 'head-to-head' ? '⚔️' : '🏆',
@@ -470,7 +471,7 @@ export async function POST(request: NextRequest) {
         const newMarket = await tx.market.create({
           data: {
             title: finalTitle,
-            description: suggestion.description || '',
+            description: finalDescription,
             category: finalCategory,
             question: finalQuestion,
             resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),

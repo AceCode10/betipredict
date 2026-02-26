@@ -361,7 +361,6 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                 {questionType !== 'yes-no' ? (
                   <div className="space-y-1.5">
                     {multiOptions.filter(o => o.trim()).map((opt, i) => {
-                      const pct = Math.round(100 / Math.max(multiOptions.filter(o => o.trim()).length, 1))
                       const optStyle = questionType === 'sentiment'
                         ? (i === 0 ? (isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200')
                           : (isDarkMode ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-red-50 text-red-600 border border-red-200'))
@@ -371,7 +370,6 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                       return (
                         <div key={i} className={`flex items-center justify-between py-2 px-3 rounded-lg text-sm font-medium ${optStyle}`}>
                           <span className="truncate">{questionType === 'range' ? `↑${opt}` : opt}</span>
-                          <span className="ml-2 flex-shrink-0">{pct}%</span>
                         </div>
                       )
                     })}
@@ -379,13 +377,14 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                 ) : (
                   <div className="flex gap-2">
                     <div className={`flex-1 py-2.5 text-center rounded-lg text-sm font-semibold ${isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200'}`}>
-                      Yes 50%
+                      Yes
                     </div>
                     <div className={`flex-1 py-2.5 text-center rounded-lg text-sm font-semibold ${isDarkMode ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-red-50 text-red-600 border border-red-200'}`}>
-                      No 50%
+                      No
                     </div>
                   </div>
                 )}
+                <p className={`text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-2 italic`}>Odds will be set by the market maker after approval.</p>
                 {suggestionDescription && (
                   <p className={`text-xs ${textMuted} mt-3 leading-relaxed`}>{suggestionDescription.slice(0, 150)}{suggestionDescription.length > 150 ? '...' : ''}</p>
                 )}

@@ -108,6 +108,7 @@ export default function MarketMakerPage() {
     suggestion: Suggestion;
     prices: { home: string; draw: string; away: string };
     isTri: boolean;
+    description: string;
     category: string;
     title: string;
     question: string;
@@ -332,7 +333,7 @@ export default function MarketMakerPage() {
 
   const approveSuggestion = async () => {
     if (!suggestionModal) return
-    const { suggestion, prices, isTri, category, title, question } = suggestionModal
+    const { suggestion, prices, isTri, category, title, question, description } = suggestionModal
     const hp = parseFloat(prices.home) / 100
     const dp = isTri ? parseFloat(prices.draw) / 100 : 0
     const ap = isTri ? parseFloat(prices.away) / 100 : parseFloat(prices.away) / 100
@@ -361,6 +362,7 @@ export default function MarketMakerPage() {
           category,
           title,
           question,
+          description,
         }),
       })
       const data = await res.json()
@@ -963,6 +965,7 @@ export default function MarketMakerPage() {
                               suggestion: s,
                               prices: { home: '50', draw: '25', away: '25' },
                               isTri: false,
+                              description: s.description || '',
                               category: s.category,
                               title: s.title,
                               question: s.question,
@@ -1009,6 +1012,33 @@ export default function MarketMakerPage() {
                         onChange={e => setSuggestionModal(prev => prev ? { ...prev, question: e.target.value } : null)}
                         className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
                     </div>
+
+                    {/* Editable description */}
+                    <div className="mb-3">
+                      <label className={`text-xs ${textMuted} mb-1 block`}>Description & Rules</label>
+                      <textarea value={suggestionModal.description}
+                        onChange={e => setSuggestionModal(prev => prev ? { ...prev, description: e.target.value } : null)}
+                        rows={3}
+                        className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor} resize-none`} />
+                    </div>
+
+                    {/* Multi-option info */}
+                    {suggestionModal.suggestion.questionType && suggestionModal.suggestion.questionType !== 'yes-no' && suggestionModal.suggestion.options && (() => {
+                      try {
+                        const opts: string[] = JSON.parse(suggestionModal.suggestion.options!)
+                        return (
+                          <div className="mb-3">
+                            <label className={`text-xs ${textMuted} mb-1 block`}>Options ({suggestionModal.suggestion.questionType})</label>
+                            <div className="space-y-1">
+                              {opts.map((o, i) => (
+                                <div key={i} className={`px-3 py-1.5 text-xs rounded-lg ${isDarkMode ? 'bg-gray-700/50 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>{i + 1}. {o}</div>
+                              ))}
+                            </div>
+                            <p className={`text-[10px] ${textMuted} mt-1`}>This will create a market group with {opts.length} tradable options.</p>
+                          </div>
+                        )
+                      } catch { return null }
+                    })()}
 
                     {/* Category selector */}
                     <div className="mb-3">

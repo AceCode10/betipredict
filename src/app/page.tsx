@@ -306,7 +306,7 @@ export default function PolymarketStyleHomePage() {
   }
 
   // Abbreviate long team names to fit on buttons (max ~14 chars)
-  const abbreviateTeam = (name: string, maxLen: number = 14): string => {
+  const abbreviateTeam = (name: string, maxLen: number = 10): string => {
     if (!name || name.length <= maxLen) return name
     // Common prefixes/suffixes to strip
     const strips = [
@@ -745,22 +745,6 @@ export default function PolymarketStyleHomePage() {
                       {homePercent}%
                     </span>
                   </div>
-                  {/* Draw row (for TRI_OUTCOME markets) */}
-                  {market.isTri && (
-                    <div className="flex items-center gap-3">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
-                        isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
-                      }`}>
-                        =
-                      </div>
-                      <span className={`text-sm font-medium flex-1 truncate ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                        Draw
-                      </span>
-                      <span className={`text-sm font-bold tabular-nums ml-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                        {drawPercent}%
-                      </span>
-                    </div>
-                  )}
                   {/* Away team row */}
                   <div className="flex items-center gap-3">
                     {market.awayTeamCrest ? (
@@ -884,34 +868,34 @@ export default function PolymarketStyleHomePage() {
                   <>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'HOME' : 'YES' }) }}
-                      className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 truncate ${
+                      className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 overflow-hidden ${
                         isDarkMode
-                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 hover:border-emerald-500/60 hover:text-white'
-                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-400'
+                          ? 'bg-green-600 text-white hover:bg-green-500'
+                          : 'bg-green-600 text-white hover:bg-green-500'
                       }`}
                     >
-                      {abbreviateTeam(market.optionA)} <span className={isDarkMode ? 'text-emerald-300/70' : 'text-emerald-600/70'}>{formatPriceAsNgwee(market.homePrice ?? market.yesPrice)}</span>
+                      <span className="truncate">{abbreviateTeam(market.optionA)}</span> {formatPriceAsNgwee(market.homePrice ?? market.yesPrice)}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'DRAW' : 'YES' }) }}
                       className={`px-3 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 ${
                         isDarkMode
-                          ? 'bg-gray-500/15 text-gray-300 border border-gray-600/40 hover:bg-gray-500/25 hover:border-gray-500/60 hover:text-white'
-                          : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200 hover:border-gray-400'
+                          ? 'bg-gray-600 text-white hover:bg-gray-500'
+                          : 'bg-gray-500 text-white hover:bg-gray-400'
                       }`}
                       title={market.isTri ? 'Trade Draw outcome' : 'Draw results in market void — all traders are refunded'}
                     >
-                      Draw {market.isTri ? <span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>{formatPriceAsNgwee(market.drawPrice ?? 0.25)}</span> : ''}
+                      Draw {market.isTri ? formatPriceAsNgwee(market.drawPrice ?? 0.25) : ''}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'AWAY' : 'NO' }) }}
-                      className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 truncate ${
+                      className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 overflow-hidden ${
                         isDarkMode
-                          ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 hover:border-blue-500/60 hover:text-white'
-                          : 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-400'
+                          ? 'bg-red-600 text-white hover:bg-red-500'
+                          : 'bg-red-600 text-white hover:bg-red-500'
                       }`}
                     >
-                      {abbreviateTeam(market.optionB)} <span className={isDarkMode ? 'text-blue-300/70' : 'text-blue-600/70'}>{formatPriceAsNgwee(market.awayPrice ?? market.noPrice)}</span>
+                      <span className="truncate">{abbreviateTeam(market.optionB)}</span> {formatPriceAsNgwee(market.awayPrice ?? market.noPrice)}
                     </button>
                   </>
                 )}
