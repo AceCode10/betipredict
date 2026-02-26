@@ -63,6 +63,8 @@ interface Suggestion {
   description: string | null
   category: string
   question: string
+  questionType: string
+  options: string | null
   status: string
   createdAt: string
   suggester: { id: string; username: string; fullName: string; avatar: string | null }
@@ -254,13 +256,26 @@ export default function MarketMakerPage() {
 
   const bulkApprove = async () => {
     if (selectedIds.size === 0) return
-    const hp = parseFloat(bulkPrices.home) / 100
-    const dp = parseFloat(bulkPrices.draw) / 100
-    const ap = parseFloat(bulkPrices.away) / 100
 
-    if (hp < 0.01 || dp < 0.01 || ap < 0.01) {
-      setMessage({ type: 'error', text: 'All prices must be > 0%' })
-      return
+    // Build per-market prices: use individual priceEdits (from ODDS), fall back to bulkPrices
+    const fallbackHp = parseFloat(bulkPrices.home) / 100
+    const fallbackDp = parseFloat(bulkPrices.draw) / 100
+    const fallbackAp = parseFloat(bulkPrices.away) / 100
+
+    const marketPrices = Array.from(selectedIds).map(id => {
+      const edit = priceEdits[id]
+      if (edit && edit.home && edit.draw && edit.away) {
+        return { id, homePrice: parseFloat(edit.home) / 100, drawPrice: parseFloat(edit.draw) / 100, awayPrice: parseFloat(edit.away) / 100 }
+      }
+      return { id, homePrice: fallbackHp, drawPrice: fallbackDp, awayPrice: fallbackAp }
+    })
+
+    // Validate all prices
+    for (const mp of marketPrices) {
+      if (mp.homePrice < 0.01 || mp.drawPrice < 0.01 || mp.awayPrice < 0.01) {
+        setMessage({ type: 'error', text: 'All prices must be > 0%' })
+        return
+      }
     }
 
     setProcessing('bulk')
@@ -271,10 +286,7 @@ export default function MarketMakerPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'bulk-approve',
-          marketIds: Array.from(selectedIds),
-          homePrice: hp,
-          drawPrice: dp,
-          awayPrice: ap,
+          marketPrices,
         }),
       })
       const data = await res.json()
@@ -935,7 +947,7 @@ export default function MarketMakerPage() {
                     <div key={s.id} className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
                       <div className="flex items-start gap-4">
                         <div className="flex-1 min-w-0">
-                          <h3 className={`text-sm font-semibold ${textColor} mb-1`}>{s.title}</h3>
+                          <h3 className={`text-sm font-semibold ${textColor} mb-1`}>{s.title} {s.questionType && s.questionType !== 'yes-no' && <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${isDarkMode ? 'bg-purple-500/10 text-purple-400' : 'bg-purple-50 text-purple-600'}`}>{s.questionType}</span>}</h3>
                           <p className={`text-xs ${textMuted} mb-2 line-clamp-2`}>{s.description || s.question}</p>
                           <div className={`flex items-center gap-2 text-xs ${textMuted}`}>
                             <span>{s.category}</span>

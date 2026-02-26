@@ -22,7 +22,8 @@ function providerLabel(provider: string): string {
   switch (provider) {
     case 'MTN_MOMO': return 'MTN MoMo'
     case 'AIRTEL_MONEY': return 'Airtel Money'
-    default: return provider
+    case 'LENCO': return 'Mobile Money'
+    default: return 'Mobile Money'
   }
 }
 

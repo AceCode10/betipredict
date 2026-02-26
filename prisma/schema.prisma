@@ -24,6 +24,9 @@ model User {
   verificationTokenExpiry DateTime?
   resetPasswordToken      String?  @unique
   resetPasswordExpiry     DateTime?
+  phoneOtp                String?
+  phoneOtpExpiry          DateTime?
+  isPhoneVerified         Boolean  @default(false)
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
@@ -53,6 +56,7 @@ model MarketGroup {
   category        String
   subcategory     String?
   icon            String?   // Emoji or image URL for the group card
+  displayType     String    @default("multi-option") // multi-option, range, sentiment, date, head-to-head
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -250,6 +254,8 @@ model MarketSuggestion {
   description     String?
   category        String
   question        String
+  questionType    String   @default("yes-no") // yes-no, multi-option, range, sentiment, date, head-to-head
+  options         String?  // JSON array of option labels for multi-option types
   resolutionSource String? // How to verify the outcome
   status          String   @default("PENDING") // PENDING, APPROVED, REJECTED
   rejectionReason String?
@@ -262,6 +268,7 @@ model MarketSuggestion {
   reviewedBy      User?    @relation("AdminReviews", fields: [reviewedById], references: [id])
   reviewedAt      DateTime?
   marketId        String?  @unique // Link to market if approved and created
+  groupId         String?  @unique // Link to MarketGroup if multi-option approved
 
   @@map("market_suggestions")
 }

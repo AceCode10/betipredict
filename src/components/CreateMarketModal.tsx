@@ -11,15 +11,16 @@ interface CreateMarketModalProps {
   onMarketCreated: () => void
 }
 
-type QuestionType = 'yes-no' | 'multi-option'
+type QuestionType = 'yes-no' | 'multi-option' | 'range' | 'sentiment' | 'date' | 'head-to-head'
 
 const QUESTION_TEMPLATES = [
   { label: 'Yes/No', template: '', type: 'yes-no' as QuestionType, hint: 'Will something happen? Resolves Yes or No.' },
   { label: 'Match Winner', template: 'Who will win: {Team A} vs {Team B}?', type: 'yes-no' as QuestionType, hint: 'Pick the winner of a match.' },
-  { label: 'League Winner', template: 'Will {team} win the {league} {season}?', type: 'yes-no' as QuestionType, hint: 'Predict a league champion.' },
-  { label: 'Player Transfer', template: 'Will {player} transfer to {club} before {date}?', type: 'yes-no' as QuestionType, hint: 'Predict a player move.' },
-  { label: 'Over/Under', template: 'Will there be over {number} goals in {match}?', type: 'yes-no' as QuestionType, hint: 'Predict total goals.' },
   { label: 'Multi-Option', template: '', type: 'multi-option' as QuestionType, hint: 'Multiple options, each tradable. e.g. "Who will win the Ballon d\'Or?"' },
+  { label: 'Range', template: 'What price will {asset} hit by {date}?', type: 'range' as QuestionType, hint: 'Threshold levels. e.g. "Bitcoin above $80K?"' },
+  { label: 'Sentiment', template: '{topic} on {date}?', type: 'sentiment' as QuestionType, hint: 'Positive/Negative outcome. e.g. "ETF Flows on March 1?"' },
+  { label: 'Date', template: 'What day will {event} happen?', type: 'date' as QuestionType, hint: 'Predict the date of an event.' },
+  { label: 'Head-to-Head', template: '{Team/Player A} vs {Team/Player B}?', type: 'head-to-head' as QuestionType, hint: 'Two-way matchup without a draw option.' },
 ]
 
 const CATEGORIES = DEFAULT_CATEGORIES
@@ -85,21 +86,18 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
     setSuccess('')
 
     try {
-      const optionsStr = questionType === 'multi-option' ? multiOptions.filter(o => o.trim()).join(' | ') : ''
-      const fullDescription = [
-        suggestionDescription,
-        questionType === 'multi-option' ? `\n\nOptions: ${optionsStr}` : '',
-        questionType === 'multi-option' ? `\nQuestion Type: Multi-Option` : `\nQuestion Type: Yes/No`,
-      ].filter(Boolean).join('')
+      const cleanOptions = questionType !== 'yes-no' ? multiOptions.filter(o => o.trim()) : undefined
 
       const res = await fetch('/api/suggestions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: effectiveTitle,
-          description: fullDescription,
+          description: suggestionDescription || undefined,
           category: suggestionCategory,
           question: suggestionQuestion,
+          questionType,
+          options: cleanOptions,
           resolutionSource: suggestionResolution,
           resolveDate: suggestionResolveDate || undefined,
         })
@@ -191,15 +189,22 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                   </button>
                 ))}
               </div>
-              {questionType === 'multi-option' && (
-                <p className={`text-xs ${textMuted} mt-1.5`}>Each option will be independently tradable with its own price.</p>
+              {questionType !== 'yes-no' && (
+                <p className={`text-xs ${textMuted} mt-1.5`}>
+                  {questionType === 'multi-option' ? 'Each option will be independently tradable with its own price.' :
+                   questionType === 'range' ? 'Add price/threshold levels as options (e.g. "↑80,000", "↑75,000").' :
+                   questionType === 'sentiment' ? 'Add sentiment options (e.g. "Positive", "Negative").' :
+                   questionType === 'date' ? 'Add date options (e.g. "March 1", "March 2", "March 3").' :
+                   questionType === 'head-to-head' ? 'Add the two competitors as options.' :
+                   'Each option will be independently tradable.'}
+                </p>
               )}
             </div>
 
             {/* Question — primary input */}
             <div>
               <label className={`block text-sm font-medium ${textColor} mb-1`}>
-                {questionType === 'multi-option' ? 'Your Question *' : 'Your Yes/No Question *'}
+                {questionType === 'yes-no' ? 'Your Yes/No Question *' : 'Your Question *'}
               </label>
               <textarea
                 value={suggestionQuestion}
@@ -222,8 +227,8 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
               )}
             </div>
 
-            {/* Multi-Option inputs */}
-            {questionType === 'multi-option' && (
+            {/* Multi-Option inputs (shown for all non-yes-no types) */}
+            {questionType !== 'yes-no' && (
               <div>
                 <label className={`block text-sm font-medium ${textColor} mb-2`}>Options (min 2, max 10)</label>
                 <div className="space-y-2">
@@ -353,13 +358,19 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                   <span className={`text-xs font-semibold ${textMuted}`}>MARKET PREVIEW</span>
                 </div>
                 <h4 className={`text-sm font-semibold ${textColor} mb-3`}>{effectiveTitle}</h4>
-                {questionType === 'multi-option' ? (
+                {questionType !== 'yes-no' ? (
                   <div className="space-y-1.5">
                     {multiOptions.filter(o => o.trim()).map((opt, i) => {
                       const pct = Math.round(100 / Math.max(multiOptions.filter(o => o.trim()).length, 1))
+                      const optStyle = questionType === 'sentiment'
+                        ? (i === 0 ? (isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200')
+                          : (isDarkMode ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-red-50 text-red-600 border border-red-200'))
+                        : questionType === 'range'
+                          ? (isDarkMode ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-blue-50 text-blue-600 border border-blue-200')
+                          : (isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200')
                       return (
-                        <div key={i} className={`flex items-center justify-between py-2 px-3 rounded-lg text-sm font-medium ${isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200'}`}>
-                          <span className="truncate">{opt}</span>
+                        <div key={i} className={`flex items-center justify-between py-2 px-3 rounded-lg text-sm font-medium ${optStyle}`}>
+                          <span className="truncate">{questionType === 'range' ? `↑${opt}` : opt}</span>
                           <span className="ml-2 flex-shrink-0">{pct}%</span>
                         </div>
                       )

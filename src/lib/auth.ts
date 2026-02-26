@@ -5,33 +5,47 @@ import bcrypt from "bcryptjs"
 import { generateToken, sendVerificationEmail } from "@/lib/email"
 import { writeAuditLog } from "@/lib/audit"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { normalizePhone } from "@/lib/whatsapp-otp"
 
-// Track failed login attempts per email for account lockout
+// Track failed login attempts per identifier for account lockout
 const failedAttempts = new Map<string, { count: number; lastAttempt: number }>()
 const MAX_FAILED_ATTEMPTS = 5
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000 // 15 minutes
+
+// In-memory OTP store for signup flow (shared with send-otp route)
+export const signupOtpStore = new Map<string, { otp: string; expiry: Date }>()
+
+function isPhone(value: string): boolean {
+  const cleaned = value.replace(/[\s\-()]/g, '')
+  return /^(\+?\d{9,15}|0\d{9,12})$/.test(cleaned)
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
       name: "credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
+        email: { label: "Email or Phone", type: "text" },
         password: { label: "Password", type: "password" },
-        mode: { label: "Mode", type: "text" }
+        mode: { label: "Mode", type: "text" },
+        phone: { label: "Phone", type: "text" },
+        otp: { label: "OTP", type: "text" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          return null
-        }
+        if (!credentials?.password) return null
 
-        const email = credentials.email.trim().toLowerCase()
         const password = credentials.password
         const mode = credentials.mode || 'signin'
+        const rawPhone = credentials.phone?.trim()
+        const rawEmail = credentials.email?.trim().toLowerCase()
+        const otp = credentials.otp?.trim()
 
-        // Email validation
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-          throw new Error('Invalid email format')
+        // Determine if this is phone-based or email-based auth
+        const usePhone = !!rawPhone && isPhone(rawPhone)
+        const identifier = usePhone ? normalizePhone(rawPhone!) : rawEmail || ''
+
+        if (!identifier) {
+          throw new Error('Phone number or email is required')
         }
 
         // Password validation
@@ -39,76 +53,116 @@ export const authOptions: NextAuthOptions = {
           throw new Error('Password must be at least 6 characters')
         }
 
-        // Rate limit: 10 auth attempts per minute per email
-        const rl = checkRateLimit(`auth:${email}`, 10, 60_000)
+        // Rate limit
+        const rl = checkRateLimit(`auth:${identifier}`, 10, 60_000)
         if (!rl.allowed) {
           throw new Error('Too many attempts. Please wait before trying again.')
         }
 
         // Account lockout check
-        const failed = failedAttempts.get(email)
+        const failed = failedAttempts.get(identifier)
         if (failed && failed.count >= MAX_FAILED_ATTEMPTS) {
           const elapsed = Date.now() - failed.lastAttempt
           if (elapsed < LOCKOUT_DURATION_MS) {
             const minutesLeft = Math.ceil((LOCKOUT_DURATION_MS - elapsed) / 60000)
             throw new Error(`Account temporarily locked. Try again in ${minutesLeft} minute(s).`)
           }
-          failedAttempts.delete(email) // Lockout expired
+          failedAttempts.delete(identifier)
         }
 
-        let user = await prisma.user.findUnique({
-          where: { email }
-        })
-
         if (mode === 'signup') {
-          // Sign Up: create new account
-          if (user) {
-            throw new Error('An account with this email already exists')
-          }
+          // ── SIGN UP ──
+          if (usePhone) {
+            // Phone-based signup: require OTP verification
+            if (!otp) throw new Error('OTP verification code is required')
 
-          const hashedPassword = await bcrypt.hash(password, 12)
-          const verificationToken = generateToken()
-          const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000)
-
-          user = await prisma.user.create({
-            data: {
-              email,
-              password: hashedPassword,
-              username: email.split('@')[0] + '_' + Date.now().toString(36),
-              fullName: email.split('@')[0],
-              balance: 0, // No free signup bonus — users must deposit real money
-              isVerified: false,
-              verificationToken,
-              verificationTokenExpiry,
+            // Check OTP from the in-memory store (set by send-otp route)
+            const { otpStore } = await import('@/app/api/auth/send-otp/route')
+            const stored = otpStore.get(identifier)
+            if (!stored) throw new Error('No OTP found. Please request a new code.')
+            if (new Date() > stored.expiry) {
+              otpStore.delete(identifier)
+              throw new Error('OTP has expired. Please request a new code.')
             }
-          })
+            const otpValid = await bcrypt.compare(otp, stored.otp)
+            if (!otpValid) throw new Error('Invalid OTP code')
+            otpStore.delete(identifier)
 
-          // Send verification email (fire-and-forget)
-          sendVerificationEmail(email, verificationToken).catch(err =>
-            console.error('[Auth] Failed to send verification email:', err)
-          )
+            // Check if phone already registered
+            const existing = await prisma.user.findUnique({ where: { phone: identifier } })
+            if (existing) throw new Error('An account with this phone number already exists')
 
-          writeAuditLog({
-            action: 'USER_SIGNUP',
-            category: 'USER',
-            details: { email, userId: user.id },
-            actorId: user.id,
-          })
+            const hashedPassword = await bcrypt.hash(password, 12)
+            const phoneDigits = identifier.replace(/\D/g, '').slice(-6)
+            const user = await prisma.user.create({
+              data: {
+                email: rawEmail || `${phoneDigits}_${Date.now().toString(36)}@phone.betipredict.com`,
+                phone: identifier,
+                password: hashedPassword,
+                username: 'user_' + Date.now().toString(36),
+                fullName: rawEmail?.split('@')[0] || `User ${phoneDigits}`,
+                balance: 0,
+                isVerified: true,
+                isPhoneVerified: true,
+              }
+            })
+
+            writeAuditLog({ action: 'USER_SIGNUP', category: 'USER', details: { phone: identifier, userId: user.id }, actorId: user.id })
+
+            return { id: user.id, email: user.email, name: user.fullName, username: user.username }
+          } else {
+            // Email-based signup (legacy flow)
+            if (!rawEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) {
+              throw new Error('Invalid email format')
+            }
+            const existing = await prisma.user.findUnique({ where: { email: rawEmail } })
+            if (existing) throw new Error('An account with this email already exists')
+
+            const hashedPassword = await bcrypt.hash(password, 12)
+            const verificationToken = generateToken()
+            const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000)
+
+            const user = await prisma.user.create({
+              data: {
+                email: rawEmail,
+                password: hashedPassword,
+                username: rawEmail.split('@')[0] + '_' + Date.now().toString(36),
+                fullName: rawEmail.split('@')[0],
+                balance: 0,
+                isVerified: false,
+                verificationToken,
+                verificationTokenExpiry,
+              }
+            })
+
+            sendVerificationEmail(rawEmail, verificationToken).catch(err =>
+              console.error('[Auth] Failed to send verification email:', err)
+            )
+
+            writeAuditLog({ action: 'USER_SIGNUP', category: 'USER', details: { email: rawEmail, userId: user.id }, actorId: user.id })
+
+            return { id: user.id, email: user.email, name: user.fullName, username: user.username }
+          }
         } else {
-          // Sign In: verify existing account
-          if (!user) {
-            throw new Error('No account found with this email')
+          // ── SIGN IN ──
+          let user
+          if (usePhone) {
+            user = await prisma.user.findUnique({ where: { phone: identifier } })
+            if (!user) throw new Error('No account found with this phone number')
+          } else {
+            if (!rawEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) {
+              throw new Error('Invalid email format')
+            }
+            user = await prisma.user.findUnique({ where: { email: rawEmail } })
+            if (!user) throw new Error('No account found with this email')
           }
 
-          if (!user.password) {
-            throw new Error('Please reset your password')
-          }
+          if (!user.password) throw new Error('Please reset your password')
 
           const isPasswordValid = await bcrypt.compare(password, user.password)
           if (!isPasswordValid) {
-            // Track failed attempt
-            const current = failedAttempts.get(email) || { count: 0, lastAttempt: 0 }
-            failedAttempts.set(email, { count: current.count + 1, lastAttempt: Date.now() })
+            const current = failedAttempts.get(identifier) || { count: 0, lastAttempt: 0 }
+            failedAttempts.set(identifier, { count: current.count + 1, lastAttempt: Date.now() })
             const remaining = MAX_FAILED_ATTEMPTS - current.count - 1
             if (remaining <= 0) {
               throw new Error('Account temporarily locked due to too many failed attempts. Try again in 15 minutes.')
@@ -116,22 +170,11 @@ export const authOptions: NextAuthOptions = {
             throw new Error('Incorrect password')
           }
 
-          // Clear failed attempts on successful login
-          failedAttempts.delete(email)
+          failedAttempts.delete(identifier)
 
-          writeAuditLog({
-            action: 'USER_LOGIN',
-            category: 'USER',
-            details: { email, userId: user.id },
-            actorId: user.id,
-          })
-        }
+          writeAuditLog({ action: 'USER_LOGIN', category: 'USER', details: { identifier, userId: user.id }, actorId: user.id })
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.fullName,
-          username: user.username,
+          return { id: user.id, email: user.email, name: user.fullName, username: user.username }
         }
       }
     })

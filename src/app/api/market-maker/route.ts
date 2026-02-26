@@ -167,35 +167,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Market approved', market: updated })
     }
 
-    // ─── BULK APPROVE ───
+    // ─── BULK APPROVE (per-market prices) ───
     if (action === 'bulk-approve') {
-      const { marketIds, homePrice, drawPrice, awayPrice } = body
-      if (!Array.isArray(marketIds) || marketIds.length === 0) {
-        return NextResponse.json({ error: 'marketIds array required' }, { status: 400 })
+      const { marketPrices } = body
+      if (!Array.isArray(marketPrices) || marketPrices.length === 0) {
+        return NextResponse.json({ error: 'marketPrices array required' }, { status: 400 })
       }
 
-      const hp = parseFloat(homePrice)
-      const dp = parseFloat(drawPrice)
-      const ap = parseFloat(awayPrice)
-
-      if (isNaN(hp) || isNaN(dp) || isNaN(ap)) {
-        return NextResponse.json({ error: 'All three prices are required' }, { status: 400 })
-      }
-      if (hp + dp + ap > 1.0) {
-        return NextResponse.json({ error: `Prices sum to ${((hp + dp + ap) * 100).toFixed(0)}% which exceeds 100%. Reduce prices before approving.` }, { status: 400 })
-      }
-
-      const result = await prisma.market.updateMany({
-        where: { id: { in: marketIds }, status: 'PENDING_APPROVAL' },
-        data: {
-          status: 'ACTIVE',
-          yesPrice: hp,
-          noPrice: ap,
-          drawPrice: dp,
+      // Validate each market's prices
+      for (const mp of marketPrices) {
+        if (!mp.id || isNaN(mp.homePrice) || isNaN(mp.drawPrice) || isNaN(mp.awayPrice)) {
+          return NextResponse.json({ error: `Invalid prices for market ${mp.id}` }, { status: 400 })
         }
-      })
+        if (mp.homePrice + mp.drawPrice + mp.awayPrice > 1.05) {
+          return NextResponse.json({ error: `Prices for market ${mp.id} sum to ${((mp.homePrice + mp.drawPrice + mp.awayPrice) * 100).toFixed(0)}% which exceeds 100%` }, { status: 400 })
+        }
+      }
 
-      return NextResponse.json({ message: `Approved ${result.count} markets` })
+      // Approve each market with its individual prices
+      let approved = 0
+      for (const mp of marketPrices) {
+        try {
+          await prisma.market.update({
+            where: { id: mp.id, status: 'PENDING_APPROVAL' },
+            data: {
+              status: 'ACTIVE',
+              yesPrice: mp.homePrice,
+              noPrice: mp.awayPrice,
+              drawPrice: mp.drawPrice,
+            }
+          })
+          approved++
+        } catch {
+          // Skip markets that don't exist or aren't pending
+        }
+      }
+
+      return NextResponse.json({ message: `Approved ${approved} markets with individual prices` })
     }
 
     // ─── DENY MARKET ───
@@ -412,7 +420,52 @@ export async function POST(request: NextRequest) {
       const isTri = dp > 0
       const marketType = isTri ? 'TRI_OUTCOME' : 'BINARY'
 
-      // Create market from suggestion
+      // Check if this is a multi-option suggestion
+      const isMulti = suggestion.questionType !== 'yes-no' && suggestion.options
+
+      if (isMulti) {
+        // Multi-option: create MarketGroup + child Markets
+        const options: string[] = JSON.parse(suggestion.options!)
+        const group = await prisma.$transaction(async (tx) => {
+          const g = await tx.marketGroup.create({
+            data: {
+              title: finalTitle,
+              description: suggestion.description,
+              category: finalCategory,
+              displayType: suggestion.questionType === 'yes-no' ? 'multi-option' : suggestion.questionType,
+              icon: suggestion.questionType === 'sentiment' ? '📊' : suggestion.questionType === 'range' ? '📈' : suggestion.questionType === 'date' ? '📅' : suggestion.questionType === 'head-to-head' ? '⚔️' : '🏆',
+              creatorId: suggestion.suggesterId,
+            }
+          })
+          for (const opt of options) {
+            await tx.market.create({
+              data: {
+                title: opt,
+                question: `${finalTitle} — ${opt}`,
+                description: `Option "${opt}" for: ${finalTitle}`,
+                category: finalCategory,
+                resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                creatorId: suggestion.suggesterId,
+                groupId: g.id,
+                status: 'ACTIVE',
+                marketType: 'BINARY',
+                pricingEngine: 'CLOB',
+                liquidity: 0,
+                yesPrice: 0.5,
+                noPrice: 0.5,
+              }
+            })
+          }
+          await tx.marketSuggestion.update({
+            where: { id: suggestionId },
+            data: { status: 'APPROVED', groupId: g.id, title: finalTitle, question: finalQuestion, category: finalCategory }
+          })
+          return g
+        })
+        return NextResponse.json({ message: `Suggestion approved as group with ${options.length} options`, group })
+      }
+
+      // Single market (yes/no or tri-outcome)
       const market = await prisma.$transaction(async (tx) => {
         const newMarket = await tx.market.create({
           data: {
@@ -420,7 +473,7 @@ export async function POST(request: NextRequest) {
             description: suggestion.description || '',
             category: finalCategory,
             question: finalQuestion,
-            resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 days
+            resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             creatorId: suggestion.suggesterId,
             status: 'ACTIVE',
             pricingEngine: 'CLOB',
@@ -432,18 +485,10 @@ export async function POST(request: NextRequest) {
             volume: 0,
           }
         })
-
         await tx.marketSuggestion.update({
           where: { id: suggestionId },
-          data: {
-            status: 'APPROVED',
-            marketId: newMarket.id,
-            title: finalTitle,
-            question: finalQuestion,
-            category: finalCategory,
-          }
+          data: { status: 'APPROVED', marketId: newMarket.id, title: finalTitle, question: finalQuestion, category: finalCategory }
         })
-
         return newMarket
       })
 

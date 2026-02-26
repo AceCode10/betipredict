@@ -10,6 +10,7 @@ import { PriceChart } from '@/components/PriceChart'
 import { Header } from '@/components/Header'
 import { Logo } from '@/components/Logo'
 import { CreateMarketModal } from '@/components/CreateMarketModal'
+import { GroupMarketCard } from '@/components/GroupMarketCard'
 import { HowItWorksModal } from '@/components/HowItWorksModal'
 import { WithdrawModal } from '@/components/WithdrawModal'
 import { LiveBetToast, type LiveTradeToast } from '@/components/LiveBetToast'
@@ -84,6 +85,7 @@ export default function PolymarketStyleHomePage() {
   const { isConnected, account, chainId } = useWallet()
   const { isDarkMode } = useTheme()
   const [markets, setMarkets] = useState<any[]>([])
+  const [marketGroups, setMarketGroups] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [category, setCategory] = useState<string>('all')
   const [userBalance, setUserBalance] = useState<number>(0)
@@ -217,14 +219,22 @@ export default function PolymarketStyleHomePage() {
     }
   }, [detailTab, showChart?.marketId])
 
-  // Load markets from API
+  // Load markets + market groups from API
   const loadMarkets = useCallback(async (showLoader = true) => {
     if (showLoader) setLoading(true)
     try {
-      const response = await fetch('/api/markets')
-      if (!response.ok) throw new Error('Failed to load markets')
-      const apiMarkets = await response.json()
-      setMarkets(apiMarkets)
+      const [marketsRes, groupsRes] = await Promise.all([
+        fetch('/api/markets'),
+        fetch('/api/market-groups'),
+      ])
+      if (marketsRes.ok) {
+        const apiMarkets = await marketsRes.json()
+        setMarkets(apiMarkets)
+      }
+      if (groupsRes.ok) {
+        const apiGroups = await groupsRes.json()
+        setMarketGroups(apiGroups.filter((g: any) => g.markets && g.markets.length > 0))
+      }
     } catch (loadError) {
       console.error('Failed to load markets:', loadError)
     } finally {
@@ -406,6 +416,27 @@ export default function PolymarketStyleHomePage() {
     if (sortBy === 'match-date') return new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime()
     return 0
   }), [normalizedMarkets, category, searchQuery, sortBy])
+
+  // Filter market groups by category and search
+  const filteredGroups = useMemo(() => marketGroups.filter(group => {
+    let matchesCategory = category === 'all'
+    if (!matchesCategory) {
+      const cat = (group.category || '').toLowerCase()
+      if (cat === category || cat === category.toLowerCase()) {
+        matchesCategory = true
+      } else {
+        const targets = CATEGORY_MATCH_MAP[category.toLowerCase()] || [category.toLowerCase()]
+        matchesCategory = targets.some(t => cat.includes(t))
+      }
+    }
+    const q = searchQuery.toLowerCase()
+    const matchesSearch = !searchQuery ||
+      group.title.toLowerCase().includes(q) ||
+      (group.description || '').toLowerCase().includes(q) ||
+      (group.category || '').toLowerCase().includes(q) ||
+      group.markets.some((m: any) => m.title.toLowerCase().includes(q))
+    return matchesCategory && matchesSearch
+  }), [marketGroups, category, searchQuery])
 
   const handleSellFromDetail = async (market: any, outcome: string, shares: number) => {
     if (!isLoggedIn && !isOnChain) { signIn(); return }
@@ -662,6 +693,9 @@ export default function PolymarketStyleHomePage() {
 
         {/* Markets Grid — exclude markets already shown in the Live banner */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {filteredGroups.map((g) => (
+            <GroupMarketCard key={`grp-${g.id}`} group={g} onOptionClick={(mid) => setShowChart({ marketId: mid, outcome: 'YES' })} />
+          ))}
           {filteredMarkets.filter(m => !liveMarketIds.has(m.id)).map((market) => {
             const yesPercent = Math.round(market.yesPrice * 100)
             const noPercent = Math.round(market.noPrice * 100)
@@ -834,13 +868,13 @@ export default function PolymarketStyleHomePage() {
                   <>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'YES' }) }}
-                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200`}
+                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 hover:text-white transition-all duration-200`}
                     >
                       Yes
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: 'NO' }) }}
-                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50 transition-all duration-200`}
+                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50 hover:text-white transition-all duration-200`}
                     >
                       No
                     </button>
@@ -852,7 +886,7 @@ export default function PolymarketStyleHomePage() {
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'HOME' : 'YES' }) }}
                       className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 truncate ${
                         isDarkMode
-                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 hover:border-emerald-500/60'
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 hover:border-emerald-500/60 hover:text-white'
                           : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-400'
                       }`}
                     >
@@ -862,7 +896,7 @@ export default function PolymarketStyleHomePage() {
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'DRAW' : 'YES' }) }}
                       className={`px-3 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 ${
                         isDarkMode
-                          ? 'bg-gray-500/15 text-gray-300 border border-gray-600/40 hover:bg-gray-500/25 hover:border-gray-500/60'
+                          ? 'bg-gray-500/15 text-gray-300 border border-gray-600/40 hover:bg-gray-500/25 hover:border-gray-500/60 hover:text-white'
                           : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200 hover:border-gray-400'
                       }`}
                       title={market.isTri ? 'Trade Draw outcome' : 'Draw results in market void — all traders are refunded'}
@@ -873,7 +907,7 @@ export default function PolymarketStyleHomePage() {
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'AWAY' : 'NO' }) }}
                       className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 truncate ${
                         isDarkMode
-                          ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 hover:border-blue-500/60'
+                          ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 hover:border-blue-500/60 hover:text-white'
                           : 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-400'
                       }`}
                     >
@@ -908,7 +942,7 @@ export default function PolymarketStyleHomePage() {
         </div>
 
         {/* Empty State */}
-        {filteredMarkets.filter(m => !liveMarketIds.has(m.id)).length === 0 && !loading && (
+        {filteredMarkets.filter(m => !liveMarketIds.has(m.id)).length === 0 && filteredGroups.length === 0 && !loading && (
           <div className="text-center py-16">
             <div className={`${textMuted} text-5xl mb-4`}>⚽</div>
             <p className={`${textMuted} text-sm`}>No markets found in this category</p>

@@ -21,7 +21,12 @@ export async function GET(request: NextRequest) {
 
     const where: any = {}
     if (category) where.category = category
-    if (status) where.status = status
+    if (status) {
+      where.status = status
+    } else {
+      // Default: only fetch ACTIVE markets (avoids fetching 100+ pending markets that get filtered out)
+      where.status = 'ACTIVE'
+    }
 
     const markets = await prisma.market.findMany({
       where,

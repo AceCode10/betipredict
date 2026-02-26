@@ -89,12 +89,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Question must be 10-300 characters' }, { status: 400 })
     }
 
+    // Parse questionType and options for multi-option markets
+    const questionType = body.questionType || 'yes-no'
+    const validTypes = ['yes-no', 'multi-option', 'range', 'sentiment', 'date', 'head-to-head']
+    const finalQType = validTypes.includes(questionType) ? questionType : 'yes-no'
+    let optionsJson: string | null = null
+    if (finalQType !== 'yes-no' && Array.isArray(body.options)) {
+      const sanitizedOpts = body.options.map((o: string) => sanitizeString(String(o || ''), 200).trim()).filter((o: string) => o.length > 0)
+      if (sanitizedOpts.length >= 2) {
+        optionsJson = JSON.stringify(sanitizedOpts)
+      }
+    }
+
     const suggestion = await prisma.marketSuggestion.create({
       data: {
         title: title.trim(),
         description,
         category: category.trim(),
         question: question.trim(),
+        questionType: finalQType,
+        options: optionsJson,
         resolutionSource,
         suggesterId: session.user.id,
         status: 'PENDING',
@@ -178,40 +192,100 @@ export async function PUT(request: NextRequest) {
       }
     })
 
-    // If approved, create the market as PENDING_APPROVAL for Market Maker to set prices
+    // If approved, create market(s) based on questionType
     if (action === 'APPROVED') {
-      const market = await prisma.market.create({
-        data: {
-          title: finalTitle,
-          description: finalDescription,
-          category: finalCategory,
-          question: finalQuestion,
-          creatorId: suggestion.suggesterId,
-          status: 'PENDING_APPROVAL',
-          resolveTime: finalResolveTime,
-          pricingEngine: 'CLOB',
-          liquidity: 0,
-          yesPrice: 0.5,
-          noPrice: 0.5,
-        }
-      })
+      const isMultiOption = suggestion.questionType !== 'yes-no' && suggestion.options
 
-      // Link market to suggestion
-      await prisma.marketSuggestion.update({
-        where: { id: suggestionId },
-        data: { marketId: market.id }
-      })
+      if (isMultiOption) {
+        // Multi-option: create MarketGroup + child Markets
+        const options: string[] = JSON.parse(suggestion.options!)
+        const group = await prisma.marketGroup.create({
+          data: {
+            title: finalTitle,
+            description: finalDescription,
+            category: finalCategory,
+            icon: suggestion.questionType === 'sentiment' ? '📊'
+              : suggestion.questionType === 'range' ? '📈'
+              : suggestion.questionType === 'date' ? '📅'
+              : suggestion.questionType === 'head-to-head' ? '⚔️'
+              : '🏆',
+            displayType: suggestion.questionType === 'yes-no' ? 'multi-option' : suggestion.questionType,
+            creatorId: suggestion.suggesterId,
+          }
+        })
 
-      // Notify the suggester
-      await prisma.notification.create({
-        data: {
-          userId: suggestion.suggesterId,
-          type: 'SUGGESTION_APPROVED',
-          title: 'Market Suggestion Approved!',
-          message: `Your suggestion "${finalTitle}" has been approved and is now live.`,
-          metadata: JSON.stringify({ marketId: market.id }),
+        // Create child binary markets for each option
+        for (const option of options) {
+          await prisma.market.create({
+            data: {
+              title: option,
+              question: `${finalTitle} — ${option}`,
+              description: `Option "${option}" for: ${finalTitle}`,
+              category: finalCategory,
+              resolveTime: finalResolveTime,
+              creatorId: suggestion.suggesterId,
+              groupId: group.id,
+              status: 'ACTIVE',
+              marketType: 'BINARY',
+              pricingEngine: 'CLOB',
+              liquidity: 0,
+              yesPrice: 0.5,
+              noPrice: 0.5,
+            }
+          })
         }
-      })
+
+        // Link group to suggestion
+        await prisma.marketSuggestion.update({
+          where: { id: suggestionId },
+          data: { groupId: group.id }
+        })
+
+        // Notify the suggester
+        await prisma.notification.create({
+          data: {
+            userId: suggestion.suggesterId,
+            type: 'SUGGESTION_APPROVED',
+            title: 'Market Suggestion Approved!',
+            message: `Your suggestion "${finalTitle}" has been approved with ${options.length} options.`,
+            metadata: JSON.stringify({ groupId: group.id }),
+          }
+        })
+      } else {
+        // Binary yes/no: create single Market
+        const market = await prisma.market.create({
+          data: {
+            title: finalTitle,
+            description: finalDescription,
+            category: finalCategory,
+            question: finalQuestion,
+            creatorId: suggestion.suggesterId,
+            status: 'PENDING_APPROVAL',
+            resolveTime: finalResolveTime,
+            pricingEngine: 'CLOB',
+            liquidity: 0,
+            yesPrice: 0.5,
+            noPrice: 0.5,
+          }
+        })
+
+        // Link market to suggestion
+        await prisma.marketSuggestion.update({
+          where: { id: suggestionId },
+          data: { marketId: market.id }
+        })
+
+        // Notify the suggester
+        await prisma.notification.create({
+          data: {
+            userId: suggestion.suggesterId,
+            type: 'SUGGESTION_APPROVED',
+            title: 'Market Suggestion Approved!',
+            message: `Your suggestion "${finalTitle}" has been approved and is now live.`,
+            metadata: JSON.stringify({ marketId: market.id }),
+          }
+        })
+      }
     } else {
       // Notify rejection
       await prisma.notification.create({
