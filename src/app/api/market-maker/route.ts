@@ -7,6 +7,9 @@ import { fetchOddsForLeague, findMatchOdds, isOddsApiConfigured, type MatchOdds 
 import { LEAGUE_DISPLAY_NAMES } from '@/lib/league-names'
 import crypto from 'crypto'
 
+// Allow longer execution for sync + refresh-odds (external API calls)
+export const maxDuration = 60
+
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase())
 
 async function requireAdmin(request?: NextRequest) {
@@ -505,9 +508,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Odds API not configured' }, { status: 503 })
       }
 
-      // Get all pending markets with scheduledGame data
+      // Get all pending markets with scheduledGame data (no marketType filter — older markets may have BINARY default)
       const pendingWithGames = await prisma.market.findMany({
-        where: { status: 'PENDING_APPROVAL', marketType: 'TRI_OUTCOME' },
+        where: { status: 'PENDING_APPROVAL' },
         include: {
           scheduledGame: {
             select: { competitionCode: true, homeTeam: true, awayTeam: true, utcDate: true }
@@ -551,24 +554,33 @@ export async function POST(request: NextRequest) {
               yesPrice: matchOdds.homePrice,
               drawPrice: matchOdds.drawPrice,
               noPrice: matchOdds.awayPrice,
+              marketType: 'TRI_OUTCOME', // Ensure correct type
             }
           })
           updated++
         } else {
-          // Set sane defaults if still at Prisma defaults (0.5/0.5/null)
-          if (market.yesPrice === 0.5 && market.noPrice === 0.5) {
-            await prisma.market.update({
-              where: { id: market.id },
-              data: { yesPrice: 0.33, drawPrice: 0.33, noPrice: 0.33 }
-            })
-            updated++
+          // Set sane defaults if still at Prisma defaults (0.5/0.5) or uniform 0.33
+          const isDefault = (
+            (market.yesPrice === 0.5 && market.noPrice === 0.5) ||
+            (Math.round(market.yesPrice * 100) === 33 && Math.round(market.noPrice * 100) === 33)
+          )
+          if (isDefault) {
+            // Already at defaults, no odds available — count but don't re-update
+            noOdds++
           } else {
             noOdds++
           }
         }
       }
 
-      return NextResponse.json({ message: `Refreshed odds: ${updated} updated, ${noOdds} no odds found`, updated, noOdds })
+      return NextResponse.json({
+        message: updated > 0
+          ? `Refreshed odds: ${updated} updated with real odds, ${noOdds} no odds available`
+          : `Found ${pendingWithGames.length} pending markets but no odds available from API. Markets keep current prices.`,
+        updated,
+        noOdds,
+        total: pendingWithGames.length,
+      })
     }
 
     // ─── MANAGE CATEGORIES ───

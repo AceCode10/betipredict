@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { FEES } from '@/lib/fees'
-import { generateLencoRef, isLencoConfigured, getLencoPublicKey, initializeCollection } from '@/lib/lenco'
+import { generateLencoRef, isLencoConfigured, getLencoPublicKey } from '@/lib/lenco'
 import { checkRateLimit } from '@/lib/rate-limit'
 
 /**
@@ -32,8 +32,6 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const amount = Number(body.amount)
-    const phoneNumber = typeof body.phoneNumber === 'string' ? body.phoneNumber.trim() : ''
-    const channel = typeof body.channel === 'string' ? body.channel : ''
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 })
@@ -51,21 +49,19 @@ export async function POST(request: NextRequest) {
     }
 
     const reference = generateLencoRef('DEP')
-    const maskedPhone = phoneNumber ? phoneNumber.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2') : 'via-lenco'
-    const channels = channel === 'mobile-money' ? ['mobile-money'] : channel === 'card' ? ['card'] : ['card', 'mobile-money']
 
-    // Create pending payment record
+    // Create pending payment record (phone/card details collected by Lenco widget)
     const payment = await prisma.mobilePayment.create({
       data: {
         type: 'DEPOSIT',
         amount,
         feeAmount: 0,
         netAmount: amount,
-        phoneNumber: maskedPhone,
+        phoneNumber: 'via-lenco',
         provider: 'LENCO',
         externalRef: reference,
         status: 'PENDING',
-        expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 min for card payments
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 min
         userId: session.user.id,
       }
     })
@@ -73,46 +69,19 @@ export async function POST(request: NextRequest) {
     const firstName = user.fullName?.split(' ')[0] || user.username || ''
     const lastName = user.fullName?.split(' ').slice(1).join(' ') || ''
 
-    // Call Lenco API to initialize collection (get checkout URL)
-    let checkoutUrl: string | null = null
-    let lencoData: any = null
-    try {
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://betipredict.com'
-      lencoData = await initializeCollection({
-        amount,
-        email: user.email,
-        reference,
-        callbackUrl: `${baseUrl}?deposit=success`,
-        phoneNumber: phoneNumber || undefined,
-        channels,
-        customer: { firstName, lastName },
-      })
-      checkoutUrl = lencoData?.data?.checkoutUrl || lencoData?.data?.authorization_url || lencoData?.data?.link || null
+    console.log(`[Lenco] Initialized payment: K${amount} for user ${session.user.id}, ref: ${reference}`)
 
-      // Update payment with external ID if provided
-      if (lencoData?.data?.id) {
-        await prisma.mobilePayment.update({
-          where: { id: payment.id },
-          data: { externalId: lencoData.data.id }
-        })
-      }
-    } catch (err: any) {
-      console.warn(`[Lenco] API initialize failed (widget fallback available):`, err.message)
-      // Non-fatal: widget can still work without server-side initialization
-    }
-
-    console.log(`[Lenco] Initialized payment: K${amount} for user ${session.user.id}, ref: ${reference}${checkoutUrl ? ', checkoutUrl: ' + checkoutUrl : ''}`)
-
+    // Return reference + public key for the Lenco popup widget
+    // The widget handles payment method selection, phone input, and card details
     return NextResponse.json({
       reference,
       paymentId: payment.id,
       publicKey: getLencoPublicKey(),
       amount,
       currency: 'ZMW',
-      email: user.email,
+      email: user.email || '',
       firstName,
       lastName,
-      checkoutUrl,
     })
   } catch (error: any) {
     console.error('[Lenco Initialize] Error:', error)

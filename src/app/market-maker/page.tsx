@@ -309,7 +309,10 @@ export default function MarketMakerPage() {
       })
       await loadData()
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.message })
+      const msg = err.message === 'Failed to fetch'
+        ? 'Request timed out. Try syncing a single league instead of all.'
+        : err.message
+      setMessage({ type: 'error', text: msg })
     } finally {
       setSyncing(false)
     }
