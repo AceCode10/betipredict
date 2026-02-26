@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getMatchesForLeagues, FREE_TIER_COMPS, type CompetitionCode } from '@/lib/sports-api'
+import { fetchOddsForLeague, findMatchOdds, isOddsApiConfigured, type MatchOdds } from '@/lib/odds-api'
+import { LEAGUE_DISPLAY_NAMES } from '@/lib/league-names'
 import crypto from 'crypto'
 
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase())
@@ -253,7 +255,24 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      let created = 0, skipped = 0
+      // Fetch odds for each league (if Odds API is configured)
+      const oddsMap = new Map<string, MatchOdds[]>()
+      let oddsCount = 0
+      if (isOddsApiConfigured()) {
+        for (const lg of leagues) {
+          try {
+            const odds = await fetchOddsForLeague(lg)
+            if (odds.length > 0) {
+              oddsMap.set(lg, odds)
+              oddsCount += odds.length
+            }
+          } catch (err: any) {
+            console.warn(`[market-maker sync] Failed to fetch odds for ${lg}:`, err.message)
+          }
+        }
+      }
+
+      let created = 0, skipped = 0, oddsApplied = 0
       const errors: string[] = []
 
       for (const match of matches) {
@@ -281,11 +300,36 @@ export async function POST(request: NextRequest) {
           const title = `${homeShort} vs ${awayShort}`
           const question = `Who will win: ${match.homeTeam.name} vs ${match.awayTeam.name}?`
 
+          // Look up odds for this match
+          const leagueCode = match.competition.code || ''
+          const leagueOdds = oddsMap.get(leagueCode as string) || []
+          const matchOdds = findMatchOdds(
+            leagueOdds,
+            match.homeTeam.name,
+            match.awayTeam.name,
+            matchDate
+          )
+
+          // Use odds-based pricing if available, otherwise default 0.33/0.33/0.33
+          let yesPrice = 0.33
+          let noPrice = 0.33
+          let drawPrice = 0.33
+
+          if (matchOdds) {
+            yesPrice = matchOdds.homePrice
+            drawPrice = matchOdds.drawPrice
+            noPrice = matchOdds.awayPrice
+            oddsApplied++
+            console.log(`[market-maker sync] Odds for ${title}: H=${yesPrice.toFixed(2)} D=${drawPrice.toFixed(2)} A=${noPrice.toFixed(2)}`)
+          }
+
+          const displayLeague = LEAGUE_DISPLAY_NAMES[match.competition.name] || match.competition.name
+
           await prisma.$transaction(async (tx) => {
             const newMarket = await tx.market.create({
               data: {
                 title,
-                description: `${match.competition.name} - Matchday ${match.matchday || 'N/A'}`,
+                description: `${displayLeague} - Matchday ${match.matchday || 'N/A'}`,
                 category: 'Football',
                 subcategory: match.competition.name,
                 question,
@@ -294,14 +338,14 @@ export async function POST(request: NextRequest) {
                 status: 'PENDING_APPROVAL',
                 marketType: 'TRI_OUTCOME',
                 pricingEngine: 'CLOB',
-                yesPrice: 0.33,
-                noPrice: 0.33,
-                drawPrice: 0.33,
+                yesPrice,
+                noPrice,
+                drawPrice,
                 liquidity: 0,
                 volume: 0,
                 homeTeam: homeShort,
                 awayTeam: awayShort,
-                league: match.competition.name,
+                league: displayLeague,
               }
             })
 
@@ -335,7 +379,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return NextResponse.json({ message: `Synced ${leagues.join(',')}`, created, skipped, errors, leagues })
+      return NextResponse.json({ message: `Synced ${leagues.join(',')}`, created, skipped, oddsApplied, oddsCount, errors, leagues })
     }
 
     // ─── APPROVE SUGGESTION ───

@@ -665,9 +665,9 @@ export default function PolymarketStyleHomePage() {
           {filteredMarkets.filter(m => !liveMarketIds.has(m.id)).map((market) => {
             const yesPercent = Math.round(market.yesPrice * 100)
             const noPercent = Math.round(market.noPrice * 100)
-            const homePercent = market.isTri ? Math.round((market.homePrice ?? 0.4) * 100) : yesPercent
-            const drawPercent = market.isTri ? Math.round((market.drawPrice ?? 0.25) * 100) : 0
-            const awayPercent = market.isTri ? Math.round((market.awayPrice ?? 0.35) * 100) : noPercent
+            const homePercent = market.isTri ? Math.round((market.homePrice ?? 0.33) * 100) : yesPercent
+            const drawPercent = market.isTri ? Math.round((market.drawPrice ?? 0.33) * 100) : 0
+            const awayPercent = market.isTri ? Math.round((market.awayPrice ?? 0.33) * 100) : noPercent
             const cardBg = isDarkMode ? 'bg-[#1e2130]' : 'bg-white'
             const cardBorder = isDarkMode ? 'border-gray-700/50' : 'border-gray-200'
             const cardHover = isDarkMode ? 'hover:border-gray-600 hover:shadow-lg hover:shadow-black/20' : 'hover:border-gray-300 hover:shadow-lg hover:shadow-gray-200/80'
@@ -850,22 +850,34 @@ export default function PolymarketStyleHomePage() {
                   <>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'HOME' : 'YES' }) }}
-                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200 truncate`}
+                      className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 truncate ${
+                        isDarkMode
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 hover:border-emerald-500/60'
+                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-400'
+                      }`}
                     >
-                      {abbreviateTeam(market.optionA)} <span className="opacity-70">{formatPriceAsNgwee(market.homePrice ?? market.yesPrice)}</span>
+                      {abbreviateTeam(market.optionA)} <span className={isDarkMode ? 'text-emerald-300/70' : 'text-emerald-600/70'}>{formatPriceAsNgwee(market.homePrice ?? market.yesPrice)}</span>
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'DRAW' : 'YES' }) }}
-                      className={`px-3 py-2.5 text-xs font-semibold rounded-lg ${subtleBg} ${textMuted} border ${cardBorder} hover:border-gray-400 transition-all duration-200`}
+                      className={`px-3 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 ${
+                        isDarkMode
+                          ? 'bg-gray-500/15 text-gray-300 border border-gray-600/40 hover:bg-gray-500/25 hover:border-gray-500/60'
+                          : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200 hover:border-gray-400'
+                      }`}
                       title={market.isTri ? 'Trade Draw outcome' : 'Draw results in market void — all traders are refunded'}
                     >
-                      Draw {market.isTri ? formatPriceAsNgwee(market.drawPrice ?? 0.25) : ''}
+                      Draw {market.isTri ? <span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>{formatPriceAsNgwee(market.drawPrice ?? 0.25)}</span> : ''}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'AWAY' : 'NO' }) }}
-                      className={`flex-1 py-2.5 text-xs font-semibold rounded-lg bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 transition-all duration-200 truncate`}
+                      className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 truncate ${
+                        isDarkMode
+                          ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 hover:border-blue-500/60'
+                          : 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-400'
+                      }`}
                     >
-                      {abbreviateTeam(market.optionB)} <span className="opacity-70">{formatPriceAsNgwee(market.awayPrice ?? market.noPrice)}</span>
+                      {abbreviateTeam(market.optionB)} <span className={isDarkMode ? 'text-blue-300/70' : 'text-blue-600/70'}>{formatPriceAsNgwee(market.awayPrice ?? market.noPrice)}</span>
                     </button>
                   </>
                 )}

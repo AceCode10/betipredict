@@ -79,24 +79,6 @@ const LEAGUES = [
 
 type TabType = 'pending' | 'active' | 'suggestions' | 'sync' | 'categories'
 
-// Helper: Convert probability (0-1) to decimal odds
-const probToOdds = (p: number): number => {
-  if (p <= 0 || p >= 1) return 0
-  return Math.round((1 / p) * 100) / 100
-}
-
-// Helper: Convert decimal odds to probability (0-1)
-const oddsToProb = (o: number): number => {
-  if (o <= 0) return 0
-  return Math.round((1 / o) * 10000) / 10000
-}
-
-// Helper: Format odds display (remove trailing .00)
-const formatOdds = (o: number): string => {
-  if (o === 0) return '—'
-  return o.toString().endsWith('.00') ? o.toString().slice(0, -3) : o.toString()
-}
-
 export default function MarketMakerPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -114,11 +96,11 @@ export default function MarketMakerPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  // Price editing state: { [marketId]: { home, draw, away, mode: 'prob'|'odds' } }
-  const [priceEdits, setPriceEdits] = useState<Record<string, { home: string; draw: string; away: string; mode: 'prob' | 'odds' }>>({})
+  // Price editing state: { [marketId]: { home, draw, away } }
+  const [priceEdits, setPriceEdits] = useState<Record<string, { home: string; draw: string; away: string }>>({})
   // Selected markets for bulk approve
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [bulkPrices, setBulkPrices] = useState({ home: '40', draw: '28', away: '32' })
+  const [bulkPrices, setBulkPrices] = useState({ home: '33', draw: '33', away: '33' })
   // Suggestion price modal — supports Yes/No and tri-outcome with category editing
   const [suggestionModal, setSuggestionModal] = useState<{
     suggestion: Suggestion;
@@ -193,6 +175,24 @@ export default function MarketMakerPage() {
     if (status === 'authenticated' && authorized) loadData()
   }, [status, authorized, loadData])
 
+  // Auto-populate price edits from DB prices when pending markets load
+  useEffect(() => {
+    if (pendingMarkets.length === 0) return
+    setPriceEdits(prev => {
+      const next = { ...prev }
+      for (const m of pendingMarkets) {
+        if (!next[m.id]) {
+          next[m.id] = {
+            home: String(Math.round((m.yesPrice || 0.33) * 100)),
+            draw: String(Math.round((m.drawPrice ?? 0.33) * 100)),
+            away: String(Math.round((m.noPrice || 0.33) * 100)),
+          }
+        }
+      }
+      return next
+    })
+  }, [pendingMarkets])
+
   // ─── Actions ───
 
   const approveMarket = async (marketId: string) => {
@@ -201,21 +201,12 @@ export default function MarketMakerPage() {
       setMessage({ type: 'error', text: 'Please set all three prices before approving' })
       return
     }
-    
-    // Convert to probabilities based on edit mode
-    let hp: number, dp: number, ap: number
-    if (edit.mode === 'odds') {
-      hp = oddsToProb(parseFloat(edit.home))
-      dp = oddsToProb(parseFloat(edit.draw))
-      ap = oddsToProb(parseFloat(edit.away))
-    } else {
-      hp = parseFloat(edit.home) / 100
-      dp = parseFloat(edit.draw) / 100
-      ap = parseFloat(edit.away) / 100
-    }
+    const hp = parseFloat(edit.home) / 100
+    const dp = parseFloat(edit.draw) / 100
+    const ap = parseFloat(edit.away) / 100
 
     if (hp < 0.01 || dp < 0.01 || ap < 0.01 || hp > 0.99 || dp > 0.99 || ap > 0.99) {
-      setMessage({ type: 'error', text: 'Each probability must be between 1% and 99%' })
+      setMessage({ type: 'error', text: 'Each price must be between 1% and 99%' })
       return
     }
 
@@ -312,7 +303,7 @@ export default function MarketMakerPage() {
       if (!res.ok) throw new Error(data.error || 'Sync failed')
       setMessage({
         type: 'success',
-        text: `Synced ${data.leagues?.join(', ')}: ${data.created} created, ${data.skipped} skipped`,
+        text: `Synced ${data.leagues?.join(', ')}: ${data.created} created, ${data.skipped} skipped${data.oddsApplied ? `, ${data.oddsApplied} odds-priced` : ''}`,
       })
       await loadData()
     } catch (err: any) {
@@ -430,31 +421,8 @@ export default function MarketMakerPage() {
   const setPriceForMarket = (marketId: string, field: 'home' | 'draw' | 'away', value: string) => {
     setPriceEdits(prev => ({
       ...prev,
-      [marketId]: { ...(prev[marketId] || { home: '', draw: '', away: '', mode: 'prob' }), [field]: value },
+      [marketId]: { ...(prev[marketId] || { home: '', draw: '', away: '' }), [field]: value },
     }))
-  }
-
-  const setEditMode = (marketId: string, mode: 'prob' | 'odds') => {
-    setPriceEdits(prev => {
-      const existing = prev[marketId] || { home: '', draw: '', away: '', mode: 'prob' }
-      if (existing.mode === mode) return prev
-      
-      // Convert values when switching modes
-      const converted = { ...existing, mode }
-      if (mode === 'odds' && existing.mode === 'prob') {
-        // Convert probabilities to odds
-        converted.home = formatOdds(probToOdds(parseFloat(existing.home) / 100))
-        converted.draw = formatOdds(probToOdds(parseFloat(existing.draw) / 100))
-        converted.away = formatOdds(probToOdds(parseFloat(existing.away) / 100))
-      } else if (mode === 'prob' && existing.mode === 'odds') {
-        // Convert odds to probabilities
-        converted.home = String(Math.round(oddsToProb(parseFloat(existing.home)) * 100))
-        converted.draw = String(Math.round(oddsToProb(parseFloat(existing.draw)) * 100))
-        converted.away = String(Math.round(oddsToProb(parseFloat(existing.away)) * 100))
-      }
-      
-      return { ...prev, [marketId]: converted }
-    })
   }
 
   const initPriceEdit = (market: PendingMarket) => {
@@ -465,7 +433,6 @@ export default function MarketMakerPage() {
           home: String(Math.round((market.yesPrice || 0.33) * 100)),
           draw: String(Math.round((market.drawPrice || 0.33) * 100)),
           away: String(Math.round((market.noPrice || 0.33) * 100)),
-          mode: 'prob' as const,
         }
       }))
     }
@@ -743,9 +710,9 @@ export default function MarketMakerPage() {
                               <span>{matchDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                               <span>{matchDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
                               {market.scheduledGame?.matchday && <span>• MD {market.scheduledGame.matchday}</span>}
-                              {/* Odds source badge — shows if prices were auto-set by odds API */}
-                              {market.yesPrice !== 0.33 && market.noPrice !== 0.33 && (
-                                <span className="px-1.5 py-0.5 text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">
+                              {/* Odds source badge — shows if prices were auto-set by odds API (not flat 33/33/33 default) */}
+                              {(Math.round(market.yesPrice * 100) !== 33 || Math.round(market.noPrice * 100) !== 33) && (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded" title={`Odds-based: H${Math.round(market.yesPrice*100)}% D${Math.round((market.drawPrice??0)*100)}% A${Math.round(market.noPrice*100)}%`}>
                                   ODDS
                                 </span>
                               )}
@@ -754,103 +721,38 @@ export default function MarketMakerPage() {
 
                           {/* Price inputs */}
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            {/* Edit mode toggle */}
-                            <div className="flex flex-col items-center gap-1">
-                              <button
-                                onClick={() => setEditMode(market.id, edit.mode === 'prob' ? 'odds' : 'prob')}
-                                className={`text-[10px] px-2 py-1 rounded font-medium transition-colors ${
-                                  edit.mode === 'prob'
-                                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                                    : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                                }`}
-                              >
-                                {edit.mode === 'prob' ? '%' : 'Odds'}
-                              </button>
-                            </div>
-                            
                             <div className="text-center">
-                              <div className={`text-[10px] ${textMuted} mb-0.5`}>
-                                {edit.mode === 'prob' ? 'Home%' : 'Home'}
-                              </div>
+                              <div className={`text-[10px] ${textMuted} mb-0.5`}>Home%</div>
                               <input
-                                type="number"
-                                min={edit.mode === 'prob' ? '1' : '1.01'}
-                                max={edit.mode === 'prob' ? '99' : '99'}
-                                step={edit.mode === 'prob' ? '1' : '0.01'}
+                                type="number" min="1" max="99"
                                 value={edit.home}
                                 onFocus={() => initPriceEdit(market)}
                                 onChange={e => setPriceForMarket(market.id, 'home', e.target.value)}
                                 className={`w-14 px-2 py-1.5 text-sm text-center font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor} focus:border-red-500 focus:outline-none`}
-                                placeholder={edit.mode === 'prob' ? '40' : '2.5'}
+                                placeholder="40"
                               />
-                              {/* Show odds when in prob mode */}
-                              {edit.mode === 'prob' && edit.home && (
-                                <div className="text-[9px] text-blue-400 mt-0.5">
-                                  {formatOdds(probToOdds(parseFloat(edit.home) / 100))}
-                                </div>
-                              )}
-                              {/* Show prob when in odds mode */}
-                              {edit.mode === 'odds' && edit.home && (
-                                <div className="text-[9px] text-green-400 mt-0.5">
-                                  {Math.round(oddsToProb(parseFloat(edit.home)) * 100)}%
-                                </div>
-                              )}
                             </div>
                             <div className="text-center">
-                              <div className={`text-[10px] ${textMuted} mb-0.5`}>
-                                {edit.mode === 'prob' ? 'Draw%' : 'Draw'}
-                              </div>
+                              <div className={`text-[10px] ${textMuted} mb-0.5`}>Draw%</div>
                               <input
-                                type="number"
-                                min={edit.mode === 'prob' ? '1' : '1.01'}
-                                max={edit.mode === 'prob' ? '99' : '99'}
-                                step={edit.mode === 'prob' ? '1' : '0.01'}
+                                type="number" min="1" max="99"
                                 value={edit.draw}
                                 onFocus={() => initPriceEdit(market)}
                                 onChange={e => setPriceForMarket(market.id, 'draw', e.target.value)}
                                 className={`w-14 px-2 py-1.5 text-sm text-center font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor} focus:border-gray-400 focus:outline-none`}
-                                placeholder={edit.mode === 'prob' ? '28' : '3.6'}
+                                placeholder="28"
                               />
-                              {/* Show odds when in prob mode */}
-                              {edit.mode === 'prob' && edit.draw && (
-                                <div className="text-[9px] text-blue-400 mt-0.5">
-                                  {formatOdds(probToOdds(parseFloat(edit.draw) / 100))}
-                                </div>
-                              )}
-                              {/* Show prob when in odds mode */}
-                              {edit.mode === 'odds' && edit.draw && (
-                                <div className="text-[9px] text-green-400 mt-0.5">
-                                  {Math.round(oddsToProb(parseFloat(edit.draw)) * 100)}%
-                                </div>
-                              )}
                             </div>
                             <div className="text-center">
-                              <div className={`text-[10px] ${textMuted} mb-0.5`}>
-                                {edit.mode === 'prob' ? 'Away%' : 'Away'}
-                              </div>
+                              <div className={`text-[10px] ${textMuted} mb-0.5`}>Away%</div>
                               <input
-                                type="number"
-                                min={edit.mode === 'prob' ? '1' : '1.01'}
-                                max={edit.mode === 'prob' ? '99' : '99'}
-                                step={edit.mode === 'prob' ? '1' : '0.01'}
+                                type="number" min="1" max="99"
                                 value={edit.away}
                                 onFocus={() => initPriceEdit(market)}
                                 onChange={e => setPriceForMarket(market.id, 'away', e.target.value)}
                                 className={`w-14 px-2 py-1.5 text-sm text-center font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor} focus:border-blue-500 focus:outline-none`}
-                                placeholder={edit.mode === 'prob' ? '32' : '3.1'}
+                                placeholder="32"
                               />
-                              {/* Show odds when in prob mode */}
-                              {edit.mode === 'prob' && edit.away && (
-                                <div className="text-[9px] text-blue-400 mt-0.5">
-                                  {formatOdds(probToOdds(parseFloat(edit.away) / 100))}
-                                </div>
-                              )}
-                              {/* Show prob when in odds mode */}
-                              {edit.mode === 'odds' && edit.away && (
-                                <div className="text-[9px] text-green-400 mt-0.5">
-                                  {Math.round(oddsToProb(parseFloat(edit.away)) * 100)}%
-                                </div>
-                              )}
                             </div>
                             {/* Sum indicator */}
                             <div className={`text-xs font-bold px-2 py-1 rounded ${
@@ -952,17 +854,14 @@ export default function MarketMakerPage() {
                             <div className="text-center">
                               <div className={`text-[10px] ${textMuted}`}>Home</div>
                               <div className="text-sm font-bold text-red-400">{Math.round(market.yesPrice * 100)}%</div>
-                              <div className="text-[9px] text-blue-400">{formatOdds(probToOdds(market.yesPrice))}</div>
                             </div>
                             <div className="text-center">
                               <div className={`text-[10px] ${textMuted}`}>Draw</div>
                               <div className={`text-sm font-bold ${textMuted}`}>{Math.round((market.drawPrice || 0) * 100)}%</div>
-                              <div className="text-[9px] text-blue-400">{formatOdds(probToOdds(market.drawPrice || 0))}</div>
                             </div>
                             <div className="text-center">
                               <div className={`text-[10px] ${textMuted}`}>Away</div>
                               <div className="text-sm font-bold text-blue-400">{Math.round(market.noPrice * 100)}%</div>
-                              <div className="text-[9px] text-blue-400">{formatOdds(probToOdds(market.noPrice))}</div>
                             </div>
                           </div>
 
