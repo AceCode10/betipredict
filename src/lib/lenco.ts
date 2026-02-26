@@ -85,6 +85,39 @@ async function lencoRequest(endpoint: string, method: string, body?: any) {
   return data
 }
 
+// ─── Collection Initialization (Server-side) ────────────────
+
+export interface LencoCollectionParams {
+  amount: number
+  email: string
+  reference: string
+  callbackUrl?: string
+  phoneNumber?: string
+  channels?: string[]
+  customer?: { firstName?: string; lastName?: string }
+}
+
+/**
+ * Initialize a collection (deposit) via Lenco API.
+ * Returns checkout URL for redirect-based payment flow.
+ * This is the server-side alternative to using the popup widget.
+ */
+export async function initializeCollection(params: LencoCollectionParams): Promise<any> {
+  const config = getLencoConfig()
+  const payload: any = {
+    amount: Math.round(params.amount),
+    currency: config.CURRENCY,
+    email: params.email,
+    reference: params.reference,
+    channels: params.channels || ['card', 'mobile-money'],
+  }
+  if (params.callbackUrl) payload.callbackUrl = params.callbackUrl
+  if (params.phoneNumber) payload.phone = params.phoneNumber
+  if (params.customer) payload.customer = params.customer
+
+  return await lencoRequest('/collections/initialize', 'POST', payload)
+}
+
 // ─── Payment Verification ────────────────────────────────────
 
 export interface LencoVerifyResponse {

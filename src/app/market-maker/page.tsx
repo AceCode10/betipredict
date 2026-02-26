@@ -176,16 +176,18 @@ export default function MarketMakerPage() {
   }, [status, authorized, loadData])
 
   // Auto-populate price edits from DB prices when pending markets load
+  // Treat Prisma defaults (0.5/0.5/null) as unset → use 33/33/33
   useEffect(() => {
     if (pendingMarkets.length === 0) return
     setPriceEdits(prev => {
       const next = { ...prev }
       for (const m of pendingMarkets) {
         if (!next[m.id]) {
+          const isPrismaDefault = m.yesPrice === 0.5 && m.noPrice === 0.5 && (m.drawPrice === null || m.drawPrice === undefined)
           next[m.id] = {
-            home: String(Math.round((m.yesPrice || 0.33) * 100)),
-            draw: String(Math.round((m.drawPrice ?? 0.33) * 100)),
-            away: String(Math.round((m.noPrice || 0.33) * 100)),
+            home: String(Math.round((isPrismaDefault ? 0.33 : m.yesPrice) * 100)),
+            draw: String(Math.round((isPrismaDefault ? 0.33 : (m.drawPrice ?? 0.33)) * 100)),
+            away: String(Math.round((isPrismaDefault ? 0.33 : m.noPrice) * 100)),
           }
         }
       }
@@ -396,6 +398,28 @@ export default function MarketMakerPage() {
     }
   }
 
+  const refreshOdds = async () => {
+    setProcessing('refresh-odds')
+    setMessage(null)
+    try {
+      const res = await fetch('/api/market-maker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'refresh-odds' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setMessage({ type: 'success', text: data.message })
+      // Clear price edits so they re-populate from updated DB
+      setPriceEdits({})
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setProcessing(null)
+    }
+  }
+
   const revertLegacy = async () => {
     setProcessing('revert-legacy')
     setMessage(null)
@@ -427,12 +451,13 @@ export default function MarketMakerPage() {
 
   const initPriceEdit = (market: PendingMarket) => {
     if (!priceEdits[market.id]) {
+      const isPrismaDefault = market.yesPrice === 0.5 && market.noPrice === 0.5 && (market.drawPrice === null || market.drawPrice === undefined)
       setPriceEdits(prev => ({
         ...prev,
         [market.id]: {
-          home: String(Math.round((market.yesPrice || 0.33) * 100)),
-          draw: String(Math.round((market.drawPrice || 0.33) * 100)),
-          away: String(Math.round((market.noPrice || 0.33) * 100)),
+          home: String(Math.round((isPrismaDefault ? 0.33 : market.yesPrice) * 100)),
+          draw: String(Math.round((isPrismaDefault ? 0.33 : (market.drawPrice ?? 0.33)) * 100)),
+          away: String(Math.round((isPrismaDefault ? 0.33 : market.noPrice) * 100)),
         }
       }))
     }
@@ -710,8 +735,8 @@ export default function MarketMakerPage() {
                               <span>{matchDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                               <span>{matchDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
                               {market.scheduledGame?.matchday && <span>• MD {market.scheduledGame.matchday}</span>}
-                              {/* Odds source badge — shows if prices were auto-set by odds API (not flat 33/33/33 default) */}
-                              {(Math.round(market.yesPrice * 100) !== 33 || Math.round(market.noPrice * 100) !== 33) && (
+                              {/* Odds source badge — shows if prices differ from both defaults (0.33 and 0.5 Prisma default) */}
+                              {market.yesPrice !== 0.5 && market.noPrice !== 0.5 && (Math.round(market.yesPrice * 100) !== 33 || Math.round(market.noPrice * 100) !== 33) && (
                                 <span className="px-1.5 py-0.5 text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded" title={`Odds-based: H${Math.round(market.yesPrice*100)}% D${Math.round((market.drawPrice??0)*100)}% A${Math.round(market.noPrice*100)}%`}>
                                   ODDS
                                 </span>
@@ -818,7 +843,7 @@ export default function MarketMakerPage() {
                             <div className="flex items-center gap-3 mb-1">
                               <div className="flex items-center gap-2">
                                 {crest1 ? <img src={crest1} alt="" className="w-5 h-5 object-contain" /> : null}
-                                <span className={`text-sm font-semibold ${textColor}`}>{market.homeTeam || 'Home'}</span>
+                                <span className={`text-sm font-semibold ${textColor}`}>{market.homeTeam || market.title.split(' vs ')[0] || 'Home'}</span>
                               </div>
                               {isLive && market.scheduledGame?.homeScore != null && (
                                 <span className="text-sm font-bold text-green-400">
@@ -826,7 +851,7 @@ export default function MarketMakerPage() {
                                 </span>
                               )}
                               <div className="flex items-center gap-2">
-                                <span className={`text-sm font-semibold ${textColor}`}>{market.awayTeam || 'Away'}</span>
+                                <span className={`text-sm font-semibold ${textColor}`}>{market.awayTeam || market.title.split(' vs ')[1] || 'Away'}</span>
                                 {crest2 ? <img src={crest2} alt="" className="w-5 h-5 object-contain" /> : null}
                               </div>
                               {isLive && (
@@ -1093,6 +1118,30 @@ export default function MarketMakerPage() {
                           Sync Now
                         </>
                       )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Refresh Odds Prices for existing pending markets */}
+              <div className={`mt-4 ${surfaceColor} border border-blue-500/30 rounded-xl p-4`}>
+                <div className="flex items-start gap-3">
+                  <div className={`w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center flex-shrink-0`}>
+                    <DollarSign className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className={`text-sm font-semibold ${textColor} mb-1`}>Refresh Odds Prices</h4>
+                    <p className={`text-xs ${textMuted} mb-3`}>
+                      Fetch latest odds from The Odds API and update prices on all pending markets.
+                      Also fixes markets stuck with Prisma default prices (50/50).
+                    </p>
+                    <button
+                      onClick={refreshOdds}
+                      disabled={processing === 'refresh-odds'}
+                      className="px-4 py-2 text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 rounded-lg disabled:opacity-50 flex items-center gap-2 transition-colors"
+                    >
+                      {processing === 'refresh-odds' ? <Loader2 className="w-3 h-3 animate-spin" /> : <DollarSign className="w-3 h-3" />}
+                      Refresh Odds Prices
                     </button>
                   </div>
                 </div>

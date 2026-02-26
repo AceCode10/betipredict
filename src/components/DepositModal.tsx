@@ -14,6 +14,7 @@ declare global {
 }
 
 type DepositStep = 'input' | 'processing' | 'success' | 'failed'
+type PaymentMethod = 'mobile-money' | 'card'
 
 interface DepositModalProps {
   isOpen: boolean
@@ -24,12 +25,18 @@ interface DepositModalProps {
 
 export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: DepositModalProps) {
   const [amount, setAmount] = useState('')
+  const [phoneNumber, setPhoneNumber] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('mobile-money')
   const [step, setStep] = useState<DepositStep>('input')
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const stepRef = useRef<DepositStep>('input')
+
+  // Keep stepRef in sync
+  useEffect(() => { stepRef.current = step }, [step])
 
   useEffect(() => {
     return () => {
@@ -43,6 +50,8 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
     setError('')
     setSuccess('')
     setStatusMessage('')
+    setPhoneNumber('')
+    setPaymentMethod('mobile-money')
     if (pollRef.current) clearInterval(pollRef.current)
   }, [])
 
@@ -55,7 +64,7 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
 
   const pollLencoStatus = (reference: string) => {
     let attempts = 0
-    const maxAttempts = 120 // 10 minutes at 5s intervals (cards can take longer)
+    const maxAttempts = 120 // 10 minutes at 5s intervals
 
     pollRef.current = setInterval(async () => {
       attempts++
@@ -107,6 +116,19 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
       return
     }
 
+    // Validate phone number for mobile money
+    if (!isTestMode && paymentMethod === 'mobile-money') {
+      if (!phoneNumber) {
+        setError('Please enter your mobile money number')
+        return
+      }
+      const digits = phoneNumber.replace(/\D/g, '')
+      if (digits.length < 9 || digits.length > 13) {
+        setError('Please enter a valid Zambian phone number')
+        return
+      }
+    }
+
     setError('')
     setSuccess('')
     setIsProcessing(true)
@@ -135,68 +157,80 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
       return
     }
 
-    // ─── LIVE MODE: Lenco Payment Widget ───────────────────────────
+    // ─── LIVE MODE: Lenco Payment ────────────────────────────────
     try {
-      // Step 1: Initialize payment on server to get reference
+      // Step 1: Initialize payment on server
       const res = await fetch('/api/payments/lenco/initialize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: depositAmount }),
+        body: JSON.stringify({
+          amount: depositAmount,
+          phoneNumber: paymentMethod === 'mobile-money' ? phoneNumber : undefined,
+          channel: paymentMethod,
+        }),
       })
       const initData = await res.json()
       if (!res.ok) throw new Error(initData.error || 'Failed to initialize payment')
 
-      // Step 2: Check if Lenco widget is loaded
-      if (!window.LencoPay) {
-        throw new Error('Payment widget not loaded. Please refresh the page and try again.')
-      }
+      // Step 2: Try popup widget first, fall back to checkout URL
+      const widgetAvailable = typeof window !== 'undefined' && !!window.LencoPay
 
-      // Step 3: Open Lenco popup widget
-      window.LencoPay.getPaid({
-        key: initData.publicKey,
-        reference: initData.reference,
-        email: initData.email || '',
-        amount: depositAmount,
-        currency: 'ZMW',
-        channels: ['card', 'mobile-money'],
-        customer: {
-          firstName: initData.firstName || '',
-          lastName: initData.lastName || '',
-        },
-        onSuccess: async (response: any) => {
-          // Step 4: Verify payment on server
-          setStep('processing')
-          setStatusMessage('Verifying payment...')
-          try {
-            const verifyRes = await fetch(`/api/payments/lenco/verify?reference=${response.reference || initData.reference}`)
-            const data = await verifyRes.json()
-            if (data.status === 'COMPLETED') {
-              setStep('success')
-              setSuccess(`Successfully deposited ${formatZambianCurrency(depositAmount)}`)
-              await onDeposit(depositAmount)
-              setTimeout(handleClose, 2500)
-            } else {
-              // Start polling for confirmation
+      if (widgetAvailable) {
+        // Use Lenco popup widget
+        window.LencoPay!.getPaid({
+          key: initData.publicKey,
+          reference: initData.reference,
+          email: initData.email || '',
+          amount: depositAmount,
+          currency: 'ZMW',
+          channels: [paymentMethod],
+          customer: {
+            firstName: initData.firstName || '',
+            lastName: initData.lastName || '',
+          },
+          onSuccess: async (response: any) => {
+            setStep('processing')
+            setStatusMessage('Verifying payment...')
+            try {
+              const verifyRes = await fetch(`/api/payments/lenco/verify?reference=${response.reference || initData.reference}`)
+              const data = await verifyRes.json()
+              if (data.status === 'COMPLETED') {
+                setStep('success')
+                setSuccess(`Successfully deposited ${formatZambianCurrency(depositAmount)}`)
+                await onDeposit(depositAmount)
+                setTimeout(handleClose, 2500)
+              } else {
+                pollLencoStatus(initData.reference)
+              }
+            } catch {
               pollLencoStatus(initData.reference)
             }
-          } catch {
-            // Fall back to polling
+          },
+          onClose: () => {
+            setIsProcessing(false)
+            if (stepRef.current === 'input') {
+              setStatusMessage('')
+            }
+          },
+          onConfirmationPending: () => {
+            setStep('processing')
+            setStatusMessage('Payment is being confirmed. Please wait...')
             pollLencoStatus(initData.reference)
-          }
-        },
-        onClose: () => {
-          setIsProcessing(false)
-          // If we're already in a processing/success/failed state, don't reset
-          if (step === 'input') {
-            setStatusMessage('')
-          }
-        },
-        onConfirmationPending: () => {
-          setStep('processing')
-          setStatusMessage('Payment is being confirmed. Please wait...')
-          pollLencoStatus(initData.reference)
-        },
-      })
+          },
+        })
+      } else if (initData.checkoutUrl) {
+        // Fallback: redirect to Lenco checkout page
+        setStep('processing')
+        setStatusMessage('Redirecting to payment page...')
+        window.open(initData.checkoutUrl, '_blank')
+        // Start polling for payment confirmation
+        pollLencoStatus(initData.reference)
+      } else {
+        // Last resort: start polling and show instructions
+        setStep('processing')
+        setStatusMessage('Payment initiated. Complete the payment on your phone.')
+        pollLencoStatus(initData.reference)
+      }
     } catch (err: any) {
       setError(err.message || 'Deposit failed. Please try again.')
       setStep('failed')
@@ -234,16 +268,69 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
               <div className="text-xl font-bold text-white">{formatZambianCurrency(currentBalance)}</div>
             </div>
 
-            {/* Payment Methods Info (live mode only) */}
+            {/* Payment Method Selection (live mode only) */}
             {!isTestMode && (
-              <div className="bg-[#232637] rounded-lg p-3">
-                <div className="text-xs text-gray-400 mb-2">Accepted Payment Methods</div>
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-2 py-1 text-[10px] font-medium bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded">MTN MoMo</span>
-                  <span className="px-2 py-1 text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded">Airtel Money</span>
-                  <span className="px-2 py-1 text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">Visa</span>
-                  <span className="px-2 py-1 text-[10px] font-medium bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded">Mastercard</span>
+              <div>
+                <label className="block text-xs text-gray-400 mb-2">Payment Method</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setPaymentMethod('mobile-money'); setError('') }}
+                    className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border transition-all ${
+                      paymentMethod === 'mobile-money'
+                        ? 'border-green-500 bg-green-500/10 ring-1 ring-green-500/30'
+                        : 'border-gray-700 bg-[#232637] hover:border-gray-500'
+                    }`}
+                  >
+                    <Smartphone className={`w-5 h-5 ${paymentMethod === 'mobile-money' ? 'text-green-400' : 'text-gray-400'}`} />
+                    <span className={`text-xs font-semibold ${paymentMethod === 'mobile-money' ? 'text-green-400' : 'text-gray-300'}`}>
+                      Mobile Money
+                    </span>
+                    <div className="flex gap-1">
+                      <span className="px-1.5 py-0.5 text-[8px] font-medium bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded">MTN</span>
+                      <span className="px-1.5 py-0.5 text-[8px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded">Airtel</span>
+                    </div>
+                    <span className="text-[9px] text-gray-500">1% fee</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setPaymentMethod('card'); setError('') }}
+                    className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border transition-all ${
+                      paymentMethod === 'card'
+                        ? 'border-green-500 bg-green-500/10 ring-1 ring-green-500/30'
+                        : 'border-gray-700 bg-[#232637] hover:border-gray-500'
+                    }`}
+                  >
+                    <CreditCard className={`w-5 h-5 ${paymentMethod === 'card' ? 'text-green-400' : 'text-gray-400'}`} />
+                    <span className={`text-xs font-semibold ${paymentMethod === 'card' ? 'text-green-400' : 'text-gray-300'}`}>
+                      Debit/Credit Card
+                    </span>
+                    <div className="flex gap-1">
+                      <span className="px-1.5 py-0.5 text-[8px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">Visa</span>
+                      <span className="px-1.5 py-0.5 text-[8px] font-medium bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded">MC</span>
+                    </div>
+                    <span className="text-[9px] text-gray-500">3.5% fee</span>
+                  </button>
                 </div>
+              </div>
+            )}
+
+            {/* Phone Number Input (mobile money only, live mode) */}
+            {!isTestMode && paymentMethod === 'mobile-money' && (
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Mobile Money Number</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">+260</span>
+                  <input
+                    type="tel"
+                    value={phoneNumber}
+                    onChange={(e) => { setPhoneNumber(e.target.value.replace(/[^\d]/g, '').slice(0, 10)); setError('') }}
+                    placeholder="97XXXXXXX"
+                    className="w-full pl-14 pr-3 py-3 text-lg font-medium bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-green-500"
+                    maxLength={10}
+                  />
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1">MTN (096X, 076X) or Airtel (097X, 077X)</p>
               </div>
             )}
 
@@ -294,8 +381,8 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
                 </div>
                 {!isTestMode && (
                   <div className="flex justify-between items-center text-[10px]">
-                    <span className="text-gray-500">Payment processing fee (paid by you)</span>
-                    <span className="text-gray-500">1% MoMo / 3.5% Card</span>
+                    <span className="text-gray-500">Processing fee (paid by you)</span>
+                    <span className="text-gray-500">{paymentMethod === 'mobile-money' ? '1%' : '3.5%'}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center text-sm border-t border-gray-700 pt-2">
@@ -310,23 +397,23 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
             {/* Deposit Button */}
             <button
               onClick={handleDeposit}
-              disabled={isProcessing || !amount || parseFloat(amount) <= 0}
+              disabled={isProcessing || !amount || parseFloat(amount) <= 0 || (!isTestMode && paymentMethod === 'mobile-money' && !phoneNumber)}
               className="w-full py-3 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {isProcessing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Opening payment...
+                  Initializing payment...
                 </>
               ) : (
-                isTestMode ? 'Deposit (Test)' : 'Deposit'
+                isTestMode ? 'Deposit (Test)' : `Deposit via ${paymentMethod === 'mobile-money' ? 'Mobile Money' : 'Card'}`
               )}
             </button>
 
             <p className="text-[10px] text-gray-600 text-center">
               {isTestMode
                 ? 'Test mode: deposits are credited instantly with prop money.'
-                : 'No platform fees on deposits. Payment processing fees (1% MoMo, 3.5% card) are added to your total. Powered by Lenco.'}
+                : 'No platform fees on deposits. Processing fees are added by payment provider. Powered by Lenco.'}
             </p>
           </div>
         )}
@@ -345,6 +432,10 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400">Amount</span>
                 <span className="text-white font-medium">{formatZambianCurrency(parseFloat(amount))}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">Method</span>
+                <span className="text-white font-medium">{paymentMethod === 'mobile-money' ? 'Mobile Money' : 'Card'}</span>
               </div>
             </div>
             <div className="flex items-center justify-center gap-2 text-xs text-gray-500">

@@ -499,6 +499,78 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: `Reverted ${reverted} legacy markets to pending approval` })
     }
 
+    // ─── REFRESH ODDS on existing pending markets ───
+    if (action === 'refresh-odds') {
+      if (!isOddsApiConfigured()) {
+        return NextResponse.json({ error: 'Odds API not configured' }, { status: 503 })
+      }
+
+      // Get all pending markets with scheduledGame data
+      const pendingWithGames = await prisma.market.findMany({
+        where: { status: 'PENDING_APPROVAL', marketType: 'TRI_OUTCOME' },
+        include: {
+          scheduledGame: {
+            select: { competitionCode: true, homeTeam: true, awayTeam: true, utcDate: true }
+          }
+        }
+      })
+
+      if (pendingWithGames.length === 0) {
+        return NextResponse.json({ message: 'No pending markets to refresh', updated: 0 })
+      }
+
+      // Collect unique league codes
+      const leagueCodes = new Set<string>()
+      for (const m of pendingWithGames) {
+        if (m.scheduledGame?.competitionCode) leagueCodes.add(m.scheduledGame.competitionCode)
+      }
+
+      // Fetch odds for each league
+      const oddsMap = new Map<string, MatchOdds[]>()
+      for (const code of leagueCodes) {
+        try {
+          const odds = await fetchOddsForLeague(code)
+          if (odds.length > 0) oddsMap.set(code, odds)
+        } catch (err: any) {
+          console.warn(`[refresh-odds] Failed for ${code}:`, err.message)
+        }
+      }
+
+      let updated = 0, noOdds = 0
+      for (const market of pendingWithGames) {
+        const sg = market.scheduledGame
+        if (!sg) { noOdds++; continue }
+
+        const leagueOdds = oddsMap.get(sg.competitionCode) || []
+        const matchOdds = findMatchOdds(leagueOdds, sg.homeTeam, sg.awayTeam, new Date(sg.utcDate))
+
+        if (matchOdds) {
+          await prisma.market.update({
+            where: { id: market.id },
+            data: {
+              yesPrice: matchOdds.homePrice,
+              drawPrice: matchOdds.drawPrice,
+              noPrice: matchOdds.awayPrice,
+            }
+          })
+          updated++
+        } else {
+          // Set sane defaults if still at Prisma defaults (0.5/0.5/null)
+          if (market.yesPrice === 0.5 && market.noPrice === 0.5) {
+            await prisma.market.update({
+              where: { id: market.id },
+              data: { yesPrice: 0.33, drawPrice: 0.33, noPrice: 0.33 }
+            })
+            updated++
+          } else {
+            noOdds++
+          }
+        }
+      }
+
+      return NextResponse.json({ message: `Refreshed odds: ${updated} updated, ${noOdds} no odds found`, updated, noOdds })
+    }
+
     // ─── MANAGE CATEGORIES ───
     if (action === 'get-categories') {
       // Return current categories from settings or defaults

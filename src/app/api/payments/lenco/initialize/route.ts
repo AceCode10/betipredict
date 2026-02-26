@@ -3,14 +3,15 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { FEES } from '@/lib/fees'
-import { generateLencoRef, isLencoConfigured, getLencoPublicKey } from '@/lib/lenco'
+import { generateLencoRef, isLencoConfigured, getLencoPublicKey, initializeCollection } from '@/lib/lenco'
 import { checkRateLimit } from '@/lib/rate-limit'
 
 /**
  * POST /api/payments/lenco/initialize
  * 
- * Creates a pending payment record and returns the reference + public key
- * for the Lenco popup widget on the frontend.
+ * Creates a pending payment record, calls Lenco API to initialize the collection,
+ * and returns the reference + public key + checkout URL for the frontend.
+ * Supports both popup widget and redirect-based payment flows.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -31,6 +32,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const amount = Number(body.amount)
+    const phoneNumber = typeof body.phoneNumber === 'string' ? body.phoneNumber.trim() : ''
+    const channel = typeof body.channel === 'string' ? body.channel : ''
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 })
@@ -48,6 +51,8 @@ export async function POST(request: NextRequest) {
     }
 
     const reference = generateLencoRef('DEP')
+    const maskedPhone = phoneNumber ? phoneNumber.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2') : 'via-lenco'
+    const channels = channel === 'mobile-money' ? ['mobile-money'] : channel === 'card' ? ['card'] : ['card', 'mobile-money']
 
     // Create pending payment record
     const payment = await prisma.mobilePayment.create({
@@ -56,7 +61,7 @@ export async function POST(request: NextRequest) {
         amount,
         feeAmount: 0,
         netAmount: amount,
-        phoneNumber: 'via-lenco-widget',
+        phoneNumber: maskedPhone,
         provider: 'LENCO',
         externalRef: reference,
         status: 'PENDING',
@@ -65,7 +70,38 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    console.log(`[Lenco] Initialized payment: K${amount} for user ${session.user.id}, ref: ${reference}`)
+    const firstName = user.fullName?.split(' ')[0] || user.username || ''
+    const lastName = user.fullName?.split(' ').slice(1).join(' ') || ''
+
+    // Call Lenco API to initialize collection (get checkout URL)
+    let checkoutUrl: string | null = null
+    let lencoData: any = null
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://betipredict.com'
+      lencoData = await initializeCollection({
+        amount,
+        email: user.email,
+        reference,
+        callbackUrl: `${baseUrl}?deposit=success`,
+        phoneNumber: phoneNumber || undefined,
+        channels,
+        customer: { firstName, lastName },
+      })
+      checkoutUrl = lencoData?.data?.checkoutUrl || lencoData?.data?.authorization_url || lencoData?.data?.link || null
+
+      // Update payment with external ID if provided
+      if (lencoData?.data?.id) {
+        await prisma.mobilePayment.update({
+          where: { id: payment.id },
+          data: { externalId: lencoData.data.id }
+        })
+      }
+    } catch (err: any) {
+      console.warn(`[Lenco] API initialize failed (widget fallback available):`, err.message)
+      // Non-fatal: widget can still work without server-side initialization
+    }
+
+    console.log(`[Lenco] Initialized payment: K${amount} for user ${session.user.id}, ref: ${reference}${checkoutUrl ? ', checkoutUrl: ' + checkoutUrl : ''}`)
 
     return NextResponse.json({
       reference,
@@ -74,8 +110,9 @@ export async function POST(request: NextRequest) {
       amount,
       currency: 'ZMW',
       email: user.email,
-      firstName: user.fullName?.split(' ')[0] || user.username || '',
-      lastName: user.fullName?.split(' ').slice(1).join(' ') || '',
+      firstName,
+      lastName,
+      checkoutUrl,
     })
   } catch (error: any) {
     console.error('[Lenco Initialize] Error:', error)
