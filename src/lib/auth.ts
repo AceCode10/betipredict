@@ -27,6 +27,7 @@ export const authOptions: NextAuthOptions = {
         mode: { label: "Mode", type: "text" },
         phone: { label: "Phone", type: "text" },
         otp: { label: "OTP", type: "text" },
+        fullName: { label: "Full Name", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.password) return null
@@ -36,6 +37,7 @@ export const authOptions: NextAuthOptions = {
         const rawPhone = credentials.phone?.trim()
         const rawEmail = credentials.email?.trim().toLowerCase()
         const otp = credentials.otp?.trim()
+        const rawFullName = credentials.fullName?.trim()
 
         // Determine if this is phone-based or email-based auth
         const usePhone = !!rawPhone && isPhone(rawPhone)
@@ -88,7 +90,7 @@ export const authOptions: NextAuthOptions = {
                 phone: identifier,
                 password: hashedPassword,
                 username: 'user_' + Date.now().toString(36),
-                fullName: rawEmail?.split('@')[0] || `User ${phoneDigits}`,
+                fullName: rawFullName || rawEmail?.split('@')[0] || `User ${phoneDigits}`,
                 balance: 0,
                 isVerified: true,
                 isPhoneVerified: true,

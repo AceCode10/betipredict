@@ -7,13 +7,13 @@ import { Logo } from '@/components/Logo'
 
 export default function SignIn() {
   const [email, setEmail] = useState('')
+  const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [otp, setOtp] = useState('')
   const [otpSent, setOtpSent] = useState(false)
   const [otpLoading, setOtpLoading] = useState(false)
-  const [showEmailLogin, setShowEmailLogin] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
@@ -56,7 +56,11 @@ export default function SignIn() {
       return
     }
 
-    if (mode === 'signup' && !showEmailLogin && !otp) {
+    // Detect if user entered an email in the phone field (admin flow)
+    const phoneValue = phone.trim()
+    const isEmailInPhoneField = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(phoneValue)
+
+    if (mode === 'signup' && !isEmailInPhoneField && !otp) {
       setError('Please enter the OTP sent to your phone')
       setIsLoading(false)
       return
@@ -64,11 +68,12 @@ export default function SignIn() {
 
     try {
       const result = await signIn('credentials', {
-        email: showEmailLogin ? email : undefined,
-        phone: !showEmailLogin ? phone : undefined,
+        email: isEmailInPhoneField ? phoneValue : (email || undefined),
+        phone: !isEmailInPhoneField ? phoneValue : undefined,
+        fullName: mode === 'signup' ? fullName : undefined,
         password,
         mode,
-        otp: !showEmailLogin && mode === 'signup' ? otp : undefined,
+        otp: !isEmailInPhoneField && mode === 'signup' ? otp : undefined,
         redirect: false,
       })
 
@@ -85,45 +90,6 @@ export default function SignIn() {
     }
   }
 
-  // Email-based login (hidden, for admin users only)
-  if (showEmailLogin) {
-    return (
-      <div className="min-h-screen bg-[#131722] flex items-center justify-center p-4">
-        <div className="w-full max-w-sm">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center mb-2"><Logo size="lg" forceDark /></div>
-            <p className="text-gray-400 text-sm">Admin sign in</p>
-          </div>
-          <div className="bg-[#1c2030] border border-gray-800 rounded-xl p-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-green-500 text-sm"
-                  placeholder="admin@betipredict.com" required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Password</label>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-green-500 text-sm"
-                  placeholder="Enter password" required minLength={6} />
-              </div>
-              {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-2.5 text-sm text-red-400">{error}</div>}
-              <button type="submit" disabled={isLoading}
-                className="w-full py-2.5 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors text-sm">
-                {isLoading ? 'Processing...' : 'Sign In'}
-              </button>
-            </form>
-            <div className="mt-4 pt-3 border-t border-gray-800 text-center">
-              <button onClick={() => { setShowEmailLogin(false); setError('') }} className="text-xs text-gray-500 hover:text-green-400">
-                ← Back to phone sign in
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen bg-[#131722] flex items-center justify-center p-4">
@@ -163,9 +129,24 @@ export default function SignIn() {
         {/* Form */}
         <div className="bg-[#1c2030] border border-gray-800 rounded-xl p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Full Name (signup only) */}
+            {mode === 'signup' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Full Name</label>
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-[#232637] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-green-500 text-sm"
+                  placeholder="Your full name"
+                  required
+                />
+              </div>
+            )}
+
             {/* Phone number — always shown */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Phone Number</label>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">{mode === 'signin' ? 'Phone Number or Email' : 'Phone Number'}</label>
               <input
                 type="tel"
                 value={phone}
@@ -180,7 +161,7 @@ export default function SignIn() {
             {mode === 'signup' && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                  Email <span className="text-gray-500 text-xs">(optional — can set later)</span>
+                  Email <span className="text-gray-500 text-xs">(optional)</span>
                 </label>
                 <input
                   type="email"
@@ -271,19 +252,9 @@ export default function SignIn() {
                 Forgot your password?
               </button>
             )}
-            {mode === 'signup' ? (
-              <p className="text-xs text-gray-500">Create your account to start trading on prediction markets.</p>
-            ) : (
+            {mode !== 'signup' && (
               <p className="text-xs text-gray-500">Don&apos;t have an account? <button onClick={() => setMode('signup')} className="text-green-400 hover:underline">Sign up</button></p>
             )}
-            {/* Hidden admin email login link */}
-            <button
-              type="button"
-              onClick={() => { setShowEmailLogin(true); setError(''); setMode('signin') }}
-              className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors"
-            >
-              Admin login
-            </button>
           </div>
         </div>
       </div>

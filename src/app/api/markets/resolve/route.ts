@@ -127,8 +127,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Standard resolve: uses dispute-window flow ───
-    if (!['YES', 'NO'].includes(winningOutcome)) {
-      return NextResponse.json({ error: 'Invalid outcome. Must be YES, NO, or VOID' }, { status: 400 })
+    const isTri = market.marketType === 'TRI_OUTCOME'
+    const validOutcomes = isTri ? ['HOME', 'DRAW', 'AWAY'] : ['YES', 'NO']
+    if (!validOutcomes.includes(winningOutcome)) {
+      return NextResponse.json({ error: `Invalid outcome. Must be one of: ${validOutcomes.join(', ')}, or VOID` }, { status: 400 })
     }
 
     if (market.status !== 'ACTIVE') {
@@ -136,7 +138,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Phase 1: resolve with 24h dispute window (no immediate payouts)
-    const result = await MarketResolver.resolveMarket(marketId, winningOutcome as 'YES' | 'NO')
+    const result = await MarketResolver.resolveMarket(marketId, winningOutcome)
 
     writeAuditLog({
       action: 'MARKET_RESOLVED',

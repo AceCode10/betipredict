@@ -66,23 +66,23 @@ export async function POST(request: NextRequest) {
           where: { marketId: market.id },
         })
 
-        let winningOutcome: 'YES' | 'NO' | null = null
+        let apiWinner: 'HOME_TEAM' | 'AWAY_TEAM' | 'DRAW' | null = null
 
         if (linkedGame && linkedGame.externalId) {
-          winningOutcome = await fetchMatchResult(linkedGame.externalId, market)
+          apiWinner = await fetchMatchWinner(linkedGame.externalId)
 
-          if (winningOutcome) {
+          if (apiWinner) {
             await prisma.scheduledGame.update({
               where: { id: linkedGame.id },
               data: {
                 status: 'FINISHED',
-                winner: winningOutcome === 'YES' ? 'HOME_TEAM' : 'AWAY_TEAM',
+                winner: apiWinner,
               },
             }).catch(() => {})
           }
         }
 
-        if (!winningOutcome) {
+        if (!apiWinner) {
           // Grace period: wait 2h past resolveTime before flagging
           const hoursPast = (Date.now() - new Date(market.resolveTime).getTime()) / 3600000
           if (hoursPast < 2) continue
@@ -90,9 +90,23 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Use MarketResolver: sets status=RESOLVED, opens 24h dispute window, NO payouts yet
-        await MarketResolver.resolveMarket(market.id, winningOutcome)
-        resolved.push({ marketId: market.id, outcome: winningOutcome })
+        const isTri = market.marketType === 'TRI_OUTCOME'
+
+        if (isTri) {
+          let triOutcome: 'HOME' | 'DRAW' | 'AWAY'
+          if (apiWinner === 'HOME_TEAM') triOutcome = 'HOME'
+          else if (apiWinner === 'AWAY_TEAM') triOutcome = 'AWAY'
+          else triOutcome = 'DRAW'
+          await MarketResolver.resolveMarket(market.id, triOutcome)
+          resolved.push({ marketId: market.id, outcome: triOutcome })
+        } else if (apiWinner === 'DRAW') {
+          await MarketResolver.voidMarket(market.id, 'Match ended in a draw')
+          resolved.push({ marketId: market.id, outcome: 'VOID' })
+        } else {
+          const winningOutcome: 'YES' | 'NO' = apiWinner === 'HOME_TEAM' ? 'YES' : 'NO'
+          await MarketResolver.resolveMarket(market.id, winningOutcome)
+          resolved.push({ marketId: market.id, outcome: winningOutcome })
+        }
       } catch (err: any) {
         console.error(`[cron] Failed to resolve market ${market.id}:`, err)
         resolved.push({ marketId: market.id, outcome: 'ERROR', error: err.message })
@@ -124,11 +138,10 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Fetch match result from football-data.org API
- * Returns 'YES' if home team wins, 'NO' if away team wins or draw
- * (simplified binary outcome matching the market question "Will [home] beat [away]?")
+ * Fetch match winner from football-data.org API
+ * Returns the raw winner: HOME_TEAM, AWAY_TEAM, or DRAW
  */
-async function fetchMatchResult(matchId: number, market: any): Promise<'YES' | 'NO' | null> {
+async function fetchMatchWinner(matchId: number): Promise<'HOME_TEAM' | 'AWAY_TEAM' | 'DRAW' | null> {
   const apiKey = process.env.FOOTBALL_DATA_API_KEY
   if (!apiKey) return null
 
@@ -144,13 +157,10 @@ async function fetchMatchResult(matchId: number, market: any): Promise<'YES' | '
 
     if (data.status !== 'FINISHED') return null
 
-    // Determine outcome based on match result
     const winner = data.score?.winner
-    if (!winner) return null
-
-    // "Will [home team] beat [away team]?" → YES = home wins, NO = away wins or draw
-    if (winner === 'HOME_TEAM') return 'YES'
-    if (winner === 'AWAY_TEAM' || winner === 'DRAW') return 'NO'
+    if (winner === 'HOME_TEAM') return 'HOME_TEAM'
+    if (winner === 'AWAY_TEAM') return 'AWAY_TEAM'
+    if (winner === 'DRAW') return 'DRAW'
 
     return null
   } catch (err) {

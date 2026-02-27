@@ -2,12 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Rate limit: 5 exports per hour per user
+    const rl = checkRateLimit(`export:${session.user.id}`, 5, 3600_000)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many export requests. Please wait.' }, { status: 429 })
     }
 
     const transactions = await prisma.transaction.findMany({

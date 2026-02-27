@@ -51,6 +51,7 @@ const RATE_LIMITS: { pattern: RegExp; max: number; windowMs: number }[] = [
 const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 const CSRF_EXEMPT_PATHS = [
   '/api/payments/callback',  // External webhook from payment providers
+  '/api/webhooks/',          // External webhooks (Lenco, match-status)
   '/api/cron/',              // Cron jobs use secret-based auth
   '/api/auth/',              // NextAuth handles its own CSRF
 ]

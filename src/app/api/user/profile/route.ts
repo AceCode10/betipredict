@@ -94,11 +94,14 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // Validate avatar URL
+    // Validate avatar URL — only allow HTTPS URLs to prevent SSRF
     if (typeof body.avatar === 'string') {
       const avatar = body.avatar.trim()
       if (avatar && avatar.length > 500) {
         return NextResponse.json({ error: 'Avatar URL too long' }, { status: 400 })
+      }
+      if (avatar && !avatar.startsWith('https://')) {
+        return NextResponse.json({ error: 'Avatar must be an HTTPS URL' }, { status: 400 })
       }
       updates.avatar = avatar
     }

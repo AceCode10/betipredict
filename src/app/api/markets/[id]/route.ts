@@ -82,11 +82,22 @@ export async function PUT(
       return NextResponse.json({ error: 'Only admins or the market creator can update this market' }, { status: 403 })
     }
 
+    // Whitelist allowed status transitions
+    const allowedStatuses = ['ACTIVE', 'CANCELLED', 'PENDING_APPROVAL']
+    if (status && !allowedStatuses.includes(status)) {
+      return NextResponse.json({ error: `Status must be one of: ${allowedStatuses.join(', ')}. Use /api/markets/resolve for resolution.` }, { status: 400 })
+    }
+
+    // Only admins can set winningOutcome directly
+    if (winningOutcome && !isAdmin) {
+      return NextResponse.json({ error: 'Only admins can set winning outcome' }, { status: 403 })
+    }
+
     const market = await prisma.market.update({
       where: { id },
       data: {
         ...(status && { status }),
-        ...(winningOutcome && { winningOutcome }),
+        ...(winningOutcome && isAdmin && { winningOutcome }),
         ...(status === 'RESOLVED' && { resolvedAt: new Date() })
       },
       include: {

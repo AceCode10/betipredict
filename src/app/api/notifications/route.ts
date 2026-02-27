@@ -57,7 +57,7 @@ export async function PUT(request: NextRequest) {
         },
         data: { isRead: true },
       })
-    } else if (notificationIds && Array.isArray(notificationIds)) {
+    } else if (notificationIds && Array.isArray(notificationIds) && notificationIds.length <= 200) {
       await prisma.notification.updateMany({
         where: {
           id: { in: notificationIds },
