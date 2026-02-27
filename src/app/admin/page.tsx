@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Trophy, Loader2, MessageSquare, BarChart3, RefreshCw, DollarSign, Users, Settings, Shield, Clock, FileText, Gavel, Wallet, Search, X, Zap } from 'lucide-react'
-import { formatZambianCurrency } from '@/utils/currency'
+import { formatZambianCurrency, formatDateDMY, formatDateTimeDMY } from '@/utils/currency'
 import { useTheme } from '@/contexts/ThemeContext'
 
 interface Suggestion {
@@ -331,7 +331,7 @@ export default function AdminPage() {
       if (data.action === 'VOIDED') {
         setMessage({ type: 'success', text: `Market voided! ${data.payoutsProcessed} refunds totaling ${formatZambianCurrency(data.totalPaidOut)}` })
       } else {
-        setMessage({ type: 'success', text: `Market resolved to ${winningOutcome}. 24h dispute window opened. Payouts after ${new Date(data.disputeDeadline).toLocaleString()}.` })
+        setMessage({ type: 'success', text: `Market resolved to ${winningOutcome}. 24h dispute window opened. Payouts after ${formatDateTimeDMY(data.disputeDeadline)}.` })
       }
 
       await loadData()
@@ -694,7 +694,7 @@ export default function AdminPage() {
                           </p>
                         )}
                         <p className={`text-[10px] ${textMuted} mt-2`}>
-                          Submitted: {new Date(suggestion.createdAt).toLocaleDateString()}
+                          Submitted: {formatDateDMY(suggestion.createdAt)}
                         </p>
                       </div>
                     </div>
@@ -757,7 +757,7 @@ export default function AdminPage() {
                       <p className={`text-xs ${textMuted} mt-0.5`}>{market.question}</p>
                       <div className={`flex gap-3 mt-1 text-xs ${textMuted}`}>
                         <span>Vol: {formatZambianCurrency(market.volume || 0)}</span>
-                        <span>Resolves: {new Date(market.resolveTime).toLocaleDateString()}</span>
+                        <span>Resolves: {formatDateDMY(market.resolveTime)}</span>
                       </div>
                     </div>
                     <div className="flex gap-1 text-xs">
@@ -826,12 +826,12 @@ export default function AdminPage() {
                       <div className="flex-1 min-w-0">
                         <p className={`text-sm font-medium ${textColor}`}>{market.title}</p>
                         <p className={`text-xs ${textMuted} mt-0.5`}>
-                          Resolved: <span className="font-semibold">{market.winningOutcome}</span> — {new Date(market.resolvedAt || market.updatedAt).toLocaleDateString()}
+                          Resolved: <span className="font-semibold">{market.winningOutcome}</span> — {formatDateDMY(market.resolvedAt || market.updatedAt)}
                         </p>
                         {deadline && (
                           <p className={`text-xs mt-1 ${isPastDeadline ? 'text-green-400' : 'text-yellow-400'}`}>
                             <Clock className="w-3 h-3 inline mr-1" />
-                            {isPastDeadline ? 'Dispute window closed — ready to finalize' : `Dispute window until ${deadline.toLocaleString()}`}
+                            {isPastDeadline ? 'Dispute window closed — ready to finalize' : `Dispute window until ${formatDateTimeDMY(deadline)}`}
                           </p>
                         )}
                       </div>
@@ -941,7 +941,7 @@ export default function AdminPage() {
                       )}
                     </div>
                     <p className={`text-[10px] ${textMuted} mb-3`}>
-                      Filed: {new Date(dispute.createdAt).toLocaleString()}
+                      Filed: {formatDateTimeDMY(dispute.createdAt)}
                     </p>
                     <div className={`flex gap-2 pt-3 border-t ${borderColor}`}>
                       <button
@@ -997,7 +997,7 @@ export default function AdminPage() {
                       <div className={`flex gap-3 text-[10px] ${textMuted} mt-0.5`}>
                         <span>{u._count.orders} orders</span>
                         <span>{u._count.positions} positions</span>
-                        <span>Joined {new Date(u.createdAt).toLocaleDateString()}</span>
+                        <span>Joined {formatDateDMY(u.createdAt)}</span>
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0 flex flex-col items-end gap-1">
@@ -1080,7 +1080,7 @@ export default function AdminPage() {
                           {p.feeAmount > 0 && <span className="mx-1">• Fee: {formatZambianCurrency(p.feeAmount)}</span>}
                         </div>
                         <span className={`text-[10px] ${textMuted}`}>
-                          {new Date(p.createdAt).toLocaleString()}
+                          {formatDateTimeDMY(p.createdAt)}
                         </span>
                       </div>
                       {p.statusMessage && (
@@ -1126,7 +1126,7 @@ export default function AdminPage() {
                           </span>
                         </div>
                         <span className={`text-[10px] ${textMuted}`}>
-                          {new Date(log.createdAt).toLocaleString()}
+                          {formatDateTimeDMY(log.createdAt)}
                         </span>
                       </div>
                       <p className={`text-xs ${textMuted} truncate`}>

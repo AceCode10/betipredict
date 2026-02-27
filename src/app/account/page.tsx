@@ -9,7 +9,7 @@ import {
   Wallet, BarChart3, History, User, Shield, LogOut, Eye, EyeOff,
   Trophy, Target, Percent, AlertCircle, CheckCircle2, ChevronRight
 } from 'lucide-react'
-import { formatZambianCurrency } from '@/utils/currency'
+import { formatZambianCurrency, formatDateDMY, formatDateTimeDMY } from '@/utils/currency'
 import { DepositModal } from '@/components/DepositModal'
 import { WithdrawModal } from '@/components/WithdrawModal'
 
@@ -505,7 +505,7 @@ export default function AccountPage() {
                       <p className="text-sm text-white truncate">{tx.description}</p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <p className="text-xs text-gray-600">
-                          {new Date(tx.createdAt).toLocaleDateString('en-ZM', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {formatDateTimeDMY(tx.createdAt)}
                         </p>
                         {tx.feeAmount > 0 && <span className="text-[10px] text-gray-600">Fee: {formatZambianCurrency(tx.feeAmount)}</span>}
                       </div>
@@ -552,7 +552,7 @@ export default function AccountPage() {
                         <span className="flex items-center gap-1 text-xs text-yellow-400"><AlertCircle className="w-3 h-3" /> Unverified</span>
                       )}
                       <span className="text-xs text-gray-600">•</span>
-                      <span className="text-xs text-gray-500">Joined {new Date(profile.createdAt).toLocaleDateString('en-ZM', { month: 'long', year: 'numeric' })}</span>
+                      <span className="text-xs text-gray-500">Joined {formatDateDMY(profile.createdAt)}</span>
                     </div>
                   </div>
                   {!editingProfile ? (
@@ -607,7 +607,7 @@ export default function AccountPage() {
                     </div>
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Member Since</p>
-                      <p className="text-sm text-white">{new Date(profile.createdAt).toLocaleDateString('en-ZM', { month: 'short', year: 'numeric' })}</p>
+                      <p className="text-sm text-white">{formatDateDMY(profile.createdAt)}</p>
                     </div>
                   </div>
                 </div>

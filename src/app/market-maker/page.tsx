@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/contexts/ThemeContext'
-import { formatZambianCurrency } from '@/utils/currency'
+import { formatZambianCurrency, formatDateDMY, formatDateTimeDMY } from '@/utils/currency'
 import {
   ArrowLeft, CheckCircle, XCircle, RefreshCw, Loader2, Trophy,
   BarChart3, Clock, Search, Settings, ChevronDown, ChevronUp,
@@ -749,8 +749,7 @@ export default function MarketMakerPage() {
                             <div className={`flex items-center gap-3 text-xs ${textMuted}`}>
                               <span>{market.league || 'Sports'}</span>
                               <span>•</span>
-                              <span>{matchDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                              <span>{matchDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span>{formatDateTimeDMY(matchDate)}</span>
                               {market.scheduledGame?.matchday && <span>• MD {market.scheduledGame.matchday}</span>}
                               {/* Odds source badge — shows if prices differ from both defaults (0.33 and 0.5 Prisma default) */}
                               {market.yesPrice !== 0.5 && market.noPrice !== 0.5 && (Math.round(market.yesPrice * 100) !== 33 || Math.round(market.noPrice * 100) !== 33) && (
@@ -881,7 +880,7 @@ export default function MarketMakerPage() {
                             <div className={`flex items-center gap-3 text-xs ${textMuted}`}>
                               <span>{market.league}</span>
                               <span>•</span>
-                              <span>{matchDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                              <span>{formatDateDMY(matchDate)}</span>
                               <span>•</span>
                               <span>{formatZambianCurrency(market.volume)} vol</span>
                               <span>•</span>
@@ -956,7 +955,7 @@ export default function MarketMakerPage() {
                             <span>•</span>
                             <span>by {s.suggester.username}</span>
                             <span>•</span>
-                            <span>{new Date(s.createdAt).toLocaleDateString()}</span>
+                            <span>{formatDateDMY(s.createdAt)}</span>
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">

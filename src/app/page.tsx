@@ -35,7 +35,9 @@ import {
   formatZambianCurrency, 
   formatPriceAsNgwee, 
   formatVolume, 
-  formatTotalCost 
+  formatTotalCost,
+  formatDateDMY,
+  formatDateTimeDMY 
 } from '@/utils/currency'
 
 // Bet item interface
@@ -359,7 +361,7 @@ export default function PolymarketStyleHomePage() {
     const rawLeague = m.league || m.subcategory || m.category || ''
     const league = getLeagueDisplayName(rawLeague)
     const rawDate = m.matchDate || m.resolveTime
-    const matchDate = rawDate ? new Date(rawDate).toLocaleDateString() : ''
+    const matchDate = rawDate ? formatDateDMY(rawDate) : ''
     const trend = m.trend || (m.yesPrice > 0.5 ? 'up' : 'down')
     const change = m.change || ''
     const volume = m.volume || 0
@@ -891,8 +893,8 @@ export default function PolymarketStyleHomePage() {
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'AWAY' : 'NO' }) }}
                       className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 overflow-hidden ${
                         isDarkMode
-                          ? 'bg-red-600 text-white hover:bg-red-500'
-                          : 'bg-red-600 text-white hover:bg-red-500'
+                          ? 'bg-blue-600 text-white hover:bg-blue-500'
+                          : 'bg-blue-600 text-white hover:bg-blue-500'
                       }`}
                     >
                       <span className="truncate">{abbreviateTeam(market.optionB)}</span> {formatPriceAsNgwee(market.awayPrice ?? market.noPrice)}
@@ -987,10 +989,10 @@ export default function PolymarketStyleHomePage() {
         const avgPriceDisplay = price
         // Abbreviate team name for moneyline buttons
         const abbrev = (name: string) => name.length > 10 ? name.substring(0, 8) + '…' : name
-        // Ngwee price display (like Polymarket's cents)
-        const ngweePrice = (p: number) => `${Math.round(p * 100)}n`
+        // Kwacha price display
+        const ngweePrice = (p: number) => `K${p.toFixed(2)}`
         // Match time display
-        const matchTimeStr = market.resolveTime ? new Date(market.resolveTime).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' }) : ''
+        const matchTimeStr = market.resolveTime ? formatDateTimeDMY(market.resolveTime) : ''
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-start justify-center sm:pt-6 px-0 sm:px-4">
             <div className="absolute inset-0 bg-black/60" onClick={() => setShowChart(null)} />
@@ -1150,12 +1152,12 @@ export default function PolymarketStyleHomePage() {
                               <p>{market.description}</p>
                             ) : (
                               <>
-                                <p>This market resolves to <span className="text-green-500 font-medium">&quot;Yes&quot;</span> if the condition is met by {market.resolveTime ? new Date(market.resolveTime).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'TBD'}.</p>
+                                <p>This market resolves to <span className="text-green-500 font-medium">&quot;Yes&quot;</span> if the condition is met by {market.resolveTime ? formatDateDMY(market.resolveTime) : 'TBD'}.</p>
                                 <p>Otherwise resolves to <span className="text-red-400 font-medium">&quot;No&quot;</span>.</p>
                               </>
                             )}
                             <div className={`text-xs ${textMuted} mt-2 pt-2 border-t ${modalBorder} space-y-1`}>
-                              <div className="flex justify-between"><span>Resolution</span><span className={textColor}>{market.resolveTime ? new Date(market.resolveTime).toLocaleDateString() : 'TBD'}</span></div>
+                              <div className="flex justify-between"><span>Resolution</span><span className={textColor}>{market.resolveTime ? formatDateDMY(market.resolveTime) : 'TBD'}</span></div>
                               <div className="flex justify-between"><span>Category</span><span className={textColor}>{market.league || market.category || 'General'}</span></div>
                               <div className="flex justify-between"><span>Created by</span><span className={textColor}>{market.creator?.username || 'System'}</span></div>
                             </div>
@@ -1443,7 +1445,7 @@ export default function PolymarketStyleHomePage() {
                     {/* Limit price input (only for LIMIT orders) */}
                     {orderType === 'LIMIT' && (
                       <div className="mb-3">
-                        <label className={`text-xs ${textMuted} mb-1 block`}>Price (1n–99n)</label>
+                        <label className={`text-xs ${textMuted} mb-1 block`}>Price (K0.01–K0.99)</label>
                         <div className={`flex items-center rounded-lg border ${modalBorder} ${inputBg} px-3 py-2`}>
                           <input
                             type="number"
@@ -1452,10 +1454,10 @@ export default function PolymarketStyleHomePage() {
                             max="0.99"
                             value={limitPrice}
                             onChange={(e) => setLimitPrice(e.target.value)}
-                            placeholder={`${(price * 100).toFixed(0)}n`}
+                            placeholder={`K${price.toFixed(2)}`}
                             className={`flex-1 bg-transparent outline-none text-sm ${textColor}`}
                           />
-                          <span className={`text-xs ${textMuted} ml-1`}>n per share</span>
+                          <span className={`text-xs ${textMuted} ml-1`}>per share</span>
                         </div>
                       </div>
                     )}

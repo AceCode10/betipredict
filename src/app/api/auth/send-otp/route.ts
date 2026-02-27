@@ -13,8 +13,8 @@ export async function POST(request: NextRequest) {
     }
 
     const normalized = normalizePhone(phone)
-    if (!/^\+\d{10,15}$/.test(normalized)) {
-      return NextResponse.json({ error: 'Invalid phone number format' }, { status: 400 })
+    if (!/^\+\d{9,15}$/.test(normalized)) {
+      return NextResponse.json({ error: `Invalid phone number. Please use format: 0971234567 or +260971234567` }, { status: 400 })
     }
 
     // Rate limit: 3 OTP requests per 5 minutes per phone

@@ -28,8 +28,7 @@ export function formatZambianCurrency(amount: number, showNgwee: boolean = false
  * @returns Formatted as ngwee (e.g., 45n for 0.45)
  */
 export function formatPriceAsNgwee(price: number): string {
-  const ngwee = Math.round(price * 100)
-  return `${ngwee}n`
+  return `K${price.toFixed(2)}`
 }
 
 /**
@@ -113,4 +112,34 @@ export function isValidZambianAmount(amount: number): boolean {
  */
 export function roundToNgwee(amount: number): number {
   return Math.round(amount * 100) / 100
+}
+
+/**
+ * Format a date as DD/MM/YY
+ * @param date - Date object or ISO string
+ * @returns Formatted string e.g. "27/02/26"
+ */
+export function formatDateDMY(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date
+  if (isNaN(d.getTime())) return ''
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yy = String(d.getFullYear()).slice(-2)
+  return `${dd}/${mm}/${yy}`
+}
+
+/**
+ * Format a date as DD/MM/YY HH:mm
+ * @param date - Date object or ISO string
+ * @returns Formatted string e.g. "27/02/26 14:30"
+ */
+export function formatDateTimeDMY(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date
+  if (isNaN(d.getTime())) return ''
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yy = String(d.getFullYear()).slice(-2)
+  const hh = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${dd}/${mm}/${yy} ${hh}:${min}`
 }
