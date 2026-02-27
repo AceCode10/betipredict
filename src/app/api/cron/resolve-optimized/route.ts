@@ -60,7 +60,8 @@ export async function POST(request: NextRequest) {
         externalId: true, 
         marketId: true, 
         homeTeam: true, 
-        awayTeam: true 
+        awayTeam: true,
+        market: { select: { marketType: true } }
       }
     })
 
@@ -88,31 +89,31 @@ export async function POST(request: NextRequest) {
 
       if (result.isFinished && result.winner) {
         try {
-          // Map winner to market outcome
-          let winningOutcome: 'YES' | 'NO' | null = null
-          if (result.winner === 'HOME_TEAM') {
-            winningOutcome = 'YES'  // "Will home team win?"
+          // Update game status
+          await prisma.scheduledGame.update({
+            where: { id: game.id },
+            data: { status: 'FINISHED', winner: result.winner }
+          })
+
+          const isTri = game.market?.marketType === 'TRI_OUTCOME'
+
+          if (isTri) {
+            // TRI_OUTCOME: HOME/DRAW/AWAY
+            let triOutcome: 'HOME' | 'DRAW' | 'AWAY'
+            if (result.winner === 'HOME_TEAM') triOutcome = 'HOME'
+            else if (result.winner === 'AWAY_TEAM') triOutcome = 'AWAY'
+            else triOutcome = 'DRAW'
+            await MarketResolver.resolveMarket(game.marketId, triOutcome)
+            resolved.push({ marketId: game.marketId, outcome: triOutcome })
+            console.log(`[optimized-resolve] Resolved (tri) ${game.homeTeam} vs ${game.awayTeam}: ${triOutcome}`)
+          } else if (result.winner === 'DRAW') {
+            await MarketResolver.voidMarket(game.marketId, 'Match ended in a draw')
+            resolved.push({ marketId: game.marketId, outcome: 'VOID' })
+            console.log(`[optimized-resolve] DRAW — voided binary: ${game.homeTeam} vs ${game.awayTeam}`)
           } else {
-            winningOutcome = 'NO'   // Away team win or draw
-          }
-
-          if (winningOutcome) {
-            // Update game status
-            await prisma.scheduledGame.update({
-              where: { id: game.id },
-              data: {
-                status: 'FINISHED',
-                winner: result.winner
-              }
-            })
-
-            // Resolve the market
+            const winningOutcome: 'YES' | 'NO' = result.winner === 'HOME_TEAM' ? 'YES' : 'NO'
             await MarketResolver.resolveMarket(game.marketId, winningOutcome)
-            resolved.push({ 
-              marketId: game.marketId, 
-              outcome: winningOutcome 
-            })
-
+            resolved.push({ marketId: game.marketId, outcome: winningOutcome })
             console.log(`[optimized-resolve] Resolved ${game.homeTeam} vs ${game.awayTeam}: ${winningOutcome}`)
           }
         } catch (err: any) {

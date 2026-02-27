@@ -893,8 +893,8 @@ export default function PolymarketStyleHomePage() {
                       onClick={(e) => { e.stopPropagation(); setShowChart({ marketId: market.id, outcome: market.isTri ? 'AWAY' : 'NO' }) }}
                       className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 overflow-hidden ${
                         isDarkMode
-                          ? 'bg-blue-600 text-white hover:bg-blue-500'
-                          : 'bg-blue-600 text-white hover:bg-blue-500'
+                          ? 'bg-green-600 text-white hover:bg-green-500'
+                          : 'bg-green-600 text-white hover:bg-green-500'
                       }`}
                     >
                       <span className="truncate">{abbreviateTeam(market.optionB)}</span> {formatPriceAsNgwee(market.awayPrice ?? market.noPrice)}

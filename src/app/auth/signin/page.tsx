@@ -91,7 +91,7 @@ export default function SignIn() {
       <div className="min-h-screen bg-[#131722] flex items-center justify-center p-4">
         <div className="w-full max-w-sm">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center mb-2"><Logo size="lg" /></div>
+            <div className="inline-flex items-center mb-2"><Logo size="lg" forceDark /></div>
             <p className="text-gray-400 text-sm">Admin sign in</p>
           </div>
           <div className="bg-[#1c2030] border border-gray-800 rounded-xl p-6">
@@ -131,7 +131,7 @@ export default function SignIn() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center mb-2">
-            <Logo size="lg" />
+            <Logo size="lg" forceDark />
           </div>
           <p className="text-gray-400 text-sm">
             {mode === 'signin' ? 'Sign in to your account' : 'Create a new account'}
@@ -225,7 +225,7 @@ export default function SignIn() {
             {/* OTP section (signup only) */}
             {mode === 'signup' && (
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">WhatsApp OTP</label>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">SMS OTP</label>
                 <div className="flex gap-2">
                   <input
                     type="text"

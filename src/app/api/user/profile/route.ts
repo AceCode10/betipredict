@@ -78,6 +78,22 @@ export async function PUT(request: NextRequest) {
       updates.fullName = fullName
     }
 
+    // Validate email
+    if (typeof body.email === 'string') {
+      const email = body.email.trim().toLowerCase()
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
+      }
+      if (email) {
+        // Check uniqueness (skip placeholder phone emails)
+        const existing = await prisma.user.findUnique({ where: { email } })
+        if (existing && existing.id !== session.user.id) {
+          return NextResponse.json({ error: 'Email already in use by another account' }, { status: 409 })
+        }
+        updates.email = email
+      }
+    }
+
     // Validate avatar URL
     if (typeof body.avatar === 'string') {
       const avatar = body.avatar.trim()

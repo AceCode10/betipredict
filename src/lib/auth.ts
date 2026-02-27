@@ -5,15 +5,12 @@ import bcrypt from "bcryptjs"
 import { generateToken, sendVerificationEmail } from "@/lib/email"
 import { writeAuditLog } from "@/lib/audit"
 import { checkRateLimit } from "@/lib/rate-limit"
-import { normalizePhone } from "@/lib/whatsapp-otp"
+import { normalizePhone, verifyOTP } from "@/lib/whatsapp-otp"
 
 // Track failed login attempts per identifier for account lockout
 const failedAttempts = new Map<string, { count: number; lastAttempt: number }>()
 const MAX_FAILED_ATTEMPTS = 5
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000 // 15 minutes
-
-// In-memory OTP store for signup flow (shared with send-otp route)
-export const signupOtpStore = new Map<string, { otp: string; expiry: Date }>()
 
 function isPhone(value: string): boolean {
   const cleaned = value.replace(/[\s\-()]/g, '')
@@ -73,20 +70,11 @@ export const authOptions: NextAuthOptions = {
         if (mode === 'signup') {
           // ── SIGN UP ──
           if (usePhone) {
-            // Phone-based signup: require OTP verification
+            // Phone-based signup: require OTP verification via Twilio Verify
             if (!otp) throw new Error('OTP verification code is required')
 
-            // Check OTP from the in-memory store (set by send-otp route)
-            const { otpStore } = await import('@/app/api/auth/send-otp/route')
-            const stored = otpStore.get(identifier)
-            if (!stored) throw new Error('No OTP found. Please request a new code.')
-            if (new Date() > stored.expiry) {
-              otpStore.delete(identifier)
-              throw new Error('OTP has expired. Please request a new code.')
-            }
-            const otpValid = await bcrypt.compare(otp, stored.otp)
-            if (!otpValid) throw new Error('Invalid OTP code')
-            otpStore.delete(identifier)
+            const otpValid = await verifyOTP(identifier, otp)
+            if (!otpValid) throw new Error('Invalid or expired OTP code. Please request a new one.')
 
             // Check if phone already registered
             const existing = await prisma.user.findUnique({ where: { phone: identifier } })

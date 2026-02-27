@@ -33,6 +33,7 @@ export default function AccountPage() {
   const [editingProfile, setEditingProfile] = useState(false)
   const [editUsername, setEditUsername] = useState('')
   const [editFullName, setEditFullName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
   const [profileError, setProfileError] = useState('')
   const [profileSaving, setProfileSaving] = useState(false)
   const [hideBalance, setHideBalance] = useState(false)
@@ -61,6 +62,7 @@ export default function AccountPage() {
         setProfile(d.user)
         setEditUsername(d.user?.username || '')
         setEditFullName(d.user?.fullName || '')
+        setEditEmail(d.user?.email?.includes('@phone.betipredict.com') ? '' : (d.user?.email || ''))
       }
       if (notifRes?.ok) { const d = await notifRes.json(); setNotifications(d.notifications || []) }
     } catch (err) {
@@ -83,7 +85,7 @@ export default function AccountPage() {
       const res = await fetch('/api/user/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: editUsername, fullName: editFullName }),
+        body: JSON.stringify({ username: editUsername, fullName: editFullName, ...(editEmail ? { email: editEmail } : {}) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to update')
@@ -589,13 +591,19 @@ export default function AccountPage() {
                     <input type="text" value={editFullName} onChange={e => setEditFullName(e.target.value)}
                       className="w-full bg-[#0d1117] border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-green-500 transition-colors" />
                   </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1.5 block font-medium">Email <span className="text-gray-600">(optional)</span></label>
+                    <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)}
+                      placeholder="your@email.com"
+                      className="w-full bg-[#0d1117] border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-green-500 transition-colors placeholder-gray-600" />
+                  </div>
                 </div>
               ) : (
                 <div className="p-6">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Email</p>
-                      <p className="text-sm text-white">{profile.email}</p>
+                      <p className="text-sm text-white">{profile.email?.includes('@phone.betipredict.com') ? <span className="text-gray-500 italic">Not set</span> : profile.email}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Total Trades</p>

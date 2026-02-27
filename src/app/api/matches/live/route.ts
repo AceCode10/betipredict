@@ -5,7 +5,7 @@ import { MarketResolver } from '@/lib/market-resolution'
 const FOOTBALL_DATA_API_KEY = process.env.FOOTBALL_DATA_API_KEY || ''
 
 // Maximum age (ms) a DB-only live game is shown before being auto-expired
-const MAX_LIVE_AGE_MS = 4 * 60 * 60 * 1000 // 4 hours
+const MAX_LIVE_AGE_MS = 3 * 60 * 60 * 1000 // 3 hours
 
 interface LiveMatchData {
   id: number
@@ -104,8 +104,8 @@ export async function GET(request: NextRequest) {
         if (marketId) {
           const market = marketMap.get(marketId)
           if (market) {
-            // Skip markets that are already resolved/finalized
-            if (['RESOLVED', 'FINALIZED', 'FINALIZING', 'CANCELLED'].includes(market.status)) continue
+            // Skip markets that are already resolved/finalized/pending
+            if (['RESOLVED', 'FINALIZED', 'FINALIZING', 'CANCELLED', 'PENDING_APPROVAL'].includes(market.status)) continue
             match.marketId = market.id
             match.marketTitle = market.title
             match.yesPrice = market.yesPrice
@@ -147,7 +147,7 @@ export async function GET(request: NextRequest) {
                   question,
                   resolveTime: new Date(Date.now() + 4 * 60 * 60 * 1000),
                   creatorId: systemUser!.id,
-                  status: 'PENDING_APPROVAL',
+                  status: 'ACTIVE',
                   marketType: 'TRI_OUTCOME',
                   pricingEngine: 'CLOB',
                   yesPrice: 0.33,
@@ -173,7 +173,7 @@ export async function GET(request: NextRequest) {
                     awayTeam: match.awayTeam,
                     homeTeamCrest: match.homeTeamCrest,
                     awayTeamCrest: match.awayTeamCrest,
-                    utcDate: new Date(),
+                    utcDate: new Date(Date.now() - 60 * 60 * 1000),
                     status: 'IN_PLAY',
                     homeScore: match.homeScore,
                     awayScore: match.awayScore,
@@ -223,16 +223,26 @@ export async function GET(request: NextRequest) {
             where: { id: game.marketId },
             select: { status: true },
           })
-          if (market?.status === 'ACTIVE') {
+          if (market?.status === 'ACTIVE' || market?.status === 'PENDING_APPROVAL') {
             // Try to fetch the real result from the API
             const result = await fetchMatchResult(game.externalId)
             if (result) {
+              // Ensure market is ACTIVE before resolving (auto-activate if PENDING)
+              if (market?.status === 'PENDING_APPROVAL') {
+                await prisma.market.update({ where: { id: game.marketId }, data: { status: 'ACTIVE' } }).catch(() => {})
+              }
               await MarketResolver.resolveMarket(game.marketId, result).catch((e: any) =>
                 console.error(`[Live Matches] Auto-resolve failed for ${game.homeTeam} vs ${game.awayTeam}:`, e.message)
               )
               console.log(`[Live Matches] Auto-resolved stale game ${game.homeTeam} vs ${game.awayTeam} → ${result}`)
             } else {
-              console.log(`[Live Matches] Stale game ${game.homeTeam} vs ${game.awayTeam} marked FINISHED, no API result yet`)
+              // No API result — if PENDING_APPROVAL with no volume, just cancel
+              if (market?.status === 'PENDING_APPROVAL') {
+                await prisma.market.update({ where: { id: game.marketId }, data: { status: 'CANCELLED' } }).catch(() => {})
+                console.log(`[Live Matches] Cancelled stale PENDING market for ${game.homeTeam} vs ${game.awayTeam}`)
+              } else {
+                console.log(`[Live Matches] Stale game ${game.homeTeam} vs ${game.awayTeam} marked FINISHED, no API result yet`)
+              }
             }
           }
         }
@@ -309,7 +319,7 @@ export async function GET(request: NextRequest) {
  * Fetch match result from football-data.org.
  * Returns 'YES' if home wins, 'NO' if away wins or draw.
  */
-async function fetchMatchResult(matchId: number): Promise<'YES' | 'NO' | null> {
+async function fetchMatchResult(matchId: number): Promise<'HOME' | 'DRAW' | 'AWAY' | null> {
   if (!FOOTBALL_DATA_API_KEY) return null
   try {
     const res = await fetch(`https://api.football-data.org/v4/matches/${matchId}`, {
@@ -321,8 +331,9 @@ async function fetchMatchResult(matchId: number): Promise<'YES' | 'NO' | null> {
     if (data.status !== 'FINISHED') return null
     const winner = data.score?.winner
     if (!winner) return null
-    if (winner === 'HOME_TEAM') return 'YES'
-    if (winner === 'AWAY_TEAM' || winner === 'DRAW') return 'NO'
+    if (winner === 'HOME_TEAM') return 'HOME'
+    if (winner === 'AWAY_TEAM') return 'AWAY'
+    if (winner === 'DRAW') return 'DRAW'
     return null
   } catch {
     return null

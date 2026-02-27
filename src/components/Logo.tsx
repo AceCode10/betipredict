@@ -6,9 +6,10 @@ interface LogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl'
   className?: string
   showText?: boolean
+  forceDark?: boolean
 }
 
-export function Logo({ size = 'md', className = '', showText = true }: LogoProps) {
+export function Logo({ size = 'md', className = '', showText = true, forceDark = false }: LogoProps) {
   const { isDarkMode } = useTheme()
 
   const sizes = {
@@ -35,7 +36,7 @@ export function Logo({ size = 'md', className = '', showText = true }: LogoProps
   }
 
   const currentSize = sizes[size]
-  const textColor = isDarkMode ? 'text-white' : 'text-gray-900'
+  const textColor = (isDarkMode || forceDark) ? 'text-white' : 'text-gray-900'
 
   if (!showText) {
     return (
