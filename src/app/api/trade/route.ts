@@ -8,7 +8,7 @@ import { initializePool, calculateSharesForAmount, calculateSellProceeds, getPri
 // New CLOB engine
 import { OrderBook, CLOBOrder, Fill } from '@/lib/clob'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
-import { calculateTradeFee, FEES, getCPMMMaxBet } from '@/lib/fees'
+import { calculateTradeFee, FEES, getCPMMMaxBet, roundToNgwee } from '@/lib/fees'
 import { sendTradeConfirmation } from '@/lib/email'
 
 // ─── Helpers ────────────────────────────────────────────
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
 
     const trade: TradeRequest = await request.json()
     const { marketId, outcome, side, type } = trade
-    const amount = Number(trade.amount)
+    const amount = Math.round(Number(trade.amount) * 100) / 100 // Round to 2dp (ngwee)
     const limitPrice = trade.price != null ? Number(trade.price) : undefined
 
     // Validate trade request
@@ -174,15 +174,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ═══════════════════════════════════════════════════════
-    // Route to CLOB or legacy CPMM based on pricingEngine
+    // Phase 1: ALL trades go through CPMM (AMM-first mode)
+    // CLOB handler preserved for future Phase 2 hybrid mode
     // ═══════════════════════════════════════════════════════
-    const useCLOB = (market as any).pricingEngine === 'CLOB'
-
-    if (useCLOB) {
-      return handleCLOBTrade(session, user, market, { outcome, side, type, amount, limitPrice, isTri })
-    } else {
-      return handleCPMMTrade(session, user, market, { outcome, side, type, amount, isTri })
-    }
+    return handleCPMMTrade(session, user, market, { outcome, side, type, amount, isTri })
 
   } catch (error: any) {
     console.error('Error executing trade:', error)
@@ -356,7 +351,7 @@ async function handleCLOBTrade(
         await tx.transaction.create({
           data: {
             type: 'TRADE', amount: -filledCost, feeAmount: fee.feeAmount,
-            description: `Bought ${totalFilled.toFixed(2)} ${outcome} shares @ ${(avgPrice * 100).toFixed(0)}n in "${market.title}"`,
+            description: `Bought ${totalFilled.toFixed(2)} ${outcome} shares @ ${(avgPrice * 100).toFixed(0)}% in "${market.title}"`,
             status: 'COMPLETED', userId: session.user.id,
             metadata: JSON.stringify({ orderId: dbOrder.id, marketId, outcome, shares: totalFilled, avgPrice, cost: filledCost, resting: restingShares })
           }
@@ -413,7 +408,7 @@ async function handleCLOBTrade(
         await tx.transaction.create({
           data: {
             type: 'TRADE', amount: sellerFee.netAmount, feeAmount: sellerFee.feeAmount,
-            description: `Sold ${fill.size.toFixed(2)} ${outcome} shares @ ${(fill.price * 100).toFixed(0)}n in "${market.title}" (filled)`,
+            description: `Sold ${fill.size.toFixed(2)} ${outcome} shares @ ${(fill.price * 100).toFixed(0)}% in "${market.title}" (filled)`,
             status: 'COMPLETED', userId: fill.makerId,
           }
         })
@@ -471,7 +466,7 @@ async function handleCLOBTrade(
         await tx.transaction.create({
           data: {
             type: 'TRADE', amount: netProceeds, feeAmount: fee.feeAmount,
-            description: `Sold ${totalFilled.toFixed(2)} ${outcome} shares @ ${(avgPrice * 100).toFixed(0)}n in "${market.title}"`,
+            description: `Sold ${totalFilled.toFixed(2)} ${outcome} shares @ ${(avgPrice * 100).toFixed(0)}% in "${market.title}"`,
             status: 'COMPLETED', userId: session.user.id,
             metadata: JSON.stringify({ orderId: dbOrder.id, marketId, outcome, shares: totalFilled, avgPrice, grossProceeds, resting: restingShares })
           }
@@ -526,7 +521,7 @@ async function handleCLOBTrade(
         await tx.transaction.create({
           data: {
             type: 'TRADE', amount: -buyCost, feeAmount: 0,
-            description: `Bought ${fill.size.toFixed(2)} ${outcome} shares @ ${(fill.price * 100).toFixed(0)}n in "${market.title}" (filled)`,
+            description: `Bought ${fill.size.toFixed(2)} ${outcome} shares @ ${(fill.price * 100).toFixed(0)}% in "${market.title}" (filled)`,
             status: 'COMPLETED', userId: fill.makerId,
           }
         })
@@ -644,6 +639,9 @@ async function handleCPMMTrade(
         newPriceData = getPrices(calcResult.newPool)
       }
 
+      // Round shares to 2dp to prevent floating-point drift in positions
+      shares = roundToNgwee(shares)
+      avgPrice = roundToNgwee(avgPrice * 10000) / 10000 // 4dp for price precision
       if (shares <= 0) throw new Error('Trade amount too small')
 
       const updatedUser = await tx.user.update({
@@ -662,7 +660,7 @@ async function handleCPMMTrade(
       await tx.transaction.create({
         data: {
           type: 'TRADE', amount: -grossAmount, feeAmount: fee.feeAmount,
-          description: `Bought ${shares.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(avgPrice * 100).toFixed(0)}n`,
+          description: `Bought ${shares.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(avgPrice * 100).toFixed(1)}%`,
           status: 'COMPLETED', userId: session.user.id,
           metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares, avgPrice, spent: grossAmount })
         }
@@ -682,15 +680,15 @@ async function handleCPMMTrade(
         where: { userId_marketId_outcome: { userId: session.user.id, marketId, outcome } }
       })
       if (existingPosition) {
-        const newSize = existingPosition.size + shares
-        const newAvgPrice = ((existingPosition.averagePrice * existingPosition.size) + (avgPrice * shares)) / newSize
+        const newSize = roundToNgwee(existingPosition.size + shares)
+        const newAvgPrice = roundToNgwee(((existingPosition.averagePrice * existingPosition.size) + (avgPrice * shares)) / newSize)
         await tx.position.update({
           where: { id: existingPosition.id },
           data: { size: newSize, averagePrice: newAvgPrice, isClosed: false }
         })
       } else {
         await tx.position.create({
-          data: { userId: session.user.id, marketId, outcome, size: shares, averagePrice: avgPrice }
+          data: { userId: session.user.id, marketId, outcome, size: shares, averagePrice: roundToNgwee(avgPrice) }
         })
       }
 
@@ -788,6 +786,9 @@ async function handleCPMMTrade(
         newPriceData = getPrices(calcResult.newPool)
       }
 
+      // Round proceeds to 2dp to prevent floating-point drift
+      grossProceeds = roundToNgwee(grossProceeds)
+      sellAvgPrice = roundToNgwee(sellAvgPrice * 10000) / 10000 // 4dp for price precision
       if (grossProceeds <= 0) throw new Error('Sell amount too small')
 
       const sellFee = calculateTradeFee(grossProceeds)
@@ -809,7 +810,7 @@ async function handleCPMMTrade(
       await tx.transaction.create({
         data: {
           type: 'TRADE', amount: netProceeds, feeAmount: sellFee.feeAmount,
-          description: `Sold ${sharesToSell.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(sellAvgPrice * 100).toFixed(0)}n`,
+          description: `Sold ${sharesToSell.toFixed(2)} ${outcome} shares in "${market.title}" @ ${(sellAvgPrice * 100).toFixed(1)}%`,
           status: 'COMPLETED', userId: session.user.id,
           metadata: JSON.stringify({ orderId: order.id, marketId, outcome, shares: sharesToSell, price: sellAvgPrice, grossProceeds })
         }
@@ -825,10 +826,10 @@ async function handleCPMMTrade(
         })
       }
 
-      const newSize = position.size - sharesToSell
+      const newSize = roundToNgwee(position.size - sharesToSell)
       await tx.position.update({
         where: { id: position.id },
-        data: { size: Math.max(0, newSize), isClosed: newSize <= 0 }
+        data: { size: Math.max(0, newSize), isClosed: newSize <= 0.001 }
       })
 
       const marketUpdateData: any = { volume: { increment: grossProceeds } }

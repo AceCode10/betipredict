@@ -18,15 +18,19 @@ export async function GET(
 
     const market = await prisma.market.findUnique({
       where: { id: marketId },
-      select: { yesPrice: true, noPrice: true, status: true, winningOutcome: true }
+      select: { yesPrice: true, noPrice: true, drawPrice: true, marketType: true, status: true, winningOutcome: true }
     })
 
     if (!market) {
       return NextResponse.json({ error: 'Market not found' }, { status: 404 })
     }
 
+    const validOutcomes = market.marketType === 'TRI_OUTCOME'
+      ? ['HOME', 'DRAW', 'AWAY']
+      : ['YES', 'NO']
+
     const where: any = { marketId, size: { gt: 0 } }
-    if (outcomeFilter && ['YES', 'NO'].includes(outcomeFilter)) {
+    if (outcomeFilter && validOutcomes.includes(outcomeFilter)) {
       where.outcome = outcomeFilter
     }
 
@@ -41,7 +45,14 @@ export async function GET(
     })
 
     const enriched = positions.map(pos => {
-      const currentPrice = pos.outcome === 'YES' ? market.yesPrice : market.noPrice
+      let currentPrice: number
+      if (market.marketType === 'TRI_OUTCOME') {
+        currentPrice = pos.outcome === 'HOME' ? market.yesPrice
+          : pos.outcome === 'DRAW' ? (market.drawPrice || 0.33)
+          : market.noPrice
+      } else {
+        currentPrice = pos.outcome === 'YES' ? market.yesPrice : market.noPrice
+      }
       const currentValue = pos.size * currentPrice
       const costBasis = pos.size * pos.averagePrice
       const unrealizedPnl = pos.isClosed ? pos.realizedPnl : currentValue - costBasis

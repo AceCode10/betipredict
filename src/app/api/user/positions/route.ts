@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     }
 
     const positions = await prisma.position.findMany({
-      where: { userId: session.user.id, isClosed: false },
+      where: { userId: session.user.id },
       include: {
         market: {
           select: {
@@ -21,6 +21,8 @@ export async function GET(request: NextRequest) {
             question: true,
             yesPrice: true,
             noPrice: true,
+            drawPrice: true,
+            marketType: true,
             status: true,
             winningOutcome: true,
             resolveTime: true,
@@ -33,7 +35,11 @@ export async function GET(request: NextRequest) {
 
     // Calculate current value and PnL for each position
     const enrichedPositions = positions.map(pos => {
-      const currentPrice = pos.outcome === 'YES' ? pos.market.yesPrice : pos.market.noPrice
+      let currentPrice: number
+      if (pos.outcome === 'YES' || pos.outcome === 'HOME') currentPrice = pos.market.yesPrice
+      else if (pos.outcome === 'NO' || pos.outcome === 'AWAY') currentPrice = pos.market.noPrice
+      else if (pos.outcome === 'DRAW') currentPrice = pos.market.drawPrice ?? 0
+      else currentPrice = pos.market.noPrice
       const currentValue = pos.size * currentPrice
       const costBasis = pos.size * pos.averagePrice
       const unrealizedPnl = currentValue - costBasis

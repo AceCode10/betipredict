@@ -440,8 +440,8 @@ export default function AccountPage() {
                       <div className="grid grid-cols-4 gap-3">
                         {[
                           { label: 'Shares', value: pos.size?.toFixed(2) },
-                          { label: 'Avg Price', value: `${(pos.averagePrice * 100).toFixed(0)}n` },
-                          { label: 'Current', value: pos.isClosed ? '—' : `${(pos.currentPrice * 100).toFixed(0)}n` },
+                          { label: 'Avg Price', value: `${(pos.averagePrice * 100).toFixed(0)}%` },
+                          { label: 'Current', value: pos.isClosed ? '—' : `${(pos.currentPrice * 100).toFixed(0)}%` },
                           { label: 'Value', value: pos.isClosed ? formatZambianCurrency(pos.realizedPnl || 0) : formatZambianCurrency(pos.currentValue || 0) },
                         ].map(item => (
                           <div key={item.label}>
@@ -545,8 +545,8 @@ export default function AccountPage() {
                     {(profile.username || '?')[0].toUpperCase()}
                   </div>
                   <div className="flex-1">
-                    <p className="text-xl font-bold text-white">{profile.fullName}</p>
-                    <p className="text-sm text-gray-400">@{profile.username}</p>
+                    <p className="text-xl font-bold text-white">{profile.fullName || 'User'}</p>
+                    <p className="text-sm text-gray-400">@{profile.username || 'user'}</p>
                     <div className="flex items-center gap-2 mt-1">
                       {profile.isVerified ? (
                         <span className="flex items-center gap-1 text-xs text-green-400"><Shield className="w-3 h-3" /> Verified</span>
@@ -601,10 +601,12 @@ export default function AccountPage() {
               ) : (
                 <div className="p-6">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+                    {profile.email && !profile.email.includes('@phone.betipredict.com') && (
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Email</p>
-                      <p className="text-sm text-white">{profile.email?.includes('@phone.betipredict.com') ? <span className="text-gray-500 italic">Not set</span> : profile.email}</p>
+                      <p className="text-sm text-white">{profile.email}</p>
                     </div>
+                    )}
                     <div>
                       <p className="text-xs text-gray-600 mb-1">Total Trades</p>
                       <p className="text-sm text-white">{profile._count?.orders || 0}</p>

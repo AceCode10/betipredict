@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') // DEPOSIT, WITHDRAWAL, TRADE
 
     const where: any = { userId: session.user.id }
-    if (type && ['DEPOSIT', 'WITHDRAWAL', 'TRADE'].includes(type)) {
+    if (type && ['DEPOSIT', 'WITHDRAWAL', 'TRADE', 'WINNINGS', 'REFUND'].includes(type)) {
       where.type = type
     }
 

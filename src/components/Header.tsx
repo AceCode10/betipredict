@@ -118,7 +118,13 @@ export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMa
         const data = await positionsRes.json()
         // Calculate portfolio value from positions
         const totalValue = (data.positions || []).reduce((sum: number, pos: any) => {
-          return sum + (pos.size * (pos.outcome === 'YES' ? pos.market?.yesPrice : pos.market?.noPrice) || 0)
+          const m = pos.market
+          if (!m) return sum
+          let price = 0
+          if (pos.outcome === 'YES' || pos.outcome === 'HOME') price = m.yesPrice ?? 0
+          else if (pos.outcome === 'NO' || pos.outcome === 'AWAY') price = m.noPrice ?? 0
+          else if (pos.outcome === 'DRAW') price = m.drawPrice ?? 0
+          return sum + (pos.size * price)
         }, 0)
         setPortfolioValue(totalValue)
       }

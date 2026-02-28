@@ -1,5 +1,5 @@
 import { prisma } from './prisma'
-import { calculateResolutionFee, FEES } from './fees'
+import { calculateResolutionFee, FEES, roundToNgwee } from './fees'
 
 // Dispute window duration: 2 hours (Polymarket-style challenge period)
 // Sports markets with clear API-verified outcomes use short windows.
@@ -180,7 +180,7 @@ export class MarketResolver {
       for (const position of winningPositions) {
         if (position.isClosed) continue
 
-        const grossPayout = position.size * 1.0
+        const grossPayout = roundToNgwee(position.size * 1.0)
         const { feeAmount, netAmount } = calculateResolutionFee(grossPayout)
         totalFeesCollected += feeAmount
 
@@ -212,7 +212,7 @@ export class MarketResolver {
           }),
           prisma.position.update({
             where: { id: position.id },
-            data: { isClosed: true, realizedPnl: netAmount - (position.averagePrice * position.size) }
+            data: { isClosed: true, realizedPnl: roundToNgwee(netAmount - (position.averagePrice * position.size)) }
           })
         ])
       }
@@ -222,7 +222,7 @@ export class MarketResolver {
         where: { marketId, outcome: { not: outcome }, isClosed: false }
       })
       for (const lp of losingPositions) {
-        const costBasis = lp.size * lp.averagePrice
+        const costBasis = roundToNgwee(lp.size * lp.averagePrice)
         await prisma.position.update({
           where: { id: lp.id },
           data: { isClosed: true, realizedPnl: -costBasis }
@@ -323,7 +323,7 @@ export class MarketResolver {
       const openPositions = market.positions.filter(p => !p.isClosed)
       const payouts: { userId: string; amount: number }[] = []
       for (const pos of openPositions) {
-        const refund = pos.size * pos.averagePrice
+        const refund = roundToNgwee(pos.size * pos.averagePrice)
         if (refund > 0) payouts.push({ userId: pos.userId, amount: refund })
       }
 

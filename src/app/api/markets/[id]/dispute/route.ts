@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 /**
  * POST /api/markets/[id]/dispute - Submit a dispute for a resolved market
@@ -15,11 +16,17 @@ export async function POST(
   try {
     const { id } = await params
     const session = await getServerSession(authOptions)
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const user = await prisma.user.findUnique({ where: { email: session.user.email } })
+    // Rate limit: 3 disputes per hour per user
+    const rl = checkRateLimit(`dispute:${session.user.id}`, 3, 3600_000)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many dispute submissions. Please wait.' }, { status: 429 })
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: session.user.id } })
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
@@ -87,10 +94,19 @@ export async function POST(
       )
     }
 
+    // Sanitize evidence to prevent stored XSS
+    const sanitizedEvidence = evidence
+      ? String(evidence).trim()
+          .replace(/<[^>]*>/g, '')
+          .replace(/javascript:/gi, '')
+          .replace(/on\w+\s*=/gi, '')
+          .slice(0, 2000)
+      : null
+
     const dispute = await prisma.marketDispute.create({
       data: {
         reason: reason.trim(),
-        evidence: evidence?.trim() || null,
+        evidence: sanitizedEvidence,
         marketId: id,
         disputerId: user.id,
       }

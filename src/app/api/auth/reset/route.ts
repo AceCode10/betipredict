@@ -2,9 +2,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit: 5 reset requests per hour per IP
+    const ip = getClientIp(request)
+    const rl = checkRateLimit(`reset-req:${ip}`, 5, 3600_000)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many reset requests. Please try again later.' }, { status: 429 })
+    }
+
     const { email } = await request.json()
 
     if (!email) {
@@ -56,6 +64,13 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    // Rate limit: 10 reset attempts per hour per IP
+    const ip = getClientIp(request)
+    const rl = checkRateLimit(`reset-exec:${ip}`, 10, 3600_000)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many reset attempts. Please try again later.' }, { status: 429 })
+    }
+
     const { token, newPassword } = await request.json()
 
     if (!token || !newPassword) {

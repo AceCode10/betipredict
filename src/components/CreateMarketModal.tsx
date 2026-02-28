@@ -161,7 +161,6 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
             {/* Question Type Selector */}
             <div>
               <label className={`block text-sm font-medium ${textColor} mb-2`}>
-                <Zap className="w-3.5 h-3.5 inline mr-1 text-yellow-500" />
                 Market Type
               </label>
               <div className="flex flex-wrap gap-1.5">

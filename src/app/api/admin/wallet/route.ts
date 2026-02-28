@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Type must be CREDIT or DEBIT' }, { status: 400 })
     }
 
-    const absAmount = Math.abs(amount)
+    const absAmount = Math.round(Math.abs(amount) * 100) / 100 // Round to 2dp (ngwee)
 
     // Fetch user
     const user = await prisma.user.findUnique({ where: { id: userId } })

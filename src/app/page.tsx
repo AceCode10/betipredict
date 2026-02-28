@@ -197,7 +197,7 @@ export default function PolymarketStyleHomePage() {
       .then(r => r.json())
       .then(data => {
         const pos = (data.positions || []).find((p: any) => p.outcome === showChart.outcome && p.userId === session?.user?.id)
-        setUserSharesForOutcome(pos?.size || 0)
+        setUserSharesForOutcome(pos?.shares || 0)
       })
       .catch(() => setUserSharesForOutcome(0))
   }, [tradeSide, showChart?.marketId, showChart?.outcome, isLoggedIn])
@@ -919,9 +919,9 @@ export default function PolymarketStyleHomePage() {
                     <span>{formatVolume(market.volume)} Vol.</span>
                   </div>
                   {(market.liquidity > 0) && (
-                    <div className="flex items-center gap-0.5" title="Liquidity">
+                    <div className="flex items-center gap-0.5" title="Pool Liquidity — total virtual funds backing this market">
                       <Droplets className="w-3 h-3 text-blue-400" />
-                      <span>{formatVolume(market.liquidity)}</span>
+                      <span>{formatVolume(market.liquidity)} Liq.</span>
                     </div>
                   )}
                 </div>
@@ -1474,7 +1474,7 @@ export default function PolymarketStyleHomePage() {
                           type="number"
                           value={detailAmount}
                           onChange={(e) => setDetailAmount(e.target.value)}
-                          placeholder="K0"
+                          placeholder={tradeSide === 'BUY' ? 'K0' : '0'}
                           className={`w-full pl-3 pr-3 py-3 text-right text-2xl font-bold ${inputBg} border ${modalBorder} rounded-lg ${textColor} focus:outline-none focus:border-green-500`}
                         />
                       </div>
@@ -1482,13 +1482,13 @@ export default function PolymarketStyleHomePage() {
 
                     {/* Quick-add buttons */}
                     <div className="flex gap-1.5 mb-4">
-                      {(tradeSide === 'BUY' ? [1, 5, 10, 100] : [10, 50, 100, 500]).map(val => (
+                      {(tradeSide === 'BUY' ? [1, 5, 10, 100] : [1, 5, 10, 50]).map(val => (
                         <button
                           key={val}
                           onClick={() => setDetailAmount(prev => String((parseFloat(prev) || 0) + val))}
                           className={`flex-1 py-1.5 text-xs font-medium ${inputBg} border ${modalBorder} rounded-md ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} hover:border-green-500/50 transition-colors`}
                         >
-                          +K{val}
+                          {tradeSide === 'BUY' ? `+K${val}` : `+${val}`}
                         </button>
                       ))}
                       <button
@@ -1576,10 +1576,10 @@ export default function PolymarketStyleHomePage() {
             </div>
             <div className={`flex items-center gap-4 text-xs ${textMuted}`}>
               <button onClick={() => setShowHowItWorks(true)} className={`hover:${textColor} transition-colors font-medium`}>How it Works</button>
-              <button onClick={() => window.location.href = '/account'} className={`hover:${textColor} transition-colors`}>My Account</button>
-              <button onClick={() => window.location.href = '/leaderboard'} className={`hover:${textColor} transition-colors`}>Leaderboard</button>
-              <button onClick={() => window.location.href = '/terms'} className={`hover:${textColor} transition-colors`}>Terms</button>
-              <button onClick={() => window.location.href = '/privacy'} className={`hover:${textColor} transition-colors`}>Privacy</button>
+              <a href="/account" className={`hover:${textColor} transition-colors`}>My Account</a>
+              <a href="/leaderboard" className={`hover:${textColor} transition-colors`}>Leaderboard</a>
+              <a href="/terms" className={`hover:${textColor} transition-colors`}>Terms</a>
+              <a href="/privacy" className={`hover:${textColor} transition-colors`}>Privacy</a>
               <span>&copy; {new Date().getFullYear()} BetiPredict. All rights reserved.</span>
             </div>
           </div>

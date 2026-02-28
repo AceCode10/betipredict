@@ -5,6 +5,9 @@ const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || ''
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || ''
 const TWILIO_VERIFY_SERVICE_SID = process.env.TWILIO_VERIFY_SERVICE_SID || ''
 
+// Set OTP_BYPASS_FOR_TESTING=true in .env to skip Twilio and accept any 6-digit code
+const OTP_BYPASS = process.env.OTP_BYPASS_FOR_TESTING === 'true'
+
 const TWILIO_BASE = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SERVICE_SID}`
 
 function twilioAuth(): string {
@@ -24,6 +27,11 @@ export function normalizePhone(phone: string): string {
  */
 export async function sendOTP(phone: string): Promise<boolean> {
   const to = normalizePhone(phone)
+
+  if (OTP_BYPASS) {
+    console.log(`[OTP] BYPASS MODE — skipping Twilio, pretending OTP sent to ${to}. Enter any 6-digit code.`)
+    return true
+  }
 
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_VERIFY_SERVICE_SID) {
     console.log(`[OTP] DEV MODE — would send OTP to ${to}`)
@@ -61,6 +69,11 @@ export async function sendOTP(phone: string): Promise<boolean> {
  */
 export async function verifyOTP(phone: string, code: string): Promise<boolean> {
   const to = normalizePhone(phone)
+
+  if (OTP_BYPASS) {
+    console.log(`[OTP] BYPASS MODE — accepting any 6-digit code for ${to}`)
+    return code.length === 6
+  }
 
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_VERIFY_SERVICE_SID) {
     // DEV MODE: accept any 6-digit code

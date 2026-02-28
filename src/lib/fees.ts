@@ -130,7 +130,7 @@ export function formatFeeRate(feeType: string): string {
 /**
  * Round to nearest ngwee (2 decimal places).
  */
-function roundToNgwee(amount: number): number {
+export function roundToNgwee(amount: number): number {
   return Math.round(amount * 100) / 100
 }
 

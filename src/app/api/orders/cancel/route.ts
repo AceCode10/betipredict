@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { OrderBook } from '@/lib/clob'
 import { FEES } from '@/lib/fees'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 /**
  * POST /api/orders/cancel
@@ -15,6 +16,12 @@ export async function POST(request: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Rate limit: 20 cancels per minute per user
+    const rl = checkRateLimit(`order-cancel:${session.user.id}`, 20, 60_000)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many cancel requests. Please wait.' }, { status: 429 })
     }
 
     const { orderId } = await request.json()

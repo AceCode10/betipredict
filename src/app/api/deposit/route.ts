@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const amount = Number(body.amount)
+    const amount = Math.round(Number(body.amount) * 100) / 100 // Round to 2dp (ngwee)
     const phoneNumber = typeof body.phoneNumber === 'string' ? body.phoneNumber.trim() : ''
     const method = typeof body.method === 'string' ? body.method.slice(0, 50) : 'airtel_money'
 
