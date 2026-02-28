@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getCPMMTriInit } from '@/lib/fees'
 
-// Migrate existing BINARY sports markets to TRI_OUTCOME with CLOB pricing
+// Migrate existing BINARY sports markets to TRI_OUTCOME with CPMM pricing
 // Only accessible by admin users
 export async function POST(request: NextRequest) {
   try {
@@ -50,25 +51,17 @@ export async function POST(request: NextRequest) {
         const drawPrice = drawPct / total
         const awayPrice = awayScaled / total
 
-        // Migrate to TRI_OUTCOME with CLOB pricing — no pool state needed
-        // Prices are placeholders until real CLOB trades occur
+        // Migrate to TRI_OUTCOME with CPMM pricing + initialized pool
+        const cpmmInit = getCPMMTriInit(homePrice, drawPrice, awayPrice)
         await (prisma.market.update as any)({
           where: { id: market.id },
           data: {
             marketType: 'TRI_OUTCOME',
-            pricingEngine: 'CLOB',
-            yesPrice: Math.max(0.01, Math.min(0.99, homePrice)),
-            noPrice: Math.max(0.01, Math.min(0.99, awayPrice)),
-            drawPrice: Math.max(0.01, Math.min(0.99, drawPrice)),
-            // Clear legacy CPMM pool state
+            ...cpmmInit,
+            // Clear binary pool state
             poolYesShares: null,
             poolNoShares: null,
             poolK: null,
-            poolHomeShares: null,
-            poolDrawShares: null,
-            poolAwayShares: null,
-            poolTriK: null,
-            liquidity: 0,
           }
         })
 
@@ -79,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      message: `Migration complete. Found ${binaryMatchMarkets.length} BINARY sports markets. Migrated to TRI_OUTCOME + CLOB.`,
+      message: `Migration complete. Found ${binaryMatchMarkets.length} BINARY sports markets. Migrated to TRI_OUTCOME + CPMM.`,
       ...results,
     })
   } catch (error: any) {

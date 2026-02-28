@@ -79,7 +79,7 @@ model Market {
   volume          Float     @default(0)
   liquidity       Float     @default(0)
   marketType      String    @default("BINARY") // BINARY (yes/no) or TRI_OUTCOME (home/draw/away)
-  pricingEngine   String    @default("CLOB")   // CLOB (order book) or CPMM (legacy AMM)
+  pricingEngine   String    @default("CPMM")   // CPMM (default AMM) or CLOB (order book, future)
   // CLOB order book state — serialized JSON per outcome
   bookYes         String?   @db.Text  // OrderBook JSON for YES/HOME outcome
   bookNo          String?   @db.Text  // OrderBook JSON for NO/AWAY outcome

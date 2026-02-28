@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { getMatchesForLeagues, FREE_TIER_COMPS, type CompetitionCode } from '@/lib/sports-api'
 import { fetchOddsForLeague, findMatchOdds, isOddsApiConfigured, type MatchOdds } from '@/lib/odds-api'
 import { LEAGUE_DISPLAY_NAMES } from '@/lib/league-names'
+import { getCPMMTriInit, getCPMMBinaryInit } from '@/lib/fees'
 import crypto from 'crypto'
 
 // Allow longer execution for sync + refresh-odds (external API calls)
@@ -348,11 +349,7 @@ export async function POST(request: NextRequest) {
                 creatorId: systemUser!.id,
                 status: 'PENDING_APPROVAL',
                 marketType: 'TRI_OUTCOME',
-                pricingEngine: 'CLOB',
-                yesPrice,
-                noPrice,
-                drawPrice,
-                liquidity: 0,
+                ...getCPMMTriInit(yesPrice, drawPrice, noPrice),
                 volume: 0,
                 homeTeam: homeShort,
                 awayTeam: awayShort,
@@ -450,10 +447,7 @@ export async function POST(request: NextRequest) {
                 groupId: g.id,
                 status: 'ACTIVE',
                 marketType: 'BINARY',
-                pricingEngine: 'CLOB',
-                liquidity: 0,
-                yesPrice: 0.5,
-                noPrice: 0.5,
+                ...getCPMMBinaryInit(0.5),
               }
             })
           }
@@ -477,12 +471,8 @@ export async function POST(request: NextRequest) {
             resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             creatorId: suggestion.suggesterId,
             status: 'ACTIVE',
-            pricingEngine: 'CLOB',
+            ...(isTri ? getCPMMTriInit(hp, dp, ap) : getCPMMBinaryInit(hp)),
             marketType,
-            yesPrice: hp,
-            noPrice: ap,
-            drawPrice: isTri ? dp : undefined,
-            liquidity: 0,
             volume: 0,
           }
         })

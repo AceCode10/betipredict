@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { getMatchesForLeagues, FREE_TIER_COMPS, type CompetitionCode } from '@/lib/sports-api'
 import { fetchOddsForLeague, findMatchOdds, isOddsApiConfigured, type MatchOdds } from '@/lib/odds-api'
 import { LEAGUE_DISPLAY_NAMES } from '@/lib/league-names'
+import { getCPMMTriInit } from '@/lib/fees'
 import crypto from 'crypto'
 
 // Auto-sync sports games from the API and create markets as PENDING_APPROVAL.
@@ -166,11 +167,7 @@ export async function GET(request: NextRequest) {
               creatorId: systemUser!.id,
               status: 'PENDING_APPROVAL',
               marketType: 'TRI_OUTCOME',
-              pricingEngine: 'CLOB',
-              yesPrice,
-              noPrice,
-              drawPrice,
-              liquidity: 0,
+              ...getCPMMTriInit(yesPrice, drawPrice, noPrice),
               volume: 0,
               homeTeam: homeShort,
               awayTeam: awayShort,

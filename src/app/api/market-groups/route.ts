@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { checkRateLimit, sanitizeString } from '@/lib/rate-limit'
-import { FEES } from '@/lib/fees'
+import { checkRateLimit, getClientIp, sanitizeString } from '@/lib/rate-limit'
+import { FEES, getCPMMBinaryInit } from '@/lib/fees'
 
 // GET: Fetch all market groups with their child markets
 export async function GET(request: NextRequest) {
@@ -141,10 +141,7 @@ export async function POST(request: NextRequest) {
             groupId: group.id,
             status: 'ACTIVE',
             marketType: 'BINARY',
-            pricingEngine: 'CLOB',
-            liquidity: 0,
-            yesPrice: 0.5,
-            noPrice: 0.5,
+            ...getCPMMBinaryInit(0.5),
           },
         })
         markets.push(market)

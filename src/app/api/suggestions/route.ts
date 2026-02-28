@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { checkRateLimit, sanitizeString } from '@/lib/rate-limit'
+import { getCPMMBinaryInit } from '@/lib/fees'
 
 // GET: Fetch suggestions (user's own or all for admins)
 export async function GET(request: NextRequest) {
@@ -227,10 +228,7 @@ export async function PUT(request: NextRequest) {
               groupId: group.id,
               status: 'ACTIVE',
               marketType: 'BINARY',
-              pricingEngine: 'CLOB',
-              liquidity: 0,
-              yesPrice: 0.5,
-              noPrice: 0.5,
+              ...getCPMMBinaryInit(0.5),
             }
           })
         }
@@ -262,10 +260,7 @@ export async function PUT(request: NextRequest) {
             creatorId: suggestion.suggesterId,
             status: 'PENDING_APPROVAL',
             resolveTime: finalResolveTime,
-            pricingEngine: 'CLOB',
-            liquidity: 0,
-            yesPrice: 0.5,
-            noPrice: 0.5,
+            ...getCPMMBinaryInit(0.5),
           }
         })
 

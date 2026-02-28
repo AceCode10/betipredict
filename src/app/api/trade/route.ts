@@ -8,7 +8,7 @@ import { initializePool, calculateSharesForAmount, calculateSellProceeds, getPri
 // New CLOB engine
 import { OrderBook, CLOBOrder, Fill } from '@/lib/clob'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
-import { calculateTradeFee, FEES } from '@/lib/fees'
+import { calculateTradeFee, FEES, getCPMMMaxBet } from '@/lib/fees'
 import { sendTradeConfirmation } from '@/lib/email'
 
 // ─── Helpers ────────────────────────────────────────────
@@ -589,6 +589,16 @@ async function handleCPMMTrade(
   const { outcome, side, type, amount, isTri } = params
   const marketId = market.id
 
+  // ── Max bet cap: prevent single trades from exceeding 10% of pool depth ──
+  const poolLiquidity = market.liquidity || (isTri ? FEES.CPMM_TRI_LIQUIDITY : FEES.CPMM_BINARY_LIQUIDITY)
+  const maxBet = getCPMMMaxBet(poolLiquidity)
+  if (side === 'BUY' && amount > maxBet) {
+    return NextResponse.json(
+      { error: `Maximum bet for this market is K${maxBet.toFixed(2)}. Your bet of K${amount.toFixed(2)} exceeds the limit.` },
+      { status: 400 }
+    )
+  }
+
   if (side === 'BUY') {
     const grossAmount = amount
     const fee = calculateTradeFee(grossAmount)
@@ -601,37 +611,40 @@ async function handleCPMMTrade(
       )
     }
 
-    let shares: number, newPool: any, avgPrice: number, newPriceData: any
-
-    if (isTri) {
-      let triPool: TriPoolState
-      if (market.poolHomeShares != null && market.poolDrawShares != null && market.poolAwayShares != null && market.poolTriK != null) {
-        triPool = { homeShares: market.poolHomeShares, drawShares: market.poolDrawShares, awayShares: market.poolAwayShares, k: market.poolTriK }
-      } else {
-        triPool = initializeTriPool(market.liquidity || 10000)
-      }
-      const result = calculateTriSharesForAmount(triPool, outcome as TriOutcome, kwachaToSpend)
-      shares = result.shares; newPool = result.newPool; avgPrice = result.avgPrice
-      newPriceData = getTriPrices(result.newPool)
-    } else {
-      let pool
-      if (market.poolYesShares != null && market.poolNoShares != null && market.poolK != null) {
-        pool = { yesShares: market.poolYesShares, noShares: market.poolNoShares, k: market.poolK }
-      } else {
-        pool = initializePool(market.liquidity || 1000, market.yesPrice)
-      }
-      const result = calculateSharesForAmount(pool, outcome as 'YES' | 'NO', kwachaToSpend)
-      shares = result.shares; newPool = result.newPool; avgPrice = result.avgPrice
-      newPriceData = getPrices(result.newPool)
-    }
-
-    if (shares <= 0) {
-      return NextResponse.json({ error: 'Trade amount too small' }, { status: 400 })
-    }
-
+    // All pool reads + calculations + writes inside one transaction to prevent race conditions
     const result = await prisma.$transaction(async (tx: any) => {
       const freshUser = await tx.user.findUnique({ where: { id: session.user.id } })
       if (!freshUser || freshUser.balance < grossAmount) throw new Error('Insufficient balance')
+
+      // Re-read market inside transaction for fresh pool state
+      const freshMarket = await tx.market.findUnique({ where: { id: marketId } })
+      if (!freshMarket) throw new Error('Market not found')
+
+      let shares: number, newPool: any, avgPrice: number, newPriceData: any
+
+      if (isTri) {
+        let triPool: TriPoolState
+        if (freshMarket.poolHomeShares != null && freshMarket.poolDrawShares != null && freshMarket.poolAwayShares != null && freshMarket.poolTriK != null) {
+          triPool = { homeShares: freshMarket.poolHomeShares, drawShares: freshMarket.poolDrawShares, awayShares: freshMarket.poolAwayShares, k: freshMarket.poolTriK }
+        } else {
+          triPool = initializeTriPool(freshMarket.liquidity || FEES.CPMM_TRI_LIQUIDITY)
+        }
+        const calcResult = calculateTriSharesForAmount(triPool, outcome as TriOutcome, kwachaToSpend)
+        shares = calcResult.shares; newPool = calcResult.newPool; avgPrice = calcResult.avgPrice
+        newPriceData = getTriPrices(calcResult.newPool)
+      } else {
+        let pool
+        if (freshMarket.poolYesShares != null && freshMarket.poolNoShares != null && freshMarket.poolK != null) {
+          pool = { yesShares: freshMarket.poolYesShares, noShares: freshMarket.poolNoShares, k: freshMarket.poolK }
+        } else {
+          pool = initializePool(freshMarket.liquidity || FEES.CPMM_BINARY_LIQUIDITY, freshMarket.yesPrice)
+        }
+        const calcResult = calculateSharesForAmount(pool, outcome as 'YES' | 'NO', kwachaToSpend)
+        shares = calcResult.shares; newPool = calcResult.newPool; avgPrice = calcResult.avgPrice
+        newPriceData = getPrices(calcResult.newPool)
+      }
+
+      if (shares <= 0) throw new Error('Trade amount too small')
 
       const updatedUser = await tx.user.update({
         where: { id: session.user.id },
@@ -728,8 +741,10 @@ async function handleCPMMTrade(
     return NextResponse.json(responseData)
 
   } else {
-    // SELL via CPMM
+    // SELL via CPMM — all pool reads + calculations inside transaction to prevent race conditions
     const sharesToSell = amount
+
+    // Quick pre-check (non-authoritative, just for fast UX feedback)
     const positionPreCheck = await prisma.position.findUnique({
       where: { userId_marketId_outcome: { userId: session.user.id, marketId, outcome } }
     })
@@ -740,41 +755,43 @@ async function handleCPMMTrade(
       )
     }
 
-    let grossProceeds: number, sellPool: any, sellAvgPrice: number, newPriceData: any
-    if (isTri) {
-      let triPool: TriPoolState
-      if (market.poolHomeShares != null && market.poolDrawShares != null && market.poolAwayShares != null && market.poolTriK != null) {
-        triPool = { homeShares: market.poolHomeShares, drawShares: market.poolDrawShares, awayShares: market.poolAwayShares, k: market.poolTriK }
-      } else {
-        triPool = initializeTriPool(market.liquidity || 10000)
-      }
-      const result = calculateTriSellProceeds(triPool, outcome as TriOutcome, sharesToSell)
-      grossProceeds = result.proceeds; sellPool = result.newPool; sellAvgPrice = result.avgPrice
-      newPriceData = getTriPrices(result.newPool)
-    } else {
-      let pool
-      if (market.poolYesShares != null && market.poolNoShares != null && market.poolK != null) {
-        pool = { yesShares: market.poolYesShares, noShares: market.poolNoShares, k: market.poolK }
-      } else {
-        pool = initializePool(market.liquidity || 1000, market.yesPrice)
-      }
-      const result = calculateSellProceeds(pool, outcome as 'YES' | 'NO', sharesToSell)
-      grossProceeds = result.proceeds; sellPool = result.newPool; sellAvgPrice = result.avgPrice
-      newPriceData = getPrices(result.newPool)
-    }
-
-    if (grossProceeds <= 0) {
-      return NextResponse.json({ error: 'Sell amount too small' }, { status: 400 })
-    }
-
-    const sellFee = calculateTradeFee(grossProceeds)
-    const netProceeds = sellFee.netAmount
-
     const result = await prisma.$transaction(async (tx: any) => {
       const position = await tx.position.findUnique({
         where: { userId_marketId_outcome: { userId: session.user.id, marketId, outcome } }
       })
-      if (!position || position.size < sharesToSell) throw new Error('Insufficient shares')
+      if (!position || position.size < sharesToSell) throw new Error(`Insufficient shares. You have ${position?.size.toFixed(2) || '0'} but want to sell ${sharesToSell.toFixed(2)}`)
+
+      // Re-read market inside transaction for fresh pool state
+      const freshMarket = await tx.market.findUnique({ where: { id: marketId } })
+      if (!freshMarket) throw new Error('Market not found')
+
+      let grossProceeds: number, sellPool: any, sellAvgPrice: number, newPriceData: any
+      if (isTri) {
+        let triPool: TriPoolState
+        if (freshMarket.poolHomeShares != null && freshMarket.poolDrawShares != null && freshMarket.poolAwayShares != null && freshMarket.poolTriK != null) {
+          triPool = { homeShares: freshMarket.poolHomeShares, drawShares: freshMarket.poolDrawShares, awayShares: freshMarket.poolAwayShares, k: freshMarket.poolTriK }
+        } else {
+          triPool = initializeTriPool(freshMarket.liquidity || FEES.CPMM_TRI_LIQUIDITY)
+        }
+        const calcResult = calculateTriSellProceeds(triPool, outcome as TriOutcome, sharesToSell)
+        grossProceeds = calcResult.proceeds; sellPool = calcResult.newPool; sellAvgPrice = calcResult.avgPrice
+        newPriceData = getTriPrices(calcResult.newPool)
+      } else {
+        let pool
+        if (freshMarket.poolYesShares != null && freshMarket.poolNoShares != null && freshMarket.poolK != null) {
+          pool = { yesShares: freshMarket.poolYesShares, noShares: freshMarket.poolNoShares, k: freshMarket.poolK }
+        } else {
+          pool = initializePool(freshMarket.liquidity || FEES.CPMM_BINARY_LIQUIDITY, freshMarket.yesPrice)
+        }
+        const calcResult = calculateSellProceeds(pool, outcome as 'YES' | 'NO', sharesToSell)
+        grossProceeds = calcResult.proceeds; sellPool = calcResult.newPool; sellAvgPrice = calcResult.avgPrice
+        newPriceData = getPrices(calcResult.newPool)
+      }
+
+      if (grossProceeds <= 0) throw new Error('Sell amount too small')
+
+      const sellFee = calculateTradeFee(grossProceeds)
+      const netProceeds = sellFee.netAmount
 
       const updatedUser = await tx.user.update({
         where: { id: session.user.id },
@@ -835,20 +852,20 @@ async function handleCPMMTrade(
       }
 
       const updatedMarket = await tx.market.update({ where: { id: marketId }, data: marketUpdateData })
-      return { updatedUser, order, updatedMarket, newPriceData }
+      return { updatedUser, order, updatedMarket, newPriceData, grossProceeds, sellFee, netProceeds, sellAvgPrice }
     })
 
     if (user.email) {
       sendTradeConfirmation(user.email, {
-        side: 'SELL', outcome, amount: grossProceeds, shares: sharesToSell, market: market.title,
+        side: 'SELL', outcome, amount: result.grossProceeds, shares: sharesToSell, market: market.title,
       }).catch(() => {})
     }
 
     const responseData: any = {
       success: true, order: result.order,
       newBalance: result.updatedUser.balance,
-      shares: sharesToSell, proceeds: netProceeds, grossProceeds,
-      fee: sellFee.feeAmount, feeRate: FEES.TRADE_FEE_RATE,
+      shares: sharesToSell, proceeds: result.netProceeds, grossProceeds: result.grossProceeds,
+      fee: result.sellFee.feeAmount, feeRate: FEES.TRADE_FEE_RATE,
     }
     if (isTri) {
       responseData.newHomePrice = result.newPriceData.homePrice

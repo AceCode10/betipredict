@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { MarketResolver } from '@/lib/market-resolution'
+import { getCPMMTriInit } from '@/lib/fees'
 
 const FOOTBALL_DATA_API_KEY = process.env.FOOTBALL_DATA_API_KEY || ''
 
@@ -149,11 +150,7 @@ export async function GET(request: NextRequest) {
                   creatorId: systemUser!.id,
                   status: 'ACTIVE',
                   marketType: 'TRI_OUTCOME',
-                  pricingEngine: 'CLOB',
-                  yesPrice: 0.33,
-                  noPrice: 0.33,
-                  drawPrice: 0.33,
-                  liquidity: 0,
+                  ...getCPMMTriInit(0.33, 0.33, 0.33),
                   volume: 0,
                   homeTeam: match.homeTeam,
                   awayTeam: match.awayTeam,

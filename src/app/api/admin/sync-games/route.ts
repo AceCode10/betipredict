@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getMatchesForLeagues, FREE_TIER_COMPS, type CompetitionCode } from '@/lib/sports-api'
+import { getCPMMTriInit } from '@/lib/fees'
 import crypto from 'crypto'
 
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase())
@@ -101,11 +102,7 @@ export async function POST(request: NextRequest) {
               creatorId: systemUser!.id,
               status: 'PENDING_APPROVAL',
               marketType: 'TRI_OUTCOME',
-              pricingEngine: 'CLOB',
-              yesPrice: 0.33,
-              noPrice: 0.33,
-              drawPrice: 0.33,
-              liquidity: 0,
+              ...getCPMMTriInit(0.33, 0.33, 0.33),
               volume: 0,
               homeTeam: homeShort,
               awayTeam: awayShort,

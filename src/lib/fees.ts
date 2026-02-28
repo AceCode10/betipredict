@@ -34,6 +34,11 @@ export const FEES = {
 
   // Initial liquidity seeded by the platform for new markets
   DEFAULT_INITIAL_LIQUIDITY: 1000, // K1,000
+
+  // CPMM Pool Configuration
+  CPMM_BINARY_LIQUIDITY: 1000,    // Virtual pool depth for binary markets (K1,000)
+  CPMM_TRI_LIQUIDITY: 2000,       // Virtual pool depth for tri-outcome markets (K2,000)
+  CPMM_MAX_BET_FRACTION: 0.10,    // Max single bet = 10% of pool depth
 } as const
 
 // ─── Fee Calculation Helpers ─────────────────────────────────
@@ -127,4 +132,69 @@ export function formatFeeRate(feeType: string): string {
  */
 function roundToNgwee(amount: number): number {
   return Math.round(amount * 100) / 100
+}
+
+// ─── CPMM Pool Initialization Helpers ────────────────────
+
+/**
+ * Get CPMM pool initialization data for a binary market.
+ * Returns fields to spread into prisma market.create data.
+ */
+export function getCPMMBinaryInit(yesPrice: number = 0.5, liquidity?: number) {
+  const liq = liquidity || FEES.CPMM_BINARY_LIQUIDITY
+  const noShares = liq * yesPrice
+  const yesShares = liq * (1 - yesPrice)
+  const k = yesShares * noShares
+  return {
+    pricingEngine: 'CPMM' as const,
+    liquidity: liq,
+    yesPrice,
+    noPrice: roundToNgwee(1 - yesPrice),
+    poolYesShares: yesShares,
+    poolNoShares: noShares,
+    poolK: k,
+  }
+}
+
+/**
+ * Get CPMM pool initialization data for a tri-outcome market.
+ * Returns fields to spread into prisma market.create data.
+ */
+export function getCPMMTriInit(
+  homePrice: number = 0.33,
+  drawPrice: number = 0.33,
+  awayPrice: number = 0.33,
+  liquidity?: number
+) {
+  const liq = liquidity || FEES.CPMM_TRI_LIQUIDITY
+  // Normalize prices to sum to 1
+  const total = homePrice + drawPrice + awayPrice
+  const hp = homePrice / total
+  const dp = drawPrice / total
+  const ap = awayPrice / total
+  // Canonical 3-outcome CPMM: shares(X) ∝ 1/price(X), scaled by liquidity
+  // Must match initializeTriPool() in cpmm.ts exactly
+  const scale = liq / (1/hp + 1/dp + 1/ap)
+  const homeShares = scale / hp
+  const drawShares = scale / dp
+  const awayShares = scale / ap
+  const k = homeShares * drawShares * awayShares
+  return {
+    pricingEngine: 'CPMM' as const,
+    liquidity: liq,
+    yesPrice: roundToNgwee(hp),
+    noPrice: roundToNgwee(ap),
+    drawPrice: roundToNgwee(dp),
+    poolHomeShares: homeShares,
+    poolDrawShares: drawShares,
+    poolAwayShares: awayShares,
+    poolTriK: k,
+  }
+}
+
+/**
+ * Calculate maximum allowed bet for a CPMM market based on pool depth.
+ */
+export function getCPMMMaxBet(poolLiquidity: number): number {
+  return roundToNgwee(poolLiquidity * FEES.CPMM_MAX_BET_FRACTION)
 }

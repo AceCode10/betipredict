@@ -102,7 +102,7 @@ export default function PolymarketStyleHomePage() {
   const [error, setError] = useState<string | null>(null)
   const [liveTrades, setLiveTrades] = useState<LiveTradeToast[]>([])
   const [tradeSide, setTradeSide] = useState<'BUY' | 'SELL'>('BUY')
-  const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('LIMIT')
+  const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('MARKET')
   const [limitPrice, setLimitPrice] = useState<string>('')
   const [orderBookData, setOrderBookData] = useState<any>(null)
   const [detailTab, setDetailTab] = useState<'comments' | 'top-holders' | 'positions' | 'activity'>('comments')
@@ -112,6 +112,7 @@ export default function PolymarketStyleHomePage() {
   const [loadingHolders, setLoadingHolders] = useState(false)
   const [activityFeed, setActivityFeed] = useState<any[]>([])
   const [liveMarketIds, setLiveMarketIds] = useState<Set<string>>(new Set())
+  const [userSharesForOutcome, setUserSharesForOutcome] = useState<number>(0)
   
   const contractService = useContractService()
   const { isOnChain, tokenBalance, tokenSymbol, buyOnChain, sellOnChain, claimOnChain, getPosition: getOnChainPosition, estimateBuy, refreshBalance: refreshOnChainBalance, loading: onChainLoading } = useOnChainTrade()
@@ -185,8 +186,21 @@ export default function PolymarketStyleHomePage() {
       setHolders({ yesHolders: [], noHolders: [] })
       setPositions([])
       setActivityFeed([])
+      setUserSharesForOutcome(0)
     }
   }, [showChart?.marketId])
+
+  // Fetch user's position for the selected outcome when in SELL mode
+  useEffect(() => {
+    if (!showChart || tradeSide !== 'SELL' || !isLoggedIn) { setUserSharesForOutcome(0); return }
+    fetch(`/api/markets/${showChart.marketId}/positions`)
+      .then(r => r.json())
+      .then(data => {
+        const pos = (data.positions || []).find((p: any) => p.outcome === showChart.outcome && p.userId === session?.user?.id)
+        setUserSharesForOutcome(pos?.size || 0)
+      })
+      .catch(() => setUserSharesForOutcome(0))
+  }, [tradeSide, showChart?.marketId, showChart?.outcome, isLoggedIn])
 
   // Fetch holders/positions when tab changes
   useEffect(() => {
@@ -459,16 +473,13 @@ export default function PolymarketStyleHomePage() {
         return
       }
 
-      // Centralized API — CLOB sell with limit/market order support
+      // Centralized API — CPMM sell
       const tradeBody: any = {
         marketId: market.id,
         outcome,
         side: 'SELL',
-        type: orderType,
+        type: 'MARKET',
         amount: shares,
-      }
-      if (orderType === 'LIMIT' && limitPrice) {
-        tradeBody.price = parseFloat(limitPrice)
       }
 
       const res = await fetch('/api/trade', {
@@ -530,16 +541,13 @@ export default function PolymarketStyleHomePage() {
         return
       }
 
-      // Centralized API trading — CLOB with limit/market order support
+      // Centralized API trading — CPMM buy
       const tradeBody: any = {
         marketId: market.id,
         outcome,
         side: 'BUY',
-        type: orderType,
+        type: 'MARKET',
         amount,
-      }
-      if (orderType === 'LIMIT' && limitPrice) {
-        tradeBody.price = parseFloat(limitPrice)
       }
 
       const res = await fetch('/api/trade', {
@@ -1418,49 +1426,7 @@ export default function PolymarketStyleHomePage() {
                       >
                         Sell
                       </button>
-                      <div className="ml-auto flex gap-1">
-                        <button
-                          onClick={() => setOrderType('LIMIT')}
-                          className={`text-xs px-2 py-1 rounded transition-colors ${
-                            orderType === 'LIMIT'
-                              ? 'bg-blue-600 text-white'
-                              : `${inputBg} ${textMuted} border ${modalBorder}`
-                          }`}
-                        >
-                          Limit
-                        </button>
-                        <button
-                          onClick={() => setOrderType('MARKET')}
-                          className={`text-xs px-2 py-1 rounded transition-colors ${
-                            orderType === 'MARKET'
-                              ? 'bg-blue-600 text-white'
-                              : `${inputBg} ${textMuted} border ${modalBorder}`
-                          }`}
-                        >
-                          Market
-                        </button>
-                      </div>
                     </div>
-
-                    {/* Limit price input (only for LIMIT orders) */}
-                    {orderType === 'LIMIT' && (
-                      <div className="mb-3">
-                        <label className={`text-xs ${textMuted} mb-1 block`}>Price (K0.01–K0.99)</label>
-                        <div className={`flex items-center rounded-lg border ${modalBorder} ${inputBg} px-3 py-2`}>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            max="0.99"
-                            value={limitPrice}
-                            onChange={(e) => setLimitPrice(e.target.value)}
-                            placeholder={`K${price.toFixed(2)}`}
-                            className={`flex-1 bg-transparent outline-none text-sm ${textColor}`}
-                          />
-                          <span className={`text-xs ${textMuted} ml-1`}>per share</span>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Outcome price buttons */}
                     {market.isTri ? (
@@ -1526,7 +1492,7 @@ export default function PolymarketStyleHomePage() {
                         </button>
                       ))}
                       <button
-                        onClick={() => setDetailAmount(tradeSide === 'BUY' ? String(Math.floor(userBalance)) : 'Max')}
+                        onClick={() => setDetailAmount(tradeSide === 'BUY' ? String(Math.floor(userBalance)) : String(Math.floor(userSharesForOutcome)))}
                         className={`px-2 py-1.5 text-xs font-medium ${inputBg} border ${modalBorder} rounded-md ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'} hover:border-green-500/50 transition-colors`}
                       >
                         Max
@@ -1551,7 +1517,7 @@ export default function PolymarketStyleHomePage() {
                           : 'bg-green-500 hover:bg-green-600 text-white'
                       }`}
                     >
-                      {placingBets || onChainLoading ? 'Processing...' : !isLoggedIn && !isOnChain ? 'Sign In to Trade' : `${tradeSide === 'BUY' ? 'Buy' : 'Sell'} ${orderType === 'LIMIT' ? '(Limit)' : '(Market)'}`}
+                      {placingBets || onChainLoading ? 'Processing...' : !isLoggedIn && !isOnChain ? 'Sign In to Trade' : `${tradeSide === 'BUY' ? 'Place Bet' : 'Sell Shares'}`}
                     </button>
 
                     {/* To Win / Proceeds */}
