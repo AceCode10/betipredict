@@ -7,6 +7,8 @@ import { writeAuditLog } from "@/lib/audit"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { normalizePhone, verifyOTP } from "@/lib/whatsapp-otp"
 
+const OTP_BYPASS = process.env.OTP_BYPASS_FOR_TESTING === 'true'
+
 // Track failed login attempts per identifier for account lockout
 const failedAttempts = new Map<string, { count: number; lastAttempt: number }>()
 const MAX_FAILED_ATTEMPTS = 5
@@ -73,14 +75,21 @@ export const authOptions: NextAuthOptions = {
           // ── SIGN UP ──
           if (usePhone) {
             // Phone-based signup: require OTP verification via Twilio Verify
-            if (!otp) throw new Error('OTP verification code is required')
-
-            const otpValid = await verifyOTP(identifier, otp)
-            if (!otpValid) throw new Error('Invalid or expired OTP code. Please request a new one.')
+            if (!OTP_BYPASS) {
+              if (!otp) throw new Error('OTP verification code is required')
+              const otpValid = await verifyOTP(identifier, otp)
+              if (!otpValid) throw new Error('Invalid or expired OTP code. Please request a new one.')
+            }
 
             // Check if phone already registered
             const existing = await prisma.user.findUnique({ where: { phone: identifier } })
             if (existing) throw new Error('An account with this phone number already exists')
+
+            // Also check email uniqueness if provided
+            if (rawEmail) {
+              const emailExists = await prisma.user.findUnique({ where: { email: rawEmail } })
+              if (emailExists) throw new Error('An account with this email already exists. Try signing in instead.')
+            }
 
             const hashedPassword = await bcrypt.hash(password, 12)
             const phoneDigits = identifier.replace(/\D/g, '').slice(-6)

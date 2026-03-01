@@ -165,7 +165,7 @@ export default function AdminPage() {
     setLoading(true)
     try {
       const [marketsRes, suggestionsRes, statsRes, disputesRes, usersRes, auditRes] = await Promise.all([
-        fetch('/api/markets?status=ALL'),
+        fetch('/api/markets?status=ALL&limit=200'),
         fetch('/api/suggestions?admin=true&status=PENDING'),
         fetch('/api/admin/stats'),
         fetch('/api/admin/disputes?status=OPEN'),
@@ -517,6 +517,7 @@ export default function AdminPage() {
   const matchSearch = (text: string | null | undefined) => !q || (text || '').toLowerCase().includes(q)
 
   const activeMarkets = markets.filter((m: any) => ['ACTIVE', 'PENDING', 'PENDING_APPROVAL'].includes(m.status) && matchSearch(m.title))
+  const needsResolution = activeMarkets.filter((m: any) => m.status === 'ACTIVE' && new Date(m.resolveTime) <= new Date())
   const resolvedMarkets = markets.filter((m: any) => m.status === 'RESOLVED' && matchSearch(m.title))
   const finalizedMarkets = markets.filter((m: any) => m.status === 'FINALIZED' && matchSearch(m.title))
   const filteredSuggestions = suggestions.filter(s => matchSearch(s.title) || matchSearch(s.question) || matchSearch(s.suggester?.username))
@@ -528,7 +529,7 @@ export default function AdminPage() {
   const sidebarItems: { id: TabType; label: string; icon: any; badge?: number }[] = [
     { id: 'stats', label: 'Overview', icon: BarChart3 },
     { id: 'suggestions', label: 'Suggestions', icon: MessageSquare, badge: suggestions.length },
-    { id: 'markets', label: 'Markets', icon: Trophy, badge: activeMarkets.length + resolvedMarkets.length },
+    { id: 'markets', label: 'Markets', icon: Trophy, badge: needsResolution.length + resolvedMarkets.length },
     { id: 'disputes', label: 'Disputes', icon: Gavel, badge: disputes.length },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'payments', label: 'Payments', icon: DollarSign },
@@ -740,12 +741,84 @@ export default function AdminPage() {
         {/* Markets Tab */}
         {activeTab === 'markets' && (
           <>
+          {/* Needs Resolution — expired ACTIVE markets shown first */}
+          {needsResolution.length > 0 && (
+            <div className="mb-6">
+              <h2 className="text-sm font-semibold text-orange-400 mb-3 uppercase tracking-wide flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" /> Needs Resolution ({needsResolution.length})
+              </h2>
+              <div className="space-y-3">
+                {needsResolution.map((market: any) => (
+                  <div key={market.id} className={`${surfaceColor} border border-orange-500/30 rounded-xl p-4`}>
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-medium ${textColor}`}>{market.title}</p>
+                        <p className={`text-xs ${textMuted} mt-0.5`}>{market.question}</p>
+                        <div className={`flex gap-3 mt-1 text-xs ${textMuted}`}>
+                          <span>Vol: {formatZambianCurrency(market.volume || 0)}</span>
+                          <span className="text-orange-400">Expired: {formatDateDMY(market.resolveTime)}</span>
+                          <span>{market._count?.orders || 0} orders</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-1 text-xs">
+                        <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-400">
+                          {market.marketType === 'TRI_OUTCOME' ? 'Home' : 'YES'} {(market.yesPrice * 100).toFixed(0)}%
+                        </span>
+                        {market.marketType === 'TRI_OUTCOME' && (
+                          <span className="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400">
+                            Draw {((market.drawPrice || 0) * 100).toFixed(0)}%
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-400">
+                          {market.marketType === 'TRI_OUTCOME' ? 'Away' : 'NO'} {(market.noPrice * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className={`flex gap-2 mt-3 pt-3 border-t ${borderColor}`}>
+                      {market.marketType === 'TRI_OUTCOME' ? (
+                        <>
+                          <button onClick={() => resolveMarket(market.id, 'HOME')} disabled={resolving === market.id}
+                            className="flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium bg-green-500/10 border border-green-500/30 text-green-400 rounded-lg hover:bg-green-500/20 disabled:opacity-50 transition-colors">
+                            {resolving === market.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />} Home
+                          </button>
+                          <button onClick={() => resolveMarket(market.id, 'DRAW')} disabled={resolving === market.id}
+                            className="flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium bg-gray-500/10 border border-gray-500/30 text-gray-400 rounded-lg hover:bg-gray-500/20 disabled:opacity-50 transition-colors">
+                            Draw
+                          </button>
+                          <button onClick={() => resolveMarket(market.id, 'AWAY')} disabled={resolving === market.id}
+                            className="flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/20 disabled:opacity-50 transition-colors">
+                            <XCircle className="w-3 h-3" /> Away
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => resolveMarket(market.id, 'YES')} disabled={resolving === market.id}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-green-500/10 border border-green-500/30 text-green-400 rounded-lg hover:bg-green-500/20 disabled:opacity-50 transition-colors">
+                            {resolving === market.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} YES Wins
+                          </button>
+                          <button onClick={() => resolveMarket(market.id, 'NO')} disabled={resolving === market.id}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/20 disabled:opacity-50 transition-colors">
+                            <XCircle className="w-4 h-4" /> NO Wins
+                          </button>
+                        </>
+                      )}
+                      <button onClick={() => resolveMarket(market.id, 'VOID')} disabled={resolving === market.id}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 rounded-lg hover:bg-yellow-500/20 disabled:opacity-50 transition-colors">
+                        <AlertTriangle className="w-4 h-4" /> Void
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <h2 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>
-            Active Markets ({activeMarkets.length})
+            All Active Markets ({activeMarkets.length})
           </h2>
           {activeMarkets.length === 0 ? (
             <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
-              <p className={`${textMuted} text-sm`}>No active markets to resolve.</p>
+              <p className={`${textMuted} text-sm`}>No active markets.</p>
             </div>
           ) : (
             <div className="space-y-3">

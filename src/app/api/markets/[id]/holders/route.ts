@@ -24,32 +24,27 @@ export async function GET(
       orderBy: { size: 'desc' }
     })
 
-    // Split into YES and NO holders
-    const yesHolders = positions
-      .filter(p => p.outcome === 'YES')
-      .map(p => ({
-        userId: p.user.id,
-        username: p.user.username || p.user.fullName || 'Anonymous',
-        shares: Math.round(p.size * 100) / 100,
-        avgPrice: Math.round(p.averagePrice * 100) / 100,
-        pnl: Math.round((p.size * (1 - p.averagePrice)) * 100) / 100, // potential PnL if YES wins
-      }))
+    // Helper to map positions to holder data
+    const mapHolders = (filtered: typeof positions) => filtered.map(p => ({
+      userId: p.user.id,
+      username: p.user.username || p.user.fullName || 'Anonymous',
+      shares: Math.round(p.size * 100) / 100,
+      avgPrice: Math.round(p.averagePrice * 100) / 100,
+      pnl: Math.round((p.size * (1 - p.averagePrice)) * 100) / 100,
+    }))
 
-    const noHolders = positions
-      .filter(p => p.outcome === 'NO')
-      .map(p => ({
-        userId: p.user.id,
-        username: p.user.username || p.user.fullName || 'Anonymous',
-        shares: Math.round(p.size * 100) / 100,
-        avgPrice: Math.round(p.averagePrice * 100) / 100,
-        pnl: Math.round((p.size * (1 - p.averagePrice)) * 100) / 100,
-      }))
+    // Split into outcome groups (supports both binary YES/NO and tri-outcome HOME/DRAW/AWAY)
+    const yesHolders = mapHolders(positions.filter(p => p.outcome === 'YES' || p.outcome === 'HOME'))
+    const noHolders = mapHolders(positions.filter(p => p.outcome === 'NO' || p.outcome === 'AWAY'))
+    const drawHolders = mapHolders(positions.filter(p => p.outcome === 'DRAW'))
 
     return NextResponse.json({
       yesHolders: yesHolders.slice(0, 20),
       noHolders: noHolders.slice(0, 20),
+      drawHolders: drawHolders.slice(0, 20),
       totalYesHolders: yesHolders.length,
       totalNoHolders: noHolders.length,
+      totalDrawHolders: drawHolders.length,
     })
   } catch (error) {
     console.error('Error fetching market holders:', error)

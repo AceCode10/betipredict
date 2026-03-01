@@ -16,17 +16,18 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const category = searchParams.get('category')
     const status = searchParams.get('status')
-    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20') || 20, 1), 100)
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '50') || 50, 1), 200)
     const offset = Math.max(parseInt(searchParams.get('offset') || '0') || 0, 0)
 
     const where: any = {}
     if (category) where.category = category
-    if (status) {
+    if (status && status !== 'ALL') {
       where.status = status
-    } else {
+    } else if (!status) {
       // Default: only fetch ACTIVE markets (avoids fetching 100+ pending markets that get filtered out)
       where.status = 'ACTIVE'
     }
+    // When status === 'ALL', no status filter is applied — returns all markets
 
     const markets = await prisma.market.findMany({
       where,

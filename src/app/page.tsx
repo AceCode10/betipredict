@@ -240,7 +240,7 @@ export default function PolymarketStyleHomePage() {
     if (showLoader) setLoading(true)
     try {
       const [marketsRes, groupsRes] = await Promise.all([
-        fetch('/api/markets'),
+        fetch('/api/markets?limit=100'),
         fetch('/api/market-groups'),
       ])
       if (marketsRes.ok) {
@@ -469,7 +469,7 @@ export default function PolymarketStyleHomePage() {
         if (!result.success) throw new Error(result.error || 'On-chain sell failed')
         await refreshOnChainBalance()
         setDetailAmount('')
-        fetch(`/api/markets`).then(r => r.json()).then(setMarkets).catch(() => {})
+        fetch('/api/markets?limit=100').then(r => r.json()).then(setMarkets).catch(() => {})
         return
       }
 
@@ -537,7 +537,7 @@ export default function PolymarketStyleHomePage() {
         if (!result.success) throw new Error(result.error || 'On-chain trade failed')
         await refreshOnChainBalance()
         setDetailAmount('')
-        fetch(`/api/markets`).then(r => r.json()).then(setMarkets).catch(() => {})
+        fetch('/api/markets?limit=100').then(r => r.json()).then(setMarkets).catch(() => {})
         return
       }
 
@@ -1592,7 +1592,7 @@ export default function PolymarketStyleHomePage() {
         onClose={() => setShowMarketCreation(false)}
         onMarketCreated={() => {
           // Reload markets after creation
-          fetch('/api/markets').then(r => r.json()).then(setMarkets).catch(console.error)
+          fetch('/api/markets?limit=100').then(r => r.json()).then(setMarkets).catch(console.error)
         }}
       />
 

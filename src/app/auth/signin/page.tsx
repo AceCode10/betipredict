@@ -5,6 +5,8 @@ import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { Logo } from '@/components/Logo'
 
+const OTP_BYPASSED = process.env.NEXT_PUBLIC_OTP_BYPASS_FOR_TESTING === 'true'
+
 export default function SignIn() {
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
@@ -60,7 +62,7 @@ export default function SignIn() {
     const phoneValue = phone.trim()
     const isEmailInPhoneField = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(phoneValue)
 
-    if (mode === 'signup' && !isEmailInPhoneField && !otp) {
+    if (mode === 'signup' && !isEmailInPhoneField && !OTP_BYPASSED && !otp) {
       setError('Please enter the OTP sent to your phone')
       setIsLoading(false)
       return
@@ -203,8 +205,8 @@ export default function SignIn() {
               </div>
             )}
 
-            {/* OTP section (signup only) */}
-            {mode === 'signup' && (
+            {/* OTP section (signup only, hidden when OTP bypass is enabled) */}
+            {mode === 'signup' && !OTP_BYPASSED && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1.5">SMS OTP</label>
                 <div className="flex gap-2">
