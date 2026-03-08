@@ -133,7 +133,6 @@ export default function AdminPage() {
       .then(data => {
         if (data.isAdmin) {
           setIsAdmin(true)
-          loadData()
         } else {
           router.push('/')
         }
@@ -141,51 +140,76 @@ export default function AdminPage() {
       .catch(() => router.push('/'))
   }, [status])
 
-  const loadData = async () => {
+  // Track which tabs have been fetched to avoid redundant requests
+  const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set())
+
+  // Fetch data for a single tab
+  const loadTabData = async (tab: string, force = false) => {
+    if (!force && loadedTabs.has(tab)) return
     setLoading(true)
     try {
-      const [marketsRes, statsRes, disputesRes, usersRes, auditRes] = await Promise.all([
-        fetch('/api/markets?status=ALL&limit=200'),
-        fetch('/api/admin/stats'),
-        fetch('/api/admin/disputes?status=OPEN'),
-        fetch('/api/admin/users'),
-        fetch('/api/admin/audit'),
-      ])
-      
-      if (marketsRes.ok) {
-        setMarkets(await marketsRes.json())
+      const needStats = !loadedTabs.has('stats') || force
+      const fetches: Promise<Response>[] = []
+
+      switch (tab) {
+        case 'markets': case 'sync': fetches.push(fetch('/api/markets?status=ALL&limit=200')); break
+        case 'disputes': fetches.push(fetch('/api/admin/disputes?status=OPEN')); break
+        case 'users': fetches.push(fetch('/api/admin/users')); break
+        case 'audit': fetches.push(fetch('/api/admin/audit')); break
+        case 'payments': case 'admin-wallet': fetches.push(fetch('/api/admin/wallet')); break
+        case 'stats': needStats || fetches.push(fetch('/api/admin/stats')); break
       }
-      if (statsRes.ok) {
-        setStats(await statsRes.json())
+      if (needStats) fetches.push(fetch('/api/admin/stats'))
+
+      const results = await Promise.all(fetches)
+      let idx = 0
+
+      // Process tab-specific result
+      if (tab !== 'stats' || !needStats) {
+        const res = results[idx++]
+        if (res?.ok) {
+          const data = await res.json()
+          switch (tab) {
+            case 'markets': case 'sync': setMarkets(Array.isArray(data) ? data : []); break
+            case 'disputes': setDisputes(data.disputes || []); break
+            case 'users': setAdminUsers(data.users || []); break
+            case 'audit': setAuditLogs(data.logs || []); break
+            case 'payments': case 'admin-wallet':
+              setPayments(data.payments || [])
+              setPaymentSummary(data.summary || null)
+              break
+          }
+        }
       }
-      if (disputesRes.ok) {
-        const data = await disputesRes.json()
-        setDisputes(data.disputes || [])
-      }
-      if (usersRes.ok) {
-        const data = await usersRes.json()
-        setAdminUsers(data.users || [])
-      }
-      if (auditRes.ok) {
-        const data = await auditRes.json()
-        setAuditLogs(data.logs || [])
+      // Process stats result
+      if (needStats && idx < results.length) {
+        const statsRes = results[idx]
+        if (statsRes?.ok) setStats(await statsRes.json())
       }
 
-      // Fetch payments data
-      try {
-        const paymentsRes = await fetch('/api/admin/wallet')
-        if (paymentsRes.ok) {
-          const data = await paymentsRes.json()
-          setPayments(data.payments || [])
-          setPaymentSummary(data.summary || null)
-        }
-      } catch {}
+      setLoadedTabs(prev => { const n = new Set(prev); n.add(tab); if (needStats) n.add('stats'); return n })
     } catch (err) {
-      console.error('Failed to load data:', err)
+      console.error('Failed to load tab data:', err)
     } finally {
       setLoading(false)
     }
   }
+
+  // Reload active tab after mutations (approve, deny, etc.)
+  const loadData = async () => {
+    setLoadedTabs(new Set()) // Invalidate all cached tabs
+    await loadTabData(activeTab, true)
+  }
+
+  // Load data on auth
+  useEffect(() => {
+    if (isAdmin) loadTabData(activeTab)
+  }, [isAdmin]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lazy-load when tab changes
+  useEffect(() => {
+    if (isAdmin) loadTabData(activeTab)
+  }, [activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAdjustBalance = async () => {
     if (!showAdjustModal) return

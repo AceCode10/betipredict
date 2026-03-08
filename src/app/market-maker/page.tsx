@@ -136,11 +136,13 @@ export default function MarketMakerPage() {
   // Selected markets for bulk approve
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkPrices, setBulkPrices] = useState({ home: '33', draw: '33', away: '33' })
-  // Suggestion price modal — supports Yes/No and tri-outcome with category editing
+  // Suggestion price modal — supports Yes/No, tri-outcome, multi-option, and versus
   const [suggestionModal, setSuggestionModal] = useState<{
     suggestion: Suggestion;
     prices: { home: string; draw: string; away: string };
     isTri: boolean;
+    isMulti: boolean;
+    optionPrices: string[];
     description: string;
     category: string;
     title: string;
@@ -175,46 +177,80 @@ export default function MarketMakerPage() {
       .catch(() => router.push('/'))
   }, [status, router])
 
+  // Track which tabs have been fetched to avoid redundant requests
+  const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set())
+
+  // Fetch data for a single tab (or force-refresh it)
+  const loadTabData = useCallback(async (tab: string, force = false) => {
+    if (!force && loadedTabs.has(tab)) return
+    setLoading(true)
+    try {
+      // Always fetch stats alongside the first tab load (it's tiny)
+      const fetches: Promise<Response>[] = [fetch(`/api/market-maker?tab=${tab}`)]
+      const needStats = !loadedTabs.has('stats') || force
+      if (needStats) fetches.push(fetch('/api/market-maker?tab=stats'))
+
+      const [tabRes, statsRes] = await Promise.all(fetches)
+
+      if (tabRes.ok) {
+        const data = await tabRes.json()
+        switch (tab) {
+          case 'pending': setPendingMarkets(data.markets || []); break
+          case 'active': setActiveMarkets(data.markets || []); break
+          case 'suggestions': setSuggestions(data.suggestions || []); break
+          case 'resolved': setResolvedMarkets(data.markets || []); break
+        }
+      }
+      if (statsRes?.ok) setStats(await statsRes.json())
+
+      setLoadedTabs(prev => { const n = new Set(prev); n.add(tab); if (needStats) n.add('stats'); return n })
+    } catch (err) {
+      console.error('Failed to load tab data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [loadedTabs])
+
+  // Reload all currently-loaded tabs (used after mutations like approve/deny)
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [pendingRes, activeRes, suggestionsRes, statsRes, resolvedRes] = await Promise.all([
-        fetch('/api/market-maker?tab=pending'),
-        fetch('/api/market-maker?tab=active'),
-        fetch('/api/market-maker?tab=suggestions'),
+      // Refetch the current active tab + stats
+      const fetches: Promise<Response>[] = [
+        fetch(`/api/market-maker?tab=${activeTab}`),
         fetch('/api/market-maker?tab=stats'),
-        fetch('/api/market-maker?tab=resolved'),
-      ])
+      ]
+      const [tabRes, statsRes] = await Promise.all(fetches)
 
-      if (pendingRes.ok) {
-        const data = await pendingRes.json()
-        setPendingMarkets(data.markets || [])
+      if (tabRes.ok) {
+        const data = await tabRes.json()
+        switch (activeTab) {
+          case 'pending': setPendingMarkets(data.markets || []); break
+          case 'active': setActiveMarkets(data.markets || []); break
+          case 'suggestions': setSuggestions(data.suggestions || []); break
+          case 'resolved': setResolvedMarkets(data.markets || []); break
+        }
       }
-      if (activeRes.ok) {
-        const data = await activeRes.json()
-        setActiveMarkets(data.markets || [])
-      }
-      if (suggestionsRes.ok) {
-        const data = await suggestionsRes.json()
-        setSuggestions(data.suggestions || [])
-      }
-      if (resolvedRes.ok) {
-        const data = await resolvedRes.json()
-        setResolvedMarkets(data.markets || [])
-      }
-      if (statsRes.ok) {
-        setStats(await statsRes.json())
-      }
+      if (statsRes.ok) setStats(await statsRes.json())
+
+      // Invalidate other cached tabs so they refetch on next visit
+      setLoadedTabs(new Set([activeTab, 'stats']))
     } catch (err) {
       console.error('Failed to load data:', err)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [activeTab])
 
+  // Load data for the initial tab on auth
   useEffect(() => {
-    if (status === 'authenticated' && authorized) loadData()
-  }, [status, authorized, loadData])
+    if (status === 'authenticated' && authorized) loadTabData(activeTab)
+  }, [status, authorized]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lazy-load when tab changes
+  useEffect(() => {
+    if (status === 'authenticated' && authorized) loadTabData(activeTab)
+  }, [activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-populate price edits from DB prices when pending markets load
   // Treat Prisma defaults (0.5/0.5/null) as unset → use 33/33/33
@@ -371,37 +407,60 @@ export default function MarketMakerPage() {
 
   const approveSuggestion = async () => {
     if (!suggestionModal) return
-    const { suggestion, prices, isTri, category, title, question, description } = suggestionModal
-    const hp = parseFloat(prices.home) / 100
-    const dp = isTri ? parseFloat(prices.draw) / 100 : 0
-    const ap = isTri ? parseFloat(prices.away) / 100 : parseFloat(prices.away) / 100
+    const { suggestion, prices, isTri, isMulti, optionPrices, category, title, question, description } = suggestionModal
 
-    if (isTri && (hp + dp + ap > 1.0)) {
-      setMessage({ type: 'error', text: `Prices sum to ${((hp + dp + ap) * 100).toFixed(0)}% which exceeds 100%` })
-      return
-    }
-    if (!isTri && (hp + ap > 1.0)) {
-      setMessage({ type: 'error', text: `Prices sum to ${((hp + ap) * 100).toFixed(0)}% which exceeds 100%` })
-      return
+    // Multi-option: validate per-option prices
+    if (isMulti) {
+      for (let i = 0; i < optionPrices.length; i++) {
+        const p = parseFloat(optionPrices[i])
+        if (!p || p < 1 || p > 99) {
+          setMessage({ type: 'error', text: `Option ${i + 1} price must be between 1% and 99%` })
+          return
+        }
+      }
+    } else {
+      // Binary / tri-outcome validation
+      const hp = parseFloat(prices.home) / 100
+      const dp = isTri ? parseFloat(prices.draw) / 100 : 0
+      const ap = parseFloat(prices.away) / 100
+
+      if (isTri && (hp + dp + ap > 1.0)) {
+        setMessage({ type: 'error', text: `Prices sum to ${((hp + dp + ap) * 100).toFixed(0)}% which exceeds 100%` })
+        return
+      }
+      if (!isTri && (hp + ap > 1.0)) {
+        setMessage({ type: 'error', text: `Prices sum to ${((hp + ap) * 100).toFixed(0)}% which exceeds 100%` })
+        return
+      }
     }
 
     setProcessing(suggestion.id)
     setMessage(null)
     try {
+      const hp = parseFloat(prices.home) / 100
+      const dp = isTri ? parseFloat(prices.draw) / 100 : 0
+      const ap = parseFloat(prices.away) / 100
+
+      const payload: any = {
+        action: 'approve-suggestion',
+        suggestionId: suggestion.id,
+        homePrice: hp,
+        drawPrice: dp,
+        awayPrice: ap,
+        category,
+        title,
+        question,
+        description,
+      }
+      // Pass per-option prices for multi-option suggestions
+      if (isMulti && optionPrices.length > 0) {
+        payload.optionPrices = optionPrices.map(p => parseFloat(p) / 100)
+      }
+
       const res = await fetch('/api/market-maker', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'approve-suggestion',
-          suggestionId: suggestion.id,
-          homePrice: hp,
-          drawPrice: dp,
-          awayPrice: ap,
-          category,
-          title,
-          question,
-          description,
-        }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -1116,15 +1175,29 @@ export default function MarketMakerPage() {
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                           <button
-                            onClick={() => setSuggestionModal({
-                              suggestion: s,
-                              prices: { home: '50', draw: '25', away: '25' },
-                              isTri: false,
-                              description: s.description || '',
-                              category: s.category,
-                              title: s.title,
-                              question: s.question,
-                            })}
+                            onClick={() => {
+                              const isMulti = s.questionType === 'multi-option' || s.questionType === 'versus'
+                              let optionPrices: string[] = []
+                              if (isMulti && s.options) {
+                                try {
+                                  const opts: string[] = JSON.parse(s.options)
+                                  const evenPrice = Math.round(100 / opts.length)
+                                  optionPrices = opts.map(() => String(evenPrice))
+                                } catch { /* fallback */ }
+                              }
+                              const isVersus = s.questionType === 'versus'
+                              setSuggestionModal({
+                                suggestion: s,
+                                prices: { home: isVersus ? '50' : '50', draw: '25', away: isVersus ? '50' : '25' },
+                                isTri: false,
+                                isMulti,
+                                optionPrices,
+                                description: s.description || '',
+                                category: s.category,
+                                title: s.title,
+                                question: s.question,
+                              })
+                            }}
                             disabled={processing === s.id}
                             className="px-3 py-2 text-xs font-medium bg-green-500 hover:bg-green-600 text-white rounded-lg disabled:opacity-40 flex items-center gap-1"
                           >
@@ -1177,24 +1250,6 @@ export default function MarketMakerPage() {
                         className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor} resize-none`} />
                     </div>
 
-                    {/* Multi-option info */}
-                    {suggestionModal.suggestion.questionType && suggestionModal.suggestion.questionType !== 'yes-no' && suggestionModal.suggestion.options && (() => {
-                      try {
-                        const opts: string[] = JSON.parse(suggestionModal.suggestion.options!)
-                        return (
-                          <div className="mb-3">
-                            <label className={`text-xs ${textMuted} mb-1 block`}>Options ({suggestionModal.suggestion.questionType})</label>
-                            <div className="space-y-1">
-                              {opts.map((o, i) => (
-                                <div key={i} className={`px-3 py-1.5 text-xs rounded-lg ${isDarkMode ? 'bg-gray-700/50 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>{i + 1}. {o}</div>
-                              ))}
-                            </div>
-                            <p className={`text-[10px] ${textMuted} mt-1`}>This will create a market group with {opts.length} tradable options.</p>
-                          </div>
-                        )
-                      } catch { return null }
-                    })()}
-
                     {/* Category selector */}
                     <div className="mb-3">
                       <label className={`text-xs ${textMuted} mb-1 block`}>Category</label>
@@ -1207,54 +1262,97 @@ export default function MarketMakerPage() {
                       </select>
                     </div>
 
-                    {/* Market type toggle */}
-                    <div className="mb-3">
-                      <label className={`text-xs ${textMuted} mb-1 block`}>Market Type</label>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => setSuggestionModal(prev => prev ? { ...prev, isTri: false } : null)}
-                          className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-colors ${!suggestionModal.isTri ? 'border-green-500 bg-green-500/10 text-green-400' : `${borderColor} ${textMuted}`}`}>
-                          Yes / No
-                        </button>
-                        <button type="button" onClick={() => setSuggestionModal(prev => prev ? { ...prev, isTri: true } : null)}
-                          className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-colors ${suggestionModal.isTri ? 'border-green-500 bg-green-500/10 text-green-400' : `${borderColor} ${textMuted}`}`}>
-                          Home / Draw / Away
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Price inputs */}
-                    <div className={`flex gap-3 mb-2`}>
-                      <div className="flex-1">
-                        <label className={`text-xs ${textMuted} mb-1 block`}>{suggestionModal.isTri ? 'Home %' : 'Yes %'}</label>
-                        <input type="number" min="1" max="99" value={suggestionModal.prices.home}
-                          onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, home: e.target.value } } : null)}
-                          className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
-                      </div>
-                      {suggestionModal.isTri && (
-                        <div className="flex-1">
-                          <label className={`text-xs ${textMuted} mb-1 block`}>Draw %</label>
-                          <input type="number" min="1" max="99" value={suggestionModal.prices.draw}
-                            onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, draw: e.target.value } } : null)}
-                            className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
-                        </div>
-                      )}
-                      <div className="flex-1">
-                        <label className={`text-xs ${textMuted} mb-1 block`}>{suggestionModal.isTri ? 'Away %' : 'No %'}</label>
-                        <input type="number" min="1" max="99" value={suggestionModal.prices.away}
-                          onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, away: e.target.value } } : null)}
-                          className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
-                      </div>
-                    </div>
-
-                    {/* Price sum indicator */}
-                    {(() => {
-                      const sum = parseFloat(suggestionModal.prices.home || '0') + (suggestionModal.isTri ? parseFloat(suggestionModal.prices.draw || '0') : 0) + parseFloat(suggestionModal.prices.away || '0')
-                      return (
-                        <p className={`text-xs mb-4 ${sum > 100 ? 'text-red-400' : sum === 100 ? 'text-green-400' : textMuted}`}>
-                          Total: {sum}% {sum > 100 ? '— exceeds 100%!' : ''}
-                        </p>
-                      )
+                    {/* ─── MULTI-OPTION / VERSUS pricing ─── */}
+                    {suggestionModal.isMulti && suggestionModal.suggestion.options && (() => {
+                      try {
+                        const opts: string[] = JSON.parse(suggestionModal.suggestion.options!)
+                        const optSum = suggestionModal.optionPrices.reduce((s, p) => s + (parseFloat(p) || 0), 0)
+                        return (
+                          <div className="mb-3">
+                            <label className={`text-xs ${textMuted} mb-1 block`}>
+                              Option Prices ({suggestionModal.suggestion.questionType}) — each option becomes a tradable Yes/No market
+                            </label>
+                            <div className="space-y-2">
+                              {opts.map((o, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                  <span className={`flex-1 text-xs ${textColor} truncate`}>{i + 1}. {o}</span>
+                                  <div className="flex items-center gap-1 w-24">
+                                    <input type="number" min="1" max="99"
+                                      value={suggestionModal.optionPrices[i] || ''}
+                                      onChange={e => setSuggestionModal(prev => {
+                                        if (!prev) return null
+                                        const np = [...prev.optionPrices]
+                                        np[i] = e.target.value
+                                        return { ...prev, optionPrices: np }
+                                      })}
+                                      className={`w-full px-2 py-1.5 text-xs font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor} text-center`}
+                                    />
+                                    <span className={`text-xs ${textMuted}`}>%</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <p className={`text-[10px] mt-2 ${optSum > 100 ? 'text-red-400' : textMuted}`}>
+                              Sum: {optSum}% — Each option is an independent Yes/No market (sums can exceed 100%).
+                            </p>
+                          </div>
+                        )
+                      } catch { return null }
                     })()}
+
+                    {/* ─── BINARY / TRI-OUTCOME pricing ─── */}
+                    {!suggestionModal.isMulti && (
+                      <>
+                        {/* Market type toggle */}
+                        <div className="mb-3">
+                          <label className={`text-xs ${textMuted} mb-1 block`}>Market Type</label>
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => setSuggestionModal(prev => prev ? { ...prev, isTri: false } : null)}
+                              className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-colors ${!suggestionModal.isTri ? 'border-green-500 bg-green-500/10 text-green-400' : `${borderColor} ${textMuted}`}`}>
+                              Yes / No
+                            </button>
+                            <button type="button" onClick={() => setSuggestionModal(prev => prev ? { ...prev, isTri: true } : null)}
+                              className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-colors ${suggestionModal.isTri ? 'border-green-500 bg-green-500/10 text-green-400' : `${borderColor} ${textMuted}`}`}>
+                              Home / Draw / Away
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Price inputs */}
+                        <div className={`flex gap-3 mb-2`}>
+                          <div className="flex-1">
+                            <label className={`text-xs ${textMuted} mb-1 block`}>{suggestionModal.isTri ? 'Home %' : 'Yes %'}</label>
+                            <input type="number" min="1" max="99" value={suggestionModal.prices.home}
+                              onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, home: e.target.value } } : null)}
+                              className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                          </div>
+                          {suggestionModal.isTri && (
+                            <div className="flex-1">
+                              <label className={`text-xs ${textMuted} mb-1 block`}>Draw %</label>
+                              <input type="number" min="1" max="99" value={suggestionModal.prices.draw}
+                                onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, draw: e.target.value } } : null)}
+                                className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                            </div>
+                          )}
+                          <div className="flex-1">
+                            <label className={`text-xs ${textMuted} mb-1 block`}>{suggestionModal.isTri ? 'Away %' : 'No %'}</label>
+                            <input type="number" min="1" max="99" value={suggestionModal.prices.away}
+                              onChange={e => setSuggestionModal(prev => prev ? { ...prev, prices: { ...prev.prices, away: e.target.value } } : null)}
+                              className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                          </div>
+                        </div>
+
+                        {/* Price sum indicator */}
+                        {(() => {
+                          const sum = parseFloat(suggestionModal.prices.home || '0') + (suggestionModal.isTri ? parseFloat(suggestionModal.prices.draw || '0') : 0) + parseFloat(suggestionModal.prices.away || '0')
+                          return (
+                            <p className={`text-xs mb-4 ${sum > 100 ? 'text-red-400' : sum === 100 ? 'text-green-400' : textMuted}`}>
+                              Total: {sum}% {sum > 100 ? '— exceeds 100%!' : ''}
+                            </p>
+                          )
+                        })()}
+                      </>
+                    )}
 
                     <div className="flex gap-2">
                       <button onClick={approveSuggestion}

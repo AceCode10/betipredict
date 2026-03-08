@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Wallet, CheckCircle2, Loader2, AlertCircle, Smartphone, CreditCard } from 'lucide-react'
+import { X, Wallet, CheckCircle2, Loader2, AlertCircle, Smartphone } from 'lucide-react'
 import { formatZambianCurrency } from '@/utils/currency'
 
 // Declare the LencoPay global object loaded from external script
@@ -13,6 +13,11 @@ declare global {
   }
 }
 
+// Lenco widget script URL
+const LENCO_WIDGET_URL = process.env.NEXT_PUBLIC_LENCO_ENVIRONMENT === 'sandbox'
+  ? 'https://pay.sandbox.lenco.co/js/v1/inline.js'
+  : 'https://pay.lenco.co/js/v1/inline.js'
+
 type PaymentProvider = 'airtel' | 'mtn' | 'card'
 type DepositStep = 'input' | 'processing' | 'success' | 'failed'
 
@@ -21,6 +26,18 @@ interface DepositModalProps {
   onClose: () => void
   onDeposit: (amount: number, phoneNumber?: string) => Promise<void>
   currentBalance: number
+}
+
+/** Load an external script once (idempotent) */
+function loadScript(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return }
+    const s = document.createElement('script')
+    s.src = src; s.async = true
+    s.onload = () => resolve()
+    s.onerror = () => reject(new Error(`Failed to load script: ${src}`))
+    document.head.appendChild(s)
+  })
 }
 
 export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: DepositModalProps) {
@@ -37,6 +54,11 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
 
   // Keep stepRef in sync
   useEffect(() => { stepRef.current = step }, [step])
+
+  // Preload Lenco widget script when modal opens
+  useEffect(() => {
+    if (isOpen) loadScript(LENCO_WIDGET_URL).catch(() => {})
+  }, [isOpen])
 
   useEffect(() => {
     return () => {
@@ -61,7 +83,11 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
     onClose()
   }
 
-  const pollLencoStatus = (reference: string) => {
+  const isTestMode = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_TEST_MODE === 'true'
+  const isMobileMoney = provider === 'airtel' || provider === 'mtn'
+
+  /** Poll Lenco verify endpoint for payment status (used for both mobile money and card) */
+  const pollLencoStatus = (reference: string, depositAmount: number) => {
     let attempts = 0
     const maxAttempts = 120 // 10 minutes at 5s intervals
 
@@ -83,54 +109,14 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
         if (data.status === 'COMPLETED') {
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('success')
-          setSuccess(`Successfully deposited ${formatZambianCurrency(data.amount || parseFloat(amount))}`)
-          onDeposit(data.amount || parseFloat(amount)).catch(() => {})
+          setSuccess(`Successfully deposited ${formatZambianCurrency(data.amount || depositAmount)}`)
+          onDeposit(data.amount || depositAmount).catch(() => {})
         } else if (data.status === 'FAILED' || data.status === 'CANCELLED') {
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('failed')
           setError(data.message || 'Payment failed. Please try again.')
         } else {
           setStatusMessage(data.message || 'Waiting for confirmation...')
-        }
-      } catch {
-        // Silently retry
-      }
-    }, 5000)
-  }
-
-  const isTestMode = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_TEST_MODE === 'true'
-  const isMobileMoney = provider === 'airtel' || provider === 'mtn'
-
-  const pollMobilePaymentStatus = (paymentId: string, depositAmount: number) => {
-    let attempts = 0
-    const maxAttempts = 60 // 5 minutes at 5s intervals
-
-    pollRef.current = setInterval(async () => {
-      attempts++
-      if (attempts > maxAttempts) {
-        if (pollRef.current) clearInterval(pollRef.current)
-        setStep('failed')
-        setError('Payment timed out. If you were charged, please contact support.')
-        return
-      }
-
-      try {
-        const res = await fetch(`/api/payments/status?paymentId=${paymentId}`)
-        if (!res.ok) return
-
-        const data = await res.json()
-
-        if (data.status === 'COMPLETED') {
-          if (pollRef.current) clearInterval(pollRef.current)
-          setStep('success')
-          setSuccess(`Successfully deposited ${formatZambianCurrency(data.amount || depositAmount)}`)
-          onDeposit(data.amount || depositAmount).catch(() => {})
-        } else if (data.status === 'FAILED' || data.status === 'CANCELLED') {
-          if (pollRef.current) clearInterval(pollRef.current)
-          setStep('failed')
-          setError(data.statusMessage || 'Payment failed. Please try again.')
-        } else {
-          setStatusMessage(data.statusMessage || 'Waiting for confirmation...')
         }
       } catch {
         // Silently retry
@@ -171,47 +157,47 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
     setIsProcessing(true)
 
     try {
-      if (provider === 'airtel' || provider === 'mtn') {
-        // ─── Mobile Money: route through /api/deposit ───
-        // Handles test mode (instant credit) and live mode (Airtel/MTN USSD push)
-        const method = provider === 'airtel' ? 'airtel_money' : 'mtn_money'
+      // ─── TEST MODE: route through /api/deposit for instant credit ───
+      if (isTestMode) {
         const res = await fetch('/api/deposit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             amount: depositAmount,
             phoneNumber: phoneNumber || '0970000000',
-            method,
+            method: provider === 'mtn' ? 'mtn_money' : 'airtel_money',
           })
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Deposit failed')
+        setStep('success')
+        setSuccess(data.message || `Successfully deposited ${formatZambianCurrency(depositAmount)}`)
+        await onDeposit(depositAmount)
+        setTimeout(handleClose, 2000)
+        return
+      }
 
-        if (data.testMode || data.status === 'COMPLETED') {
-          setStep('success')
-          setSuccess(data.message || `Successfully deposited ${formatZambianCurrency(depositAmount)}`)
-          await onDeposit(depositAmount)
-          setTimeout(handleClose, 2000)
-        } else if (data.paymentId && data.status === 'PROCESSING') {
-          setStep('processing')
-          setStatusMessage(data.message || 'A payment prompt has been sent to your phone. Please enter your PIN to confirm.')
-          pollMobilePaymentStatus(data.paymentId, depositAmount)
-        } else {
-          throw new Error('Unexpected response from server')
-        }
+      // ─── ALL LIVE PAYMENTS: route through Lenco ───
+      const channel = isMobileMoney ? 'mobile-money' : 'card'
+      const res = await fetch('/api/payments/lenco/initialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: depositAmount,
+          channel,
+          phoneNumber: isMobileMoney ? phoneNumber : undefined,
+        }),
+      })
+      const initData = await res.json()
+      if (!res.ok) throw new Error(initData.error || 'Failed to initialize payment')
+
+      if (isMobileMoney) {
+        // ─── Mobile Money via Lenco: USSD push sent, poll for result ───
+        setStep('processing')
+        setStatusMessage(initData.message || 'A payment prompt has been sent to your phone. Please enter your PIN to confirm.')
+        pollLencoStatus(initData.reference, depositAmount)
       } else {
-        // ─── Card: use Lenco popup widget or checkout URL redirect ───
-        const res = await fetch('/api/payments/lenco/initialize', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            amount: depositAmount,
-            channel: 'card',
-          }),
-        })
-        const initData = await res.json()
-        if (!res.ok) throw new Error(initData.error || 'Failed to initialize card payment')
-
+        // ─── Card: use Lenco popup widget, fallback to checkout URL ───
         if (typeof window !== 'undefined' && window.LencoPay) {
           window.LencoPay.getPaid({
             key: initData.publicKey,
@@ -236,10 +222,10 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
                   await onDeposit(depositAmount)
                   setTimeout(handleClose, 2500)
                 } else {
-                  pollLencoStatus(initData.reference)
+                  pollLencoStatus(initData.reference, depositAmount)
                 }
               } catch {
-                pollLencoStatus(initData.reference)
+                pollLencoStatus(initData.reference, depositAmount)
               }
             },
             onClose: () => {
@@ -250,14 +236,14 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
             onConfirmationPending: () => {
               setStep('processing')
               setStatusMessage('Card payment is being confirmed...')
-              pollLencoStatus(initData.reference)
+              pollLencoStatus(initData.reference, depositAmount)
             },
           })
         } else if (initData.checkoutUrl) {
           setStep('processing')
           setStatusMessage('Opening secure card payment page...')
           window.open(initData.checkoutUrl, '_blank')
-          pollLencoStatus(initData.reference)
+          pollLencoStatus(initData.reference, depositAmount)
         } else {
           throw new Error('Card payment not available right now. Please use mobile money.')
         }

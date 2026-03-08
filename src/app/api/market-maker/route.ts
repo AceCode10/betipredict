@@ -417,7 +417,7 @@ export async function POST(request: NextRequest) {
 
     // ─── APPROVE SUGGESTION ───
     if (action === 'approve-suggestion') {
-      const { suggestionId, homePrice, drawPrice, awayPrice, category, title, question, description } = body
+      const { suggestionId, homePrice, drawPrice, awayPrice, category, title, question, description, optionPrices } = body
       if (!suggestionId) return NextResponse.json({ error: 'suggestionId required' }, { status: 400 })
 
       const suggestion = await prisma.marketSuggestion.findUnique({
@@ -430,12 +430,6 @@ export async function POST(request: NextRequest) {
       const dp = parseFloat(drawPrice) || 0
       const ap = parseFloat(awayPrice) || 0.5
 
-      // Validate price sum
-      const sum = hp + dp + ap
-      if (sum > 1.0) {
-        return NextResponse.json({ error: `Prices sum to ${(sum * 100).toFixed(0)}% which exceeds 100%` }, { status: 400 })
-      }
-
       const finalTitle = (title || '').trim() || suggestion.title
       const finalQuestion = (question || '').trim() || suggestion.question
       const finalCategory = (category || '').trim() || suggestion.category
@@ -447,8 +441,12 @@ export async function POST(request: NextRequest) {
       const isMulti = suggestion.questionType !== 'yes-no' && suggestion.options
 
       if (isMulti) {
-        // Multi-option: create MarketGroup + child Markets
+        // Multi-option: create MarketGroup + child Markets with per-option prices
         const options: string[] = JSON.parse(suggestion.options!)
+        const perOptionPrices: number[] = Array.isArray(optionPrices) && optionPrices.length === options.length
+          ? optionPrices.map((p: any) => Math.max(0.01, Math.min(0.99, parseFloat(p) || 0.5)))
+          : options.map(() => 0.5)
+
         const group = await prisma.$transaction(async (tx) => {
           const g = await tx.marketGroup.create({
             data: {
@@ -460,19 +458,19 @@ export async function POST(request: NextRequest) {
               creatorId: suggestion.suggesterId,
             }
           })
-          for (const opt of options) {
+          for (let i = 0; i < options.length; i++) {
             await tx.market.create({
               data: {
-                title: opt,
-                question: `${finalTitle} — ${opt}`,
-                description: `Option "${opt}" for: ${finalTitle}`,
+                title: options[i],
+                question: `${finalTitle} — ${options[i]}`,
+                description: `Option "${options[i]}" for: ${finalTitle}`,
                 category: finalCategory,
                 resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
                 creatorId: suggestion.suggesterId,
                 groupId: g.id,
                 status: 'ACTIVE',
                 marketType: 'BINARY',
-                ...getCPMMBinaryInit(0.5),
+                ...getCPMMBinaryInit(perOptionPrices[i]),
               }
             })
           }
@@ -483,6 +481,12 @@ export async function POST(request: NextRequest) {
           return g
         })
         return NextResponse.json({ message: `Suggestion approved as group with ${options.length} options`, group })
+      }
+
+      // Validate price sum for single-market (binary/tri)
+      const sum = hp + dp + ap
+      if (sum > 1.0) {
+        return NextResponse.json({ error: `Prices sum to ${(sum * 100).toFixed(0)}% which exceeds 100%` }, { status: 400 })
       }
 
       // Single market (yes/no or tri-outcome)
