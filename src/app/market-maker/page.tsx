@@ -1256,7 +1256,7 @@ export default function MarketMakerPage() {
                       <select value={suggestionModal.category}
                         onChange={e => setSuggestionModal(prev => prev ? { ...prev, category: e.target.value } : null)}
                         className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor}`}>
-                        {['Football', 'Entertainment', 'Social', 'Politics', 'Finance', 'Weather', 'Other'].map(c => (
+                        {['Football', 'Entertainment', 'Social', 'Politics', 'Finance', 'Other'].map(c => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
@@ -1427,7 +1427,7 @@ export default function MarketMakerPage() {
                   <div>
                     <label className={`text-xs font-medium ${textMuted} mb-1.5 block`}>Category</label>
                     <div className="grid grid-cols-4 gap-1.5">
-                      {['Football', 'Entertainment', 'Social', 'Politics', 'Finance', 'Weather', 'Other'].map(c => (
+                      {['Football', 'Entertainment', 'Social', 'Politics', 'Finance', 'Other'].map(c => (
                         <button key={c} type="button" onClick={() => setCmCategory(c)}
                           className={`px-2 py-1.5 text-xs font-medium rounded-lg border transition-colors ${cmCategory === c ? 'border-green-500 bg-green-500/10 text-green-400' : `${borderColor} ${textMuted}`}`}>
                           {c}

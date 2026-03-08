@@ -70,7 +70,6 @@ const CATEGORY_MATCH_MAP: Record<string, string[]> = {
   'finance': ['finance', 'stocks', 'economics'],
   'entertainment': ['entertainment', 'movies', 'tv', 'music'],
   'social': ['social', 'community', 'trending'],
-  'weather': ['weather', 'climate', 'temperature'],
   'other': [],
 }
 

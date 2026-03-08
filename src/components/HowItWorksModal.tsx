@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, TrendingUp, Wallet, Trophy, ArrowRight, Zap, Shield, ChevronRight } from 'lucide-react'
+import { X, TrendingUp, Wallet, DollarSign, ArrowRight, Zap, Shield, ChevronRight } from 'lucide-react'
 import { useTheme } from '@/contexts/ThemeContext'
 
 interface HowItWorksModalProps {
@@ -51,11 +51,11 @@ const STEPS = [
     },
   },
   {
-    icon: Trophy,
+    icon: DollarSign,
     step: '03',
-    title: 'Win or Sell',
+    title: 'Win & Withdraw',
     subtitle: 'Profit & withdraw',
-    description: 'If your outcome wins, each share pays K1.00. You can also sell anytime before resolution to lock in profit or cut losses. Withdraw winnings instantly via mobile money.',
+    description: 'If your outcome wins, each share pays K1.00 — that\'s your profit! Withdraw your winnings instantly to your mobile money wallet.',
     gradient: 'from-yellow-500 to-orange-500',
     glow: 'shadow-yellow-500/20',
     color: 'text-yellow-400',
@@ -75,7 +75,7 @@ const STEPS = [
 const FEATURES = [
   { icon: Zap, text: 'Instant deposits via mobile money' },
   { icon: Shield, text: 'Secure & transparent trading' },
-  { icon: Trophy, text: 'Real sports, real predictions' },
+  { icon: DollarSign, text: 'Real markets, real predictions' },
 ]
 
 export function HowItWorksModal({ isOpen, onClose }: HowItWorksModalProps) {
@@ -228,7 +228,7 @@ export function HowItWorksModal({ isOpen, onClose }: HowItWorksModalProps) {
             className={`flex-1 py-3 text-sm font-bold rounded-xl text-white bg-gradient-to-r ${current.gradient} hover:shadow-lg ${current.glow} transition-all duration-300 flex items-center justify-center gap-2`}
           >
             {isLast ? (
-              <>Start Trading <Zap className="w-4 h-4" /></>
+              <>Start Trading <ArrowRight className="w-4 h-4" /></>
             ) : (
               <>Next <ChevronRight className="w-4 h-4" /></>
             )}

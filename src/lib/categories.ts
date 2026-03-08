@@ -2,7 +2,7 @@
  * Platform categories — single source of truth.
  * Market Makers can add/remove categories via the /api/market-maker endpoint.
  * 
- * Default categories: Football, Entertainment, Social, Politics, Finance, Weather, Other
+ * Default categories: Football, Entertainment, Social, Politics, Finance, Other
  */
 
 export interface Category {
@@ -18,7 +18,6 @@ export const DEFAULT_CATEGORIES: Category[] = [
   { value: 'Social', label: 'Social', icon: '💬' },
   { value: 'Politics', label: 'Politics', icon: '🏛️' },
   { value: 'Finance', label: 'Finance', icon: '📈' },
-  { value: 'Weather', label: 'Weather', icon: '🌤️' },
   { value: 'Other', label: 'Other', icon: '🌍' },
 ]
 

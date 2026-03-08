@@ -34,8 +34,6 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const amount = Number(body.amount)
-    const channel: string = body.channel || 'mobile-money' // 'mobile-money' or 'card'
-    const phoneNumber: string = (body.phoneNumber || '').trim()
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 })
@@ -45,17 +43,6 @@ export async function POST(request: NextRequest) {
     }
     if (amount > FEES.DEPOSIT_MAX_AMOUNT) {
       return NextResponse.json({ error: `Maximum deposit is K${FEES.DEPOSIT_MAX_AMOUNT.toLocaleString()}` }, { status: 400 })
-    }
-
-    // Phone required for mobile money
-    if (channel === 'mobile-money') {
-      if (!phoneNumber) {
-        return NextResponse.json({ error: 'Phone number is required for mobile money' }, { status: 400 })
-      }
-      const digits = phoneNumber.replace(/\D/g, '')
-      if (digits.length < 9 || digits.length > 13) {
-        return NextResponse.json({ error: 'Please enter a valid Zambian phone number' }, { status: 400 })
-      }
     }
 
     const user = await prisma.user.findUnique({ where: { id: session.user.id } })
@@ -74,7 +61,7 @@ export async function POST(request: NextRequest) {
         amount,
         feeAmount: 0,
         netAmount: amount,
-        phoneNumber: channel === 'mobile-money' ? phoneNumber : 'card-payment',
+        phoneNumber: 'lenco-widget',
         provider: 'LENCO',
         externalRef: reference,
         status: 'PENDING',
@@ -83,20 +70,19 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    console.log(`[Lenco] Created payment record for ${channel}: K${amount}, user ${session.user.id}, ref: ${reference}`)
+    console.log(`[Lenco] Created payment record: K${amount}, user ${session.user.id}, ref: ${reference}`)
 
     // Return widget config — frontend opens the Lenco popup widget
+    // The widget handles payment method selection, phone number, and card details
     return NextResponse.json({
       reference,
       paymentId: payment.id,
       publicKey: getLencoPublicKey(),
       amount,
-      channel,
       currency: 'ZMW',
       email: user.email || '',
       firstName,
       lastName,
-      phoneNumber: channel === 'mobile-money' ? phoneNumber : undefined,
     })
   } catch (error: any) {
     console.error('[Lenco Initialize] Error:', error)
