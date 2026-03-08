@@ -1167,8 +1167,6 @@ export default function PolymarketStyleHomePage() {
                             )}
                             <div className={`text-xs ${textMuted} mt-2 pt-2 border-t ${modalBorder} space-y-1`}>
                               <div className="flex justify-between"><span>Resolution</span><span className={textColor}>{market.resolveTime ? formatDateDMY(market.resolveTime) : 'TBD'}</span></div>
-                              <div className="flex justify-between"><span>Category</span><span className={textColor}>{market.league || market.category || 'General'}</span></div>
-                              <div className="flex justify-between"><span>Created by</span><span className={textColor}>{market.creator?.username || 'System'}</span></div>
                             </div>
                           </div>
                           <MarketChat marketId={market.id} isOpen={true} />

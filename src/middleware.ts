@@ -141,11 +141,11 @@ export function middleware(request: NextRequest) {
     'Content-Security-Policy',
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://pay.lenco.co https://pay.sandbox.lenco.co",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https: blob:",
       "font-src 'self' data:",
-      "connect-src 'self' https://api.football-data.org https://openapiuat.airtel.africa https://openapi.airtel.africa https://sandbox.momodeveloper.mtn.com https://proxy.momoapi.mtn.com",
+      "connect-src 'self' https://api.football-data.org https://openapiuat.airtel.africa https://openapi.airtel.africa https://sandbox.momodeveloper.mtn.com https://proxy.momoapi.mtn.com https://pay.lenco.co https://pay.sandbox.lenco.co https://api.lenco.co https://sandbox.lenco.co",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
