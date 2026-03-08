@@ -3,16 +3,17 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { FEES } from '@/lib/fees'
-import { generateLencoRef, isLencoConfigured, getLencoPublicKey, initializeCollection } from '@/lib/lenco'
+import { generateLencoRef, isLencoConfigured, getLencoPublicKey } from '@/lib/lenco'
 import { checkRateLimit } from '@/lib/rate-limit'
 
 /**
  * POST /api/payments/lenco/initialize
  * 
- * Creates a pending payment record and calls Lenco API to initialize collection.
+ * Creates a pending payment record in the DB and returns the Lenco public key,
+ * unique reference, and user details so the frontend can open the Lenco popup widget.
  * 
- * For mobile-money: Lenco sends a USSD push to the user's phone.
- * For card: Returns checkout URL + popup widget fallback data.
+ * Lenco has NO server-side initialize endpoint — all payment initiation
+ * happens through the frontend popup widget (LencoPay.getPaid).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
     const firstName = user.fullName?.split(' ')[0] || user.username || ''
     const lastName = user.fullName?.split(' ').slice(1).join(' ') || ''
 
-    // Create pending payment record
+    // Create pending payment record in DB for tracking
     const payment = await prisma.mobilePayment.create({
       data: {
         type: 'DEPOSIT',
@@ -82,56 +83,21 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Call Lenco server-side API to initialize collection
-    try {
-      const lencoRes = await initializeCollection({
-        amount,
-        email: user.email || '',
-        reference,
-        channels: [channel],
-        phoneNumber: channel === 'mobile-money' ? phoneNumber : undefined,
-        customer: { firstName, lastName },
-      })
+    console.log(`[Lenco] Created payment record for ${channel}: K${amount}, user ${session.user.id}, ref: ${reference}`)
 
-      console.log(`[Lenco] Initialized ${channel} payment: K${amount} for user ${session.user.id}, ref: ${reference}`)
-
-      if (channel === 'mobile-money') {
-        // Mobile money: USSD push sent to phone, frontend polls for result
-        return NextResponse.json({
-          reference,
-          paymentId: payment.id,
-          amount,
-          channel: 'mobile-money',
-          message: 'A payment prompt has been sent to your phone. Please enter your PIN to confirm.',
-        })
-      } else {
-        // Card: return checkout URL + popup widget fallback data
-        const checkoutUrl = lencoRes?.data?.authorization_url || lencoRes?.data?.checkout_url || null
-        return NextResponse.json({
-          reference,
-          paymentId: payment.id,
-          publicKey: getLencoPublicKey(),
-          amount,
-          channel: 'card',
-          checkoutUrl,
-          currency: 'ZMW',
-          email: user.email || '',
-          firstName,
-          lastName,
-        })
-      }
-    } catch (apiErr: any) {
-      console.error('[Lenco Initialize] Lenco API error:', apiErr.message)
-      // Mark payment as failed since Lenco rejected it
-      await prisma.mobilePayment.update({
-        where: { id: payment.id },
-        data: { status: 'FAILED', statusMessage: apiErr.message || 'Provider error' }
-      }).catch(() => {})
-      return NextResponse.json(
-        { error: apiErr.message || 'Payment provider error. Please try again.' },
-        { status: 502 }
-      )
-    }
+    // Return widget config — frontend opens the Lenco popup widget
+    return NextResponse.json({
+      reference,
+      paymentId: payment.id,
+      publicKey: getLencoPublicKey(),
+      amount,
+      channel,
+      currency: 'ZMW',
+      email: user.email || '',
+      firstName,
+      lastName,
+      phoneNumber: channel === 'mobile-money' ? phoneNumber : undefined,
+    })
   } catch (error: any) {
     console.error('[Lenco Initialize] Error:', error)
     return NextResponse.json({ error: 'Failed to initialize payment' }, { status: 500 })

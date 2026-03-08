@@ -177,7 +177,7 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
         return
       }
 
-      // ─── ALL LIVE PAYMENTS: route through Lenco ───
+      // ─── ALL LIVE PAYMENTS: create DB record, then open Lenco popup widget ───
       const channel = isMobileMoney ? 'mobile-money' : 'card'
       const res = await fetch('/api/payments/lenco/initialize', {
         method: 'POST',
@@ -191,63 +191,62 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
       const initData = await res.json()
       if (!res.ok) throw new Error(initData.error || 'Failed to initialize payment')
 
-      if (isMobileMoney) {
-        // ─── Mobile Money via Lenco: USSD push sent, poll for result ───
-        setStep('processing')
-        setStatusMessage(initData.message || 'A payment prompt has been sent to your phone. Please enter your PIN to confirm.')
-        pollLencoStatus(initData.reference, depositAmount)
-      } else {
-        // ─── Card: use Lenco popup widget, fallback to checkout URL ───
-        if (typeof window !== 'undefined' && window.LencoPay) {
-          window.LencoPay.getPaid({
-            key: initData.publicKey,
-            reference: initData.reference,
-            email: initData.email || '',
-            amount: depositAmount,
-            currency: 'ZMW',
-            channels: ['card'],
-            customer: {
-              firstName: initData.firstName || '',
-              lastName: initData.lastName || '',
-            },
-            onSuccess: async (response: any) => {
-              setStep('processing')
-              setStatusMessage('Verifying card payment...')
-              try {
-                const verifyRes = await fetch(`/api/payments/lenco/verify?reference=${response.reference || initData.reference}`)
-                const vData = await verifyRes.json()
-                if (vData.status === 'COMPLETED') {
-                  setStep('success')
-                  setSuccess(`Successfully deposited ${formatZambianCurrency(depositAmount)}`)
-                  await onDeposit(depositAmount)
-                  setTimeout(handleClose, 2500)
-                } else {
-                  pollLencoStatus(initData.reference, depositAmount)
-                }
-              } catch {
-                pollLencoStatus(initData.reference, depositAmount)
-              }
-            },
-            onClose: () => {
-              if (stepRef.current === 'input') {
-                setIsProcessing(false)
-              }
-            },
-            onConfirmationPending: () => {
-              setStep('processing')
-              setStatusMessage('Card payment is being confirmed...')
-              pollLencoStatus(initData.reference, depositAmount)
-            },
-          })
-        } else if (initData.checkoutUrl) {
-          setStep('processing')
-          setStatusMessage('Opening secure card payment page...')
-          window.open(initData.checkoutUrl, '_blank')
-          pollLencoStatus(initData.reference, depositAmount)
-        } else {
-          throw new Error('Card payment not available right now. Please use mobile money.')
-        }
+      // Ensure Lenco widget script is loaded
+      await loadScript(LENCO_WIDGET_URL)
+
+      if (typeof window === 'undefined' || !window.LencoPay) {
+        throw new Error('Payment widget failed to load. Please refresh and try again.')
       }
+
+      // Open Lenco popup widget — it handles both mobile money and card
+      window.LencoPay.getPaid({
+        key: initData.publicKey,
+        reference: initData.reference,
+        email: initData.email || '',
+        amount: depositAmount,
+        currency: 'ZMW',
+        channels: [channel],
+        customer: {
+          firstName: initData.firstName || '',
+          lastName: initData.lastName || '',
+          phone: isMobileMoney ? phoneNumber : undefined,
+        },
+        onSuccess: async (response: any) => {
+          setStep('processing')
+          setStatusMessage('Verifying payment...')
+          try {
+            const verifyRes = await fetch(`/api/payments/lenco/verify?reference=${response.reference || initData.reference}`)
+            const vData = await verifyRes.json()
+            if (vData.status === 'COMPLETED') {
+              setStep('success')
+              setSuccess(`Successfully deposited ${formatZambianCurrency(depositAmount)}`)
+              await onDeposit(depositAmount)
+              setTimeout(handleClose, 2500)
+            } else {
+              // Not yet settled — poll until terminal
+              pollLencoStatus(initData.reference, depositAmount)
+            }
+          } catch {
+            pollLencoStatus(initData.reference, depositAmount)
+          }
+        },
+        onClose: () => {
+          // User closed the widget without completing
+          if (stepRef.current === 'input') {
+            setIsProcessing(false)
+          }
+        },
+        onConfirmationPending: () => {
+          // Payment started but not yet confirmed — poll for result
+          setStep('processing')
+          setStatusMessage(
+            isMobileMoney
+              ? 'A payment prompt has been sent to your phone. Please enter your PIN to confirm.'
+              : 'Payment is being confirmed...'
+          )
+          pollLencoStatus(initData.reference, depositAmount)
+        },
+      })
     } catch (err: any) {
       setError(err.message || 'Deposit failed. Please try again.')
       setStep('failed')
