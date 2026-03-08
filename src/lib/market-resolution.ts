@@ -103,7 +103,7 @@ export class MarketResolver {
         data: uniqueUserIds.map(userId => ({
           type: 'MARKET_RESOLVED',
           title: 'Market Resolved',
-          message: `"${market.title}" resolved to ${outcome}. Payouts will be processed after the 2h dispute window (${disputeDeadline.toLocaleString()}).`,
+          message: `"${market.title}" resolved to ${outcome}. Payouts will be processed shortly.`,
           userId,
           metadata: JSON.stringify({ marketId, outcome, disputeDeadline }),
         }))

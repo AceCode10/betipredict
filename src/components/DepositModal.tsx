@@ -101,6 +101,43 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
   const isTestMode = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_TEST_MODE === 'true'
   const isMobileMoney = provider === 'airtel' || provider === 'mtn'
 
+  const pollMobilePaymentStatus = (paymentId: string, depositAmount: number) => {
+    let attempts = 0
+    const maxAttempts = 60 // 5 minutes at 5s intervals
+
+    pollRef.current = setInterval(async () => {
+      attempts++
+      if (attempts > maxAttempts) {
+        if (pollRef.current) clearInterval(pollRef.current)
+        setStep('failed')
+        setError('Payment timed out. If you were charged, please contact support.')
+        return
+      }
+
+      try {
+        const res = await fetch(`/api/payments/status?paymentId=${paymentId}`)
+        if (!res.ok) return
+
+        const data = await res.json()
+
+        if (data.status === 'COMPLETED') {
+          if (pollRef.current) clearInterval(pollRef.current)
+          setStep('success')
+          setSuccess(`Successfully deposited ${formatZambianCurrency(data.amount || depositAmount)}`)
+          onDeposit(data.amount || depositAmount).catch(() => {})
+        } else if (data.status === 'FAILED' || data.status === 'CANCELLED') {
+          if (pollRef.current) clearInterval(pollRef.current)
+          setStep('failed')
+          setError(data.statusMessage || 'Payment failed. Please try again.')
+        } else {
+          setStatusMessage(data.statusMessage || 'Waiting for confirmation...')
+        }
+      } catch {
+        // Silently retry
+      }
+    }, 5000)
+  }
+
   const handleDeposit = async () => {
     const depositAmount = parseFloat(amount)
     if (!depositAmount || depositAmount <= 0) {
@@ -116,7 +153,7 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
       return
     }
 
-    // Validate phone for mobile money in live mode
+    // Validate phone for mobile money
     if (isMobileMoney && !isTestMode) {
       if (!phoneNumber) {
         setError('Please enter your mobile money number')
@@ -133,51 +170,37 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
     setSuccess('')
     setIsProcessing(true)
 
-    // ─── TEST MODE: use existing deposit route for instant credit ───
-    if (isTestMode) {
-      try {
-        const res = await fetch('/api/deposit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount: depositAmount, phoneNumber: '0970000000', method: 'airtel_money' })
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Deposit failed')
-
-        setStep('success')
-        setSuccess(data.message || `Successfully deposited ${formatZambianCurrency(depositAmount)}`)
-        await onDeposit(depositAmount)
-        setTimeout(handleClose, 2000)
-      } catch (err: any) {
-        setError(err.message || 'Deposit failed. Please try again.')
-        setStep('failed')
-      } finally {
-        setIsProcessing(false)
-      }
-      return
-    }
-
-    // ─── LIVE MODE ───────────────────────────────────────────────
     try {
-      if (isMobileMoney) {
-        // Mobile Money: server-side Lenco API sends USSD push to user's phone
-        const res = await fetch('/api/payments/lenco/initialize', {
+      if (provider === 'airtel' || provider === 'mtn') {
+        // ─── Mobile Money: route through /api/deposit ───
+        // Handles test mode (instant credit) and live mode (Airtel/MTN USSD push)
+        const method = provider === 'airtel' ? 'airtel_money' : 'mtn_money'
+        const res = await fetch('/api/deposit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             amount: depositAmount,
-            channel: 'mobile-money',
-            phoneNumber,
-          }),
+            phoneNumber: phoneNumber || '0970000000',
+            method,
+          })
         })
         const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Failed to initialize payment')
+        if (!res.ok) throw new Error(data.error || 'Deposit failed')
 
-        setStep('processing')
-        setStatusMessage(data.message || 'A payment prompt has been sent to your phone. Please enter your PIN to confirm.')
-        pollLencoStatus(data.reference)
+        if (data.testMode || data.status === 'COMPLETED') {
+          setStep('success')
+          setSuccess(data.message || `Successfully deposited ${formatZambianCurrency(depositAmount)}`)
+          await onDeposit(depositAmount)
+          setTimeout(handleClose, 2000)
+        } else if (data.paymentId && data.status === 'PROCESSING') {
+          setStep('processing')
+          setStatusMessage(data.message || 'A payment prompt has been sent to your phone. Please enter your PIN to confirm.')
+          pollMobilePaymentStatus(data.paymentId, depositAmount)
+        } else {
+          throw new Error('Unexpected response from server')
+        }
       } else {
-        // Card: use Lenco popup widget or checkout URL redirect
+        // ─── Card: use Lenco popup widget or checkout URL redirect ───
         const res = await fetch('/api/payments/lenco/initialize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -187,9 +210,8 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
           }),
         })
         const initData = await res.json()
-        if (!res.ok) throw new Error(initData.error || 'Failed to initialize payment')
+        if (!res.ok) throw new Error(initData.error || 'Failed to initialize card payment')
 
-        // Try popup widget first for card payments
         if (typeof window !== 'undefined' && window.LencoPay) {
           window.LencoPay.getPaid({
             key: initData.publicKey,
@@ -232,7 +254,6 @@ export function DepositModal({ isOpen, onClose, onDeposit, currentBalance }: Dep
             },
           })
         } else if (initData.checkoutUrl) {
-          // Fallback: open checkout URL in new tab
           setStep('processing')
           setStatusMessage('Opening secure card payment page...')
           window.open(initData.checkoutUrl, '_blank')

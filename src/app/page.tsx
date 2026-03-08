@@ -736,14 +736,15 @@ export default function PolymarketStyleHomePage() {
                   {/* Home team row */}
                   <div className="flex items-center gap-3">
                     {market.homeTeamCrest ? (
-                      <img src={market.homeTeamCrest} alt="" className="w-6 h-6 object-contain flex-shrink-0" />
-                    ) : (
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
-                        isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
-                      }`}>
-                        {market.homeTeam.charAt(0)}
-                      </div>
-                    )}
+                      <img src={market.homeTeamCrest} alt="" className="w-6 h-6 object-contain flex-shrink-0"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden') }}
+                      />
+                    ) : null}
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${market.homeTeamCrest ? 'hidden' : ''} ${
+                      isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {market.homeTeam.charAt(0)}
+                    </div>
                     {market.isLive && market.liveHomeScore != null && (
                       <span className={`text-lg font-bold tabular-nums w-4 text-center ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                         {market.liveHomeScore}
@@ -759,14 +760,15 @@ export default function PolymarketStyleHomePage() {
                   {/* Away team row */}
                   <div className="flex items-center gap-3">
                     {market.awayTeamCrest ? (
-                      <img src={market.awayTeamCrest} alt="" className="w-6 h-6 object-contain flex-shrink-0" />
-                    ) : (
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
-                        isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
-                      }`}>
-                        {market.awayTeam.charAt(0)}
-                      </div>
-                    )}
+                      <img src={market.awayTeamCrest} alt="" className="w-6 h-6 object-contain flex-shrink-0"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden') }}
+                      />
+                    ) : null}
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${market.awayTeamCrest ? 'hidden' : ''} ${
+                      isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {market.awayTeam.charAt(0)}
+                    </div>
                     {market.isLive && market.liveAwayScore != null && (
                       <span className={`text-lg font-bold tabular-nums w-4 text-center ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                         {market.liveAwayScore}
@@ -1029,12 +1031,13 @@ export default function PolymarketStyleHomePage() {
                       {/* Home team */}
                       <div className="flex flex-col items-center gap-1.5">
                         {market.homeTeamCrest ? (
-                          <img src={market.homeTeamCrest} alt="" className="w-12 h-12 object-contain" />
-                        ) : (
-                          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold ${isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
-                            {market.homeTeam.charAt(0)}
-                          </div>
-                        )}
+                          <img src={market.homeTeamCrest} alt="" className="w-12 h-12 object-contain"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden') }}
+                          />
+                        ) : null}
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold ${market.homeTeamCrest ? 'hidden' : ''} ${isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
+                          {market.homeTeam.charAt(0)}
+                        </div>
                         <span className={`text-sm font-semibold ${textColor}`}>{abbrev(market.homeTeam)}</span>
                       </div>
                       {/* Match time center */}
@@ -1045,12 +1048,13 @@ export default function PolymarketStyleHomePage() {
                       {/* Away team */}
                       <div className="flex flex-col items-center gap-1.5">
                         {market.awayTeamCrest ? (
-                          <img src={market.awayTeamCrest} alt="" className="w-12 h-12 object-contain" />
-                        ) : (
-                          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold ${isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
-                            {market.awayTeam.charAt(0)}
-                          </div>
-                        )}
+                          <img src={market.awayTeamCrest} alt="" className="w-12 h-12 object-contain"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden') }}
+                          />
+                        ) : null}
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold ${market.awayTeamCrest ? 'hidden' : ''} ${isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
+                          {market.awayTeam.charAt(0)}
+                        </div>
                         <span className={`text-sm font-semibold ${textColor}`}>{abbrev(market.awayTeam)}</span>
                       </div>
                     </div>

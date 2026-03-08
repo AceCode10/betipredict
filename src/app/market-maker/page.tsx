@@ -8,7 +8,7 @@ import { formatZambianCurrency, formatDateDMY, formatDateTimeDMY } from '@/utils
 import {
   ArrowLeft, CheckCircle, XCircle, RefreshCw, Loader2, Trophy,
   BarChart3, Clock, Search, Settings, ChevronDown, ChevronUp,
-  Zap, Eye, AlertTriangle, DollarSign, TrendingUp
+  Zap, Eye, AlertTriangle, DollarSign, TrendingUp, Plus, Flag
 } from 'lucide-react'
 
 interface PendingMarket {
@@ -79,7 +79,28 @@ const LEAGUES = [
   { code: 'CL', name: 'Champions League' },
 ]
 
-type TabType = 'pending' | 'active' | 'suggestions' | 'sync' | 'categories'
+type TabType = 'pending' | 'active' | 'suggestions' | 'create' | 'resolved' | 'sync' | 'categories'
+
+interface ResolvedMarket {
+  id: string
+  title: string
+  homeTeam: string | null
+  awayTeam: string | null
+  league: string | null
+  status: string
+  winningOutcome: string | null
+  volume: number
+  resolvedAt: string | null
+  disputeDeadline: string | null
+  scheduledGame?: {
+    homeScore: number | null
+    awayScore: number | null
+    homeTeamCrest: string | null
+    awayTeamCrest: string | null
+    winner: string | null
+  }
+  _count?: { orders: number; positions: number; disputes: number }
+}
 
 export default function MarketMakerPage() {
   const { data: session, status } = useSession()
@@ -90,7 +111,19 @@ export default function MarketMakerPage() {
   const [pendingMarkets, setPendingMarkets] = useState<PendingMarket[]>([])
   const [activeMarkets, setActiveMarkets] = useState<ActiveMarket[]>([])
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [resolvedMarkets, setResolvedMarkets] = useState<ResolvedMarket[]>([])
   const [stats, setStats] = useState<any>(null)
+  // Create Market form state
+  const [cmTitle, setCmTitle] = useState('')
+  const [cmQuestion, setCmQuestion] = useState('')
+  const [cmDescription, setCmDescription] = useState('')
+  const [cmCategory, setCmCategory] = useState('Football')
+  const [cmType, setCmType] = useState<'BINARY' | 'TRI_OUTCOME' | 'MULTI_OPTION'>('BINARY')
+  const [cmResolveDate, setCmResolveDate] = useState('')
+  const [cmHomePrice, setCmHomePrice] = useState('50')
+  const [cmDrawPrice, setCmDrawPrice] = useState('25')
+  const [cmAwayPrice, setCmAwayPrice] = useState('25')
+  const [cmOptions, setCmOptions] = useState<string[]>(['', ''])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncLeague, setSyncLeague] = useState<string>('all')
@@ -145,11 +178,12 @@ export default function MarketMakerPage() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [pendingRes, activeRes, suggestionsRes, statsRes] = await Promise.all([
+      const [pendingRes, activeRes, suggestionsRes, statsRes, resolvedRes] = await Promise.all([
         fetch('/api/market-maker?tab=pending'),
         fetch('/api/market-maker?tab=active'),
         fetch('/api/market-maker?tab=suggestions'),
         fetch('/api/market-maker?tab=stats'),
+        fetch('/api/market-maker?tab=resolved'),
       ])
 
       if (pendingRes.ok) {
@@ -163,6 +197,10 @@ export default function MarketMakerPage() {
       if (suggestionsRes.ok) {
         const data = await suggestionsRes.json()
         setSuggestions(data.suggestions || [])
+      }
+      if (resolvedRes.ok) {
+        const data = await resolvedRes.json()
+        setResolvedMarkets(data.markets || [])
       }
       if (statsRes.ok) {
         setStats(await statsRes.json())
@@ -457,6 +495,84 @@ export default function MarketMakerPage() {
     }
   }
 
+  // ─── Create Market (direct) ───
+  const createMarket = async () => {
+    if (!cmTitle.trim() || !cmQuestion.trim()) {
+      setMessage({ type: 'error', text: 'Title and question are required' })
+      return
+    }
+    if (!cmResolveDate) {
+      setMessage({ type: 'error', text: 'Resolution date is required' })
+      return
+    }
+    setProcessing('create-market')
+    setMessage(null)
+    try {
+      const payload: any = {
+        action: 'create-market',
+        title: cmTitle.trim(),
+        question: cmQuestion.trim(),
+        description: cmDescription.trim(),
+        category: cmCategory,
+        marketType: cmType,
+        resolveTime: cmResolveDate,
+      }
+      if (cmType === 'MULTI_OPTION') {
+        payload.options = cmOptions.filter(o => o.trim())
+        if (payload.options.length < 2) {
+          setMessage({ type: 'error', text: 'At least 2 options are required' })
+          setProcessing(null)
+          return
+        }
+      } else if (cmType === 'TRI_OUTCOME') {
+        payload.homePrice = parseFloat(cmHomePrice) / 100
+        payload.drawPrice = parseFloat(cmDrawPrice) / 100
+        payload.awayPrice = parseFloat(cmAwayPrice) / 100
+      } else {
+        payload.homePrice = parseFloat(cmHomePrice) / 100
+        payload.awayPrice = parseFloat(cmAwayPrice) / 100
+      }
+      const res = await fetch('/api/market-maker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setMessage({ type: 'success', text: data.message })
+      // Reset form
+      setCmTitle(''); setCmQuestion(''); setCmDescription(''); setCmCategory('Football')
+      setCmType('BINARY'); setCmResolveDate(''); setCmHomePrice('50'); setCmDrawPrice('25')
+      setCmAwayPrice('25'); setCmOptions(['', ''])
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setProcessing(null)
+    }
+  }
+
+  // ─── Early Finalize ───
+  const earlyFinalize = async (marketId: string) => {
+    setProcessing(marketId)
+    setMessage(null)
+    try {
+      const res = await fetch('/api/market-maker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'early-finalize', marketId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setMessage({ type: 'success', text: data.message })
+      await loadData()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setProcessing(null)
+    }
+  }
+
   // ─── Helpers ───
 
   const setPriceForMarket = (marketId: string, field: 'home' | 'draw' | 'away', value: string) => {
@@ -519,6 +635,8 @@ export default function MarketMakerPage() {
     { id: 'pending' as TabType, label: 'Pending Markets', icon: Clock, badge: pendingMarkets.length },
     { id: 'active' as TabType, label: 'Active Markets', icon: TrendingUp, badge: activeMarkets.length },
     { id: 'suggestions' as TabType, label: 'Suggestions', icon: Zap, badge: suggestions.length },
+    { id: 'create' as TabType, label: 'Create Market', icon: Plus },
+    { id: 'resolved' as TabType, label: 'Resolved', icon: Flag, badge: resolvedMarkets.filter(m => m.status === 'RESOLVED').length || undefined },
     { id: 'sync' as TabType, label: 'Sync Games', icon: RefreshCw },
     { id: 'categories' as TabType, label: 'Categories', icon: Settings },
   ]
@@ -1150,6 +1268,256 @@ export default function MarketMakerPage() {
                       </button>
                     </div>
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── CREATE MARKET TAB ─── */}
+          {activeTab === 'create' && (
+            <div className="max-w-2xl">
+              <div className={`${surfaceColor} border ${borderColor} rounded-xl p-6`}>
+                <h3 className={`text-base font-semibold ${textColor} mb-4 flex items-center gap-2`}>
+                  <Plus className="w-5 h-5 text-green-500" />
+                  Create Market Directly
+                </h3>
+                <p className={`text-xs ${textMuted} mb-4`}>Create a market that goes live immediately (no approval needed).</p>
+
+                <div className="space-y-4">
+                  {/* Market Type */}
+                  <div>
+                    <label className={`text-xs font-medium ${textMuted} mb-1.5 block`}>Market Type</label>
+                    <div className="flex gap-2">
+                      {([
+                        { value: 'BINARY', label: 'Yes / No' },
+                        { value: 'TRI_OUTCOME', label: 'Home / Draw / Away' },
+                        { value: 'MULTI_OPTION', label: 'Multi-Option' },
+                      ] as const).map(t => (
+                        <button key={t.value} type="button" onClick={() => setCmType(t.value)}
+                          className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-colors ${cmType === t.value ? 'border-green-500 bg-green-500/10 text-green-400' : `${borderColor} ${textMuted}`}`}>
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Title */}
+                  <div>
+                    <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Title *</label>
+                    <input type="text" value={cmTitle} onChange={e => setCmTitle(e.target.value)}
+                      placeholder="e.g., Arsenal vs Chelsea" maxLength={200}
+                      className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                  </div>
+
+                  {/* Question */}
+                  <div>
+                    <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Question *</label>
+                    <textarea value={cmQuestion} onChange={e => setCmQuestion(e.target.value)}
+                      placeholder="e.g., Will Arsenal win against Chelsea?" rows={2} maxLength={300}
+                      className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor} resize-none`} />
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Description & Rules</label>
+                    <textarea value={cmDescription} onChange={e => setCmDescription(e.target.value)}
+                      placeholder="Resolution criteria, rules, context..." rows={3} maxLength={1000}
+                      className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor} resize-none`} />
+                  </div>
+
+                  {/* Category */}
+                  <div>
+                    <label className={`text-xs font-medium ${textMuted} mb-1.5 block`}>Category</label>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {['Football', 'Entertainment', 'Social', 'Politics', 'Finance', 'Weather', 'Other'].map(c => (
+                        <button key={c} type="button" onClick={() => setCmCategory(c)}
+                          className={`px-2 py-1.5 text-xs font-medium rounded-lg border transition-colors ${cmCategory === c ? 'border-green-500 bg-green-500/10 text-green-400' : `${borderColor} ${textMuted}`}`}>
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Resolution Date */}
+                  <div>
+                    <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Resolution Date *</label>
+                    <input type="datetime-local" value={cmResolveDate} onChange={e => setCmResolveDate(e.target.value)}
+                      min={new Date().toISOString().slice(0, 16)}
+                      className={`w-full px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                  </div>
+
+                  {/* Multi-option inputs */}
+                  {cmType === 'MULTI_OPTION' && (
+                    <div>
+                      <label className={`text-xs font-medium ${textMuted} mb-1.5 block`}>Options (min 2, max 10)</label>
+                      <div className="space-y-2">
+                        {cmOptions.map((opt, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <span className={`text-xs font-bold ${textMuted} w-5 text-center`}>{i + 1}</span>
+                            <input type="text" value={opt}
+                              onChange={e => { const u = [...cmOptions]; u[i] = e.target.value; setCmOptions(u) }}
+                              placeholder={`Option ${i + 1}`} maxLength={100}
+                              className={`flex-1 px-3 py-2 text-sm rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                            {cmOptions.length > 2 && (
+                              <button type="button" onClick={() => setCmOptions(cmOptions.filter((_, j) => j !== i))}
+                                className="text-red-400 hover:text-red-300 text-xs p-1">
+                                <XCircle className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {cmOptions.length < 10 && (
+                        <button type="button" onClick={() => setCmOptions([...cmOptions, ''])}
+                          className={`mt-2 text-xs font-medium ${isDarkMode ? 'text-green-400 hover:text-green-300' : 'text-green-600 hover:text-green-700'}`}>
+                          + Add Option
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Price inputs (binary / tri) */}
+                  {cmType !== 'MULTI_OPTION' && (
+                    <div>
+                      <label className={`text-xs font-medium ${textMuted} mb-1.5 block`}>Initial Prices (%)</label>
+                      <div className="flex gap-3">
+                        <div className="flex-1">
+                          <label className={`text-[10px] ${textMuted} mb-0.5 block`}>{cmType === 'TRI_OUTCOME' ? 'Home %' : 'Yes %'}</label>
+                          <input type="number" min="1" max="99" value={cmHomePrice} onChange={e => setCmHomePrice(e.target.value)}
+                            className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                        </div>
+                        {cmType === 'TRI_OUTCOME' && (
+                          <div className="flex-1">
+                            <label className={`text-[10px] ${textMuted} mb-0.5 block`}>Draw %</label>
+                            <input type="number" min="1" max="99" value={cmDrawPrice} onChange={e => setCmDrawPrice(e.target.value)}
+                              className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          <label className={`text-[10px] ${textMuted} mb-0.5 block`}>{cmType === 'TRI_OUTCOME' ? 'Away %' : 'No %'}</label>
+                          <input type="number" min="1" max="99" value={cmAwayPrice} onChange={e => setCmAwayPrice(e.target.value)}
+                            className={`w-full px-3 py-2 text-sm font-bold rounded-lg ${inputBg} border ${borderColor} ${textColor}`} />
+                        </div>
+                      </div>
+                      {(() => {
+                        const sum = parseFloat(cmHomePrice || '0') + (cmType === 'TRI_OUTCOME' ? parseFloat(cmDrawPrice || '0') : 0) + parseFloat(cmAwayPrice || '0')
+                        return <p className={`text-xs mt-1 ${sum > 100 ? 'text-red-400' : sum === 100 ? 'text-green-400' : textMuted}`}>Total: {sum}%{sum > 100 ? ' — exceeds 100%!' : ''}</p>
+                      })()}
+                    </div>
+                  )}
+
+                  <button onClick={createMarket} disabled={processing === 'create-market' || !cmTitle.trim() || !cmQuestion.trim() || !cmResolveDate}
+                    className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
+                    {processing === 'create-market' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Create & Publish Market
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ─── RESOLVED MARKETS TAB ─── */}
+          {activeTab === 'resolved' && (
+            <div>
+              {resolvedMarkets.length === 0 ? (
+                <div className={`text-center py-16 ${textMuted}`}>
+                  <Flag className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">No resolved or finalized markets yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {/* Filter chips */}
+                  <div className="flex items-center gap-2 mb-3">
+                    {['all', 'RESOLVED', 'FINALIZING', 'FINALIZED'].map(f => {
+                      const count = f === 'all' ? resolvedMarkets.length : resolvedMarkets.filter(m => m.status === f).length
+                      return (
+                        <button key={f} onClick={() => setSearchQuery(f === 'all' ? '' : f)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                            (f === 'all' && !searchQuery) || searchQuery === f
+                              ? 'border-green-500 bg-green-500/10 text-green-400'
+                              : `${borderColor} ${textMuted}`
+                          }`}>
+                          {f === 'all' ? 'All' : f === 'RESOLVED' ? 'Awaiting Finalization' : f === 'FINALIZING' ? 'Finalizing' : 'Finalized'} ({count})
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {resolvedMarkets
+                    .filter(m => !searchQuery || m.status === searchQuery)
+                    .map(market => {
+                      const statusColor = market.status === 'RESOLVED' ? 'text-yellow-400' : market.status === 'FINALIZING' ? 'text-blue-400' : 'text-green-400'
+                      const statusBg = market.status === 'RESOLVED'
+                        ? isDarkMode ? 'bg-yellow-500/10' : 'bg-yellow-50'
+                        : market.status === 'FINALIZING'
+                          ? isDarkMode ? 'bg-blue-500/10' : 'bg-blue-50'
+                          : isDarkMode ? 'bg-green-500/10' : 'bg-green-50'
+                      const canFinalize = market.status === 'RESOLVED'
+
+                      return (
+                        <div key={market.id} className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
+                          <div className="flex items-center gap-4">
+                            {/* Status badge */}
+                            <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${statusColor} ${statusBg} flex-shrink-0`}>
+                              {market.status === 'RESOLVED' ? 'RESOLVED' : market.status === 'FINALIZING' ? 'FINALIZING' : 'FINALIZED'}
+                            </div>
+
+                            {/* Market info */}
+                            <div className="flex-1 min-w-0">
+                              <h4 className={`text-sm font-semibold ${textColor} truncate`}>{market.title}</h4>
+                              <div className={`flex items-center gap-2 text-xs ${textMuted} mt-0.5`}>
+                                {market.league && <span>{market.league}</span>}
+                                {market.winningOutcome && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="font-bold text-green-400">Winner: {market.winningOutcome}</span>
+                                  </>
+                                )}
+                                {market.scheduledGame?.homeScore != null && (
+                                  <>
+                                    <span>•</span>
+                                    <span>Score: {market.scheduledGame.homeScore} - {market.scheduledGame.awayScore}</span>
+                                  </>
+                                )}
+                                <span>•</span>
+                                <span>{formatZambianCurrency(market.volume)} vol</span>
+                                {market._count && (
+                                  <>
+                                    <span>•</span>
+                                    <span>{market._count.positions} positions</span>
+                                  </>
+                                )}
+                              </div>
+                              {market.resolvedAt && (
+                                <div className={`text-[10px] ${textMuted} mt-0.5`}>
+                                  Resolved: {formatDateTimeDMY(market.resolvedAt)}
+                                  {market.disputeDeadline && market.status === 'RESOLVED' && (
+                                    <span> • Dispute deadline: {formatDateTimeDMY(market.disputeDeadline)}</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <button onClick={() => router.push(`/?market=${market.id}`)}
+                                className={`p-2 rounded-lg ${isDarkMode ? 'hover:bg-[#252840]' : 'hover:bg-gray-100'} ${textMuted} transition-colors`}
+                                title="View on platform">
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              {canFinalize && (
+                                <button onClick={() => earlyFinalize(market.id)}
+                                  disabled={processing === market.id}
+                                  className="px-3 py-1.5 text-xs font-medium bg-green-500 hover:bg-green-600 text-white rounded-lg disabled:opacity-40 flex items-center gap-1 transition-colors">
+                                  {processing === market.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                                  Finalize Now
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
                 </div>
               )}
             </div>

@@ -112,6 +112,31 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    if (tab === 'resolved') {
+      const markets = await prisma.market.findMany({
+        where: { status: { in: ['RESOLVED', 'FINALIZING', 'FINALIZED'] } },
+        include: {
+          scheduledGame: {
+            select: {
+              externalId: true,
+              competition: true,
+              homeTeamCrest: true,
+              awayTeamCrest: true,
+              utcDate: true,
+              status: true,
+              homeScore: true,
+              awayScore: true,
+              winner: true,
+            }
+          },
+          _count: { select: { orders: true, positions: true, disputes: true } },
+        },
+        orderBy: { resolvedAt: 'desc' },
+        take: 100,
+      })
+      return NextResponse.json({ markets })
+    }
+
     return NextResponse.json({ error: 'Invalid tab' }, { status: 400 })
   } catch (error: any) {
     console.error('[market-maker] GET error:', error)
@@ -617,6 +642,87 @@ export async function POST(request: NextRequest) {
         noOdds,
         total: pendingWithGames.length,
       })
+    }
+
+    // ─── CREATE MARKET (direct, admin only) ───
+    if (action === 'create-market') {
+      const { title, question, description, category, marketType, resolveTime, options, homePrice, drawPrice, awayPrice } = body
+      if (!title || !question) return NextResponse.json({ error: 'Title and question are required' }, { status: 400 })
+      if (!resolveTime) return NextResponse.json({ error: 'Resolve time is required' }, { status: 400 })
+
+      const resolveDate = new Date(resolveTime)
+      if (resolveDate <= new Date()) return NextResponse.json({ error: 'Resolve time must be in the future' }, { status: 400 })
+
+      const finalCategory = category || 'Other'
+      const finalDescription = description || ''
+      const mType = marketType || 'BINARY'
+
+      // Multi-option: create MarketGroup + child Markets
+      if (mType === 'MULTI_OPTION' && Array.isArray(options) && options.length >= 2) {
+        const group = await prisma.$transaction(async (tx) => {
+          const g = await tx.marketGroup.create({
+            data: {
+              title,
+              description: finalDescription,
+              category: finalCategory,
+              displayType: 'multi-option',
+              icon: '🏆',
+              creatorId: session.user!.id,
+            }
+          })
+          for (const opt of options) {
+            if (!opt.trim()) continue
+            await tx.market.create({
+              data: {
+                title: opt.trim(),
+                question: `${title} — ${opt.trim()}`,
+                description: `Option "${opt.trim()}" for: ${title}`,
+                category: finalCategory,
+                resolveTime: resolveDate,
+                creatorId: session.user!.id,
+                groupId: g.id,
+                status: 'ACTIVE',
+                marketType: 'BINARY',
+                ...getCPMMBinaryInit(0.5),
+              }
+            })
+          }
+          return g
+        })
+        return NextResponse.json({ message: `Created market group with ${options.length} options`, group })
+      }
+
+      // Single market (binary or tri-outcome)
+      const hp = parseFloat(homePrice) || 0.5
+      const dp = parseFloat(drawPrice) || 0
+      const ap = parseFloat(awayPrice) || 0.5
+      const isTri = mType === 'TRI_OUTCOME' && dp > 0
+
+      const market = await prisma.market.create({
+        data: {
+          title,
+          question,
+          description: finalDescription,
+          category: finalCategory,
+          resolveTime: resolveDate,
+          creatorId: session.user!.id,
+          status: 'ACTIVE',
+          marketType: isTri ? 'TRI_OUTCOME' : 'BINARY',
+          ...(isTri ? getCPMMTriInit(hp, dp, ap) : getCPMMBinaryInit(hp)),
+          volume: 0,
+        }
+      })
+      return NextResponse.json({ message: 'Market created', market })
+    }
+
+    // ─── EARLY FINALIZE (skip dispute window) ───
+    if (action === 'early-finalize') {
+      const { marketId } = body
+      if (!marketId) return NextResponse.json({ error: 'marketId required' }, { status: 400 })
+
+      const { MarketResolver } = await import('@/lib/market-resolution')
+      const result = await MarketResolver.earlyFinalizeMarket(marketId)
+      return NextResponse.json({ message: 'Market early-finalized', ...result })
     }
 
     // ─── MANAGE CATEGORIES ───
