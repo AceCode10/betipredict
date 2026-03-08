@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { formatZambianCurrency, formatPriceAsNgwee } from '@/utils/currency'
 
-interface BetItem {
+interface TradeItem {
   id: string
   marketId: string
   marketTitle: string
@@ -13,11 +13,11 @@ interface BetItem {
   amount: number // Kwacha to spend
 }
 
-interface BetSlipProps {
-  bets: BetItem[]
-  onUpdateBet: (id: string, amount: number) => void
-  onRemoveBet: (id: string) => void
-  onPlaceBets: () => void
+interface TradeSlipProps {
+  trades: TradeItem[]
+  onUpdateTrade: (id: string, amount: number) => void
+  onRemoveTrade: (id: string) => void
+  onPlaceTrades: () => void
   onClearAll: () => void
   isOpen: boolean
   onClose: () => void
@@ -26,23 +26,23 @@ interface BetSlipProps {
   userBalance?: number
 }
 
-export function BetSlip({ 
-  bets, 
-  onUpdateBet, 
-  onRemoveBet, 
-  onPlaceBets, 
+export function TradeSlip({ 
+  trades, 
+  onUpdateTrade, 
+  onRemoveTrade, 
+  onPlaceTrades, 
   onClearAll,
   isOpen,
   onClose,
   isPlacing = false,
   error = null,
   userBalance = 0
-}: BetSlipProps) {
+}: TradeSlipProps) {
   // Total Kwacha to spend
-  const totalSpend = bets.reduce((sum, bet) => sum + bet.amount, 0)
-  // Potential return if all bets win: shares = amount / price, each share pays K1
-  const totalPotentialReturn = bets.reduce((sum, bet) => {
-    const shares = bet.price > 0 ? bet.amount / bet.price : 0
+  const totalSpend = trades.reduce((sum, trade) => sum + trade.amount, 0)
+  // Potential return if all trades win: shares = amount / price, each share pays K1
+  const totalPotentialReturn = trades.reduce((sum, trade) => {
+    const shares = trade.price > 0 ? trade.amount / trade.price : 0
     return sum + shares
   }, 0)
   const totalProfit = totalPotentialReturn - totalSpend
@@ -57,9 +57,9 @@ export function BetSlip({
       <div className="absolute right-0 top-0 h-full w-full max-w-sm bg-[#1c2030] shadow-xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-white">Bet Slip ({bets.length})</h2>
+          <h2 className="text-lg font-semibold text-white">Trade Slip ({trades.length})</h2>
           <div className="flex items-center gap-2">
-            {bets.length > 0 && (
+            {trades.length > 0 && (
               <button onClick={onClearAll} className="text-sm text-gray-400 hover:text-white">
                 Clear All
               </button>
@@ -70,24 +70,24 @@ export function BetSlip({
           </div>
         </div>
 
-        {/* Bets List */}
+        {/* Trades List */}
         <div className="flex-1 overflow-y-auto">
-          {bets.length === 0 ? (
+          {trades.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
               <div className="text-4xl mb-4">📝</div>
-              <p className="text-lg font-medium mb-2 text-gray-300">Your bet slip is empty</p>
+              <p className="text-lg font-medium mb-2 text-gray-300">Your trade slip is empty</p>
               <p className="text-sm text-center px-8">
-                Click Yes or No on any market to add a bet
+                Click Yes or No on any market to add a trade
               </p>
             </div>
           ) : (
             <div className="p-3 space-y-2">
-              {bets.map((bet) => (
-                <BetItemCard
-                  key={bet.id}
-                  bet={bet}
-                  onUpdateAmount={(amount) => onUpdateBet(bet.id, amount)}
-                  onRemove={() => onRemoveBet(bet.id)}
+              {trades.map((trade) => (
+                <TradeItemCard
+                  key={trade.id}
+                  trade={trade}
+                  onUpdateAmount={(amount) => onUpdateTrade(trade.id, amount)}
+                  onRemove={() => onRemoveTrade(trade.id)}
                 />
               ))}
             </div>
@@ -95,7 +95,7 @@ export function BetSlip({
         </div>
 
         {/* Footer */}
-        {bets.length > 0 && (
+        {trades.length > 0 && (
           <div className="border-t border-gray-700 p-4 space-y-3">
             <div className="space-y-1.5">
               <div className="flex justify-between text-sm">
@@ -127,11 +127,11 @@ export function BetSlip({
             )}
 
             <button
-              onClick={onPlaceBets}
+              onClick={onPlaceTrades}
               disabled={isPlacing || totalSpend <= 0 || insufficientBalance}
               className="w-full py-3 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
             >
-              {isPlacing ? 'Placing Bets...' : `Place ${bets.length} Bet${bets.length > 1 ? 's' : ''} — ${formatZambianCurrency(totalSpend)}`}
+              {isPlacing ? 'Placing Trades...' : `Place ${trades.length} Trade${trades.length > 1 ? 's' : ''} — ${formatZambianCurrency(totalSpend)}`}
             </button>
 
             <p className="text-[10px] text-gray-600 text-center">
@@ -144,18 +144,18 @@ export function BetSlip({
   )
 }
 
-interface BetItemCardProps {
-  bet: BetItem
+interface TradeItemCardProps {
+  trade: TradeItem
   onUpdateAmount: (amount: number) => void
   onRemove: () => void
 }
 
-function BetItemCard({ bet, onUpdateAmount, onRemove }: BetItemCardProps) {
-  const [inputValue, setInputValue] = useState(bet.amount > 0 ? bet.amount.toString() : '')
+function TradeItemCard({ trade, onUpdateAmount, onRemove }: TradeItemCardProps) {
+  const [inputValue, setInputValue] = useState(trade.amount > 0 ? trade.amount.toString() : '')
 
   useEffect(() => {
-    if (bet.amount > 0) setInputValue(bet.amount.toString())
-  }, [bet.amount])
+    if (trade.amount > 0) setInputValue(trade.amount.toString())
+  }, [trade.amount])
 
   const handleAmountChange = (value: string) => {
     setInputValue(value)
@@ -166,7 +166,7 @@ function BetItemCard({ bet, onUpdateAmount, onRemove }: BetItemCardProps) {
   }
 
   const handleQuickAdd = (addAmount: number) => {
-    const newAmount = bet.amount + addAmount
+    const newAmount = trade.amount + addAmount
     if (newAmount >= 0) {
       onUpdateAmount(newAmount)
       setInputValue(newAmount.toString())
@@ -174,7 +174,7 @@ function BetItemCard({ bet, onUpdateAmount, onRemove }: BetItemCardProps) {
   }
 
   // Potential return: shares = kwacha / price, each winning share = K1
-  const potentialReturn = bet.price > 0 ? bet.amount / bet.price : 0
+  const potentialReturn = trade.price > 0 ? trade.amount / trade.price : 0
 
   return (
     <div className="bg-[#232637] rounded-lg p-3 border border-gray-700">
@@ -182,14 +182,14 @@ function BetItemCard({ bet, onUpdateAmount, onRemove }: BetItemCardProps) {
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-              bet.outcome === 'YES' 
+              trade.outcome === 'YES' 
                 ? 'bg-green-500/20 text-green-400' 
                 : 'bg-red-500/20 text-red-400'
             }`}>
-              {bet.outcome} {formatPriceAsNgwee(bet.price)}
+              {trade.outcome} {formatPriceAsNgwee(trade.price)}
             </span>
           </div>
-          <p className="text-xs text-gray-300 line-clamp-2">{bet.marketTitle}</p>
+          <p className="text-xs text-gray-300 line-clamp-2">{trade.marketTitle}</p>
         </div>
         <button onClick={onRemove} className="p-1 hover:bg-gray-600 rounded ml-2">
           <X className="w-4 h-4 text-gray-400" />
@@ -226,7 +226,7 @@ function BetItemCard({ bet, onUpdateAmount, onRemove }: BetItemCardProps) {
       </div>
 
       {/* Potential Return */}
-      {bet.amount > 0 && (
+      {trade.amount > 0 && (
         <div className="flex justify-between text-xs">
           <span className="text-gray-500">To win</span>
           <span className="text-green-400 font-semibold">{formatZambianCurrency(potentialReturn)}</span>

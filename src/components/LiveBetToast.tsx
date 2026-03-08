@@ -16,12 +16,12 @@ export interface LiveTradeToast {
   createdAt: string
 }
 
-interface LiveBetToastProps {
+interface LiveTradeToastProps {
   trades: LiveTradeToast[]
   maxVisible?: number
 }
 
-export function LiveBetToast({ trades, maxVisible = 3 }: LiveBetToastProps) {
+export function LiveTradeToast({ trades, maxVisible = 3 }: LiveTradeToastProps) {
   const [visibleToasts, setVisibleToasts] = useState<(LiveTradeToast & { exiting?: boolean })[]>([])
   const seenIds = useRef(new Set<string>())
 

@@ -28,7 +28,7 @@ interface LiveMatch {
 interface LiveMatchBannerProps {
   category?: string
   onMarketClick?: (marketId: string, outcome?: string) => void
-  onBet?: (marketId: string, outcome: string) => void
+  onTrade?: (marketId: string, outcome: string) => void
   onLiveMarketIds?: (ids: string[]) => void
 }
 
@@ -69,7 +69,7 @@ function getCompetitionShort(code: string, name: string): string {
   return map[code] || code || name.split(' ').map(w => w[0]).join('').substring(0, 3).toUpperCase()
 }
 
-export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLiveMarketIds }: LiveMatchBannerProps) {
+export function LiveMatchBanner({ category = 'all', onMarketClick, onTrade, onLiveMarketIds }: LiveMatchBannerProps) {
   const { isDarkMode } = useTheme()
   const [matches, setMatches] = useState<LiveMatch[]>([])
   const [loading, setLoading] = useState(true)
@@ -236,7 +236,7 @@ export function LiveMatchBanner({ category = 'all', onMarketClick, onBet, onLive
                 </div>
               </div>
 
-              {/* ── Bet buttons: Home | DRAW | Away — 3-outcome tradable ── */}
+              {/* ── Trade buttons: Home | DRAW | Away — 3-outcome tradable ── */}
               <div className="flex gap-1.5 px-4 pb-3">
                 <button
                   onClick={(e) => { e.stopPropagation(); hasMkt && onMarketClick?.(match.marketId!, 'HOME') }}

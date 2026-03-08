@@ -36,11 +36,11 @@ interface HeaderProps {
   searchQuery?: string
   onSearchChange?: (query: string) => void
   onCreateMarket?: () => void
-  betSlipCount?: number
-  onOpenBetSlip?: () => void
+  tradeSlipCount?: number
+  onOpenTradeSlip?: () => void
 }
 
-export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMarket, betSlipCount = 0, onOpenBetSlip }: HeaderProps = {}) {
+export function Header({ searchQuery: externalSearch, onSearchChange, onCreateMarket, tradeSlipCount = 0, onOpenTradeSlip }: HeaderProps = {}) {
   const { data: session, status } = useSession()
   const router = useRouter()
   const { isDarkMode, toggleDarkMode } = useTheme()

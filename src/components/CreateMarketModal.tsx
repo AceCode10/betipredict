@@ -11,7 +11,7 @@ interface CreateMarketModalProps {
   onMarketCreated: () => void
 }
 
-type QuestionType = 'yes-no' | 'multi-option' | 'range' | 'sentiment' | 'date' | 'head-to-head'
+type QuestionType = 'yes-no' | 'multi-option' | 'range' | 'sentiment' | 'date' | 'versus'
 
 const QUESTION_TEMPLATES = [
   { label: 'Yes/No', template: '', type: 'yes-no' as QuestionType, hint: 'Will something happen? Resolves Yes or No.' },
@@ -20,7 +20,7 @@ const QUESTION_TEMPLATES = [
   { label: 'Range', template: 'What price will {asset} hit by {date}?', type: 'range' as QuestionType, hint: 'Threshold levels. e.g. "Bitcoin above $80K?"' },
   { label: 'Sentiment', template: '{topic} on {date}?', type: 'sentiment' as QuestionType, hint: 'Positive/Negative outcome. e.g. "ETF Flows on March 1?"' },
   { label: 'Date', template: 'What day will {event} happen?', type: 'date' as QuestionType, hint: 'Predict the date of an event.' },
-  { label: 'Head-to-Head', template: '{Team/Player A} vs {Team/Player B}?', type: 'head-to-head' as QuestionType, hint: 'Two-way matchup without a draw option.' },
+  { label: 'Versus', template: '{Team/Player A} vs {Team/Player B}?', type: 'versus' as QuestionType, hint: 'Two-way matchup without a draw option.' },
 ]
 
 const CATEGORIES = DEFAULT_CATEGORIES
@@ -194,7 +194,7 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                    questionType === 'range' ? 'Add price/threshold levels as options (e.g. "↑80,000", "↑75,000").' :
                    questionType === 'sentiment' ? 'Add sentiment options (e.g. "Positive", "Negative").' :
                    questionType === 'date' ? 'Add date options (e.g. "March 1", "March 2", "March 3").' :
-                   questionType === 'head-to-head' ? 'Add the two competitors as options.' :
+                   questionType === 'versus' ? 'Add the two competitors as options.' :
                    'Each option will be independently tradable.'}
                 </p>
               )}
@@ -357,18 +357,29 @@ export function CreateMarketModal({ isOpen, onClose, onMarketCreated }: CreateMa
                   <span className={`text-xs font-semibold ${textMuted}`}>MARKET PREVIEW</span>
                 </div>
                 <h4 className={`text-sm font-semibold ${textColor} mb-3`}>{effectiveTitle}</h4>
-                {questionType !== 'yes-no' ? (
+                {questionType === 'range' ? (
+                  /* Polymarket-style: each threshold as a row with Yes/No boxes */
+                  <div className="space-y-2">
+                    {multiOptions.filter(o => o.trim()).map((opt, i) => (
+                      <div key={i} className={`flex items-center gap-2 py-2 px-3 rounded-lg border ${isDarkMode ? 'border-gray-700 bg-[#131722]' : 'border-gray-200 bg-gray-50'}`}>
+                        <span className={`flex-1 text-sm font-medium ${textColor} truncate`}>↑ {opt}</span>
+                        <div className="flex gap-1.5">
+                          <span className={`px-3 py-1 rounded-md text-xs font-semibold ${isDarkMode ? 'bg-green-500/15 text-green-400 border border-green-500/25' : 'bg-green-50 text-green-600 border border-green-200'}`}>Yes</span>
+                          <span className={`px-3 py-1 rounded-md text-xs font-semibold ${isDarkMode ? 'bg-red-500/15 text-red-400 border border-red-500/25' : 'bg-red-50 text-red-600 border border-red-200'}`}>No</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : questionType !== 'yes-no' ? (
                   <div className="space-y-1.5">
                     {multiOptions.filter(o => o.trim()).map((opt, i) => {
                       const optStyle = questionType === 'sentiment'
                         ? (i === 0 ? (isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200')
                           : (isDarkMode ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-red-50 text-red-600 border border-red-200'))
-                        : questionType === 'range'
-                          ? (isDarkMode ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-blue-50 text-blue-600 border border-blue-200')
-                          : (isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200')
+                        : (isDarkMode ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-green-50 text-green-600 border border-green-200')
                       return (
                         <div key={i} className={`flex items-center justify-between py-2 px-3 rounded-lg text-sm font-medium ${optStyle}`}>
-                          <span className="truncate">{questionType === 'range' ? `↑${opt}` : opt}</span>
+                          <span className="truncate">{opt}</span>
                         </div>
                       )
                     })}

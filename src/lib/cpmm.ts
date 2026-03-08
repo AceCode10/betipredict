@@ -2,9 +2,10 @@
  * Constant Product Market Maker (CPMM) for binary outcome markets
  * 
  * Uses the formula: yesShares * noShares = k (constant)
- * Price of YES = noShares / (yesShares + noShares)
- * Price of NO  = yesShares / (yesShares + noShares)
+ * Price of YES = yesShares / (yesShares + noShares)
+ * Price of NO  = noShares / (yesShares + noShares)
  * 
+ * Buying YES increases yesShares → YES price goes UP (correct behavior)
  * All amounts are in Kwacha (K)
  */
 
@@ -17,8 +18,8 @@ export interface PoolState {
 // ════════════════════════════════════════════════════════════════
 // 3-Outcome CPMM (TriPool) for sports markets: Home / Draw / Away
 // Uses: homeShares * drawShares * awayShares = k  (constant)
-// Price(home) = (draw * away) / (home*draw + home*away + draw*away)
-// Prices always sum to ~1.00
+// Price(X) = shares(X) / (homeShares + drawShares + awayShares)
+// Buying X increases X shares → X price goes UP. Prices sum to ~1.00
 // ════════════════════════════════════════════════════════════════
 
 export type TriOutcome = 'HOME' | 'DRAW' | 'AWAY'
@@ -42,12 +43,11 @@ export function initializeTriPool(
   const pD = initialDrawPrice / total
   const pA = initialAwayPrice / total
 
-  // For 3-outcome CPMM: price(X) ∝ 1/shares(X)
-  // So shares(X) ∝ 1/price(X), scaled by liquidity
-  const scale = liquidity / (1/pH + 1/pD + 1/pA)
-  const homeShares = scale / pH
-  const drawShares = scale / pD
-  const awayShares = scale / pA
+  // For 3-outcome CPMM: price(X) = shares(X) / totalShares
+  // So shares(X) ∝ price(X), scaled by liquidity
+  const homeShares = liquidity * pH
+  const drawShares = liquidity * pD
+  const awayShares = liquidity * pA
   const k = homeShares * drawShares * awayShares
 
   return { homeShares, drawShares, awayShares, k }
@@ -55,14 +55,14 @@ export function initializeTriPool(
 
 export function getTriPrices(pool: TriPoolState): { homePrice: number; drawPrice: number; awayPrice: number } {
   const { homeShares: h, drawShares: d, awayShares: a } = pool
-  // Product-based pricing: price(X) = product(others) / sum(all pairwise products)
-  const hd = h * d, ha = h * a, da = d * a
-  const denom = hd + ha + da
-  if (denom === 0) return { homePrice: 0.33, drawPrice: 0.34, awayPrice: 0.33 }
+  // Direct proportion pricing: price(X) = shares(X) / totalShares
+  // Buying X increases X shares, so X price goes up — correct behavior
+  const total = h + d + a
+  if (total === 0) return { homePrice: 0.33, drawPrice: 0.34, awayPrice: 0.33 }
   return {
-    homePrice: da / denom,
-    drawPrice: ha / denom,
-    awayPrice: hd / denom,
+    homePrice: h / total,
+    drawPrice: d / total,
+    awayPrice: a / total,
   }
 }
 
@@ -200,10 +200,10 @@ export function estimateTriPriceImpact(
  */
 export function initializePool(liquidity: number, initialYesPrice: number = 0.5): PoolState {
   // Derive share amounts from desired price and total liquidity
-  // Price(YES) = noShares / (yesShares + noShares) = initialYesPrice
+  // Price(YES) = yesShares / (yesShares + noShares) = initialYesPrice
   // Total = yesShares + noShares ≈ liquidity
-  const noShares = liquidity * initialYesPrice
-  const yesShares = liquidity * (1 - initialYesPrice)
+  const yesShares = liquidity * initialYesPrice
+  const noShares = liquidity * (1 - initialYesPrice)
   const k = yesShares * noShares
 
   return { yesShares, noShares, k }
@@ -217,8 +217,8 @@ export function getPrices(pool: PoolState): { yesPrice: number; noPrice: number 
   if (total === 0) return { yesPrice: 0.5, noPrice: 0.5 }
 
   return {
-    yesPrice: pool.noShares / total,
-    noPrice: pool.yesShares / total
+    yesPrice: pool.yesShares / total,
+    noPrice: pool.noShares / total
   }
 }
 

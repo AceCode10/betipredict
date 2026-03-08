@@ -7,19 +7,6 @@ import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Trophy, Loader2, Messag
 import { formatZambianCurrency, formatDateDMY, formatDateTimeDMY } from '@/utils/currency'
 import { useTheme } from '@/contexts/ThemeContext'
 
-interface Suggestion {
-  id: string
-  title: string
-  description: string | null
-  category: string
-  question: string
-  resolutionSource: string | null
-  status: string
-  rejectionReason: string | null
-  createdAt: string
-  suggester: { id: string; username: string; fullName: string; avatar: string | null }
-}
-
 interface Dispute {
   id: string
   reason: string
@@ -60,7 +47,6 @@ interface Stats {
   resolvedMarkets: number
   totalVolume: number
   totalRevenue: number
-  pendingSuggestions: number
   openDisputes: number
   pendingPayments: number
   newUsersLast7Days: number
@@ -91,15 +77,14 @@ interface PaymentSummary {
   processingCount: number
 }
 
-type TabType = 'suggestions' | 'markets' | 'disputes' | 'users' | 'payments' | 'audit' | 'sync' | 'stats' | 'admin-wallet'
+type TabType = 'markets' | 'disputes' | 'users' | 'payments' | 'audit' | 'sync' | 'stats' | 'admin-wallet'
 
 export default function AdminPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const { isDarkMode } = useTheme()
-  const [activeTab, setActiveTab] = useState<TabType>('suggestions')
+  const [activeTab, setActiveTab] = useState<TabType>('markets')
   const [markets, setMarkets] = useState<any[]>([])
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [disputes, setDisputes] = useState<Dispute[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
@@ -111,15 +96,10 @@ export default function AdminPage() {
   const [syncing, setSyncing] = useState(false)
   const [resolving, setResolving] = useState<string | null>(null)
   const [processing, setProcessing] = useState<string | null>(null)
-  const [rejectionReason, setRejectionReason] = useState('')
-  const [showRejectModal, setShowRejectModal] = useState<string | null>(null)
   const [disputeResponse, setDisputeResponse] = useState('')
   const [disputeNewOutcome, setDisputeNewOutcome] = useState<string>('YES')
   const [showDisputeModal, setShowDisputeModal] = useState<{ id: string; action: 'UPHOLD' | 'REJECT' } | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  // Edit suggestion modal state
-  const [showEditModal, setShowEditModal] = useState<Suggestion | null>(null)
-  const [editFields, setEditFields] = useState({ title: '', question: '', description: '', category: '', resolveTime: '' })
   // User balance adjustment modal state
   const [showAdjustModal, setShowAdjustModal] = useState<AdminUser | null>(null)
   const [adjustType, setAdjustType] = useState<'CREDIT' | 'DEBIT'>('CREDIT')
@@ -164,9 +144,8 @@ export default function AdminPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [marketsRes, suggestionsRes, statsRes, disputesRes, usersRes, auditRes] = await Promise.all([
+      const [marketsRes, statsRes, disputesRes, usersRes, auditRes] = await Promise.all([
         fetch('/api/markets?status=ALL&limit=200'),
-        fetch('/api/suggestions?admin=true&status=PENDING'),
         fetch('/api/admin/stats'),
         fetch('/api/admin/disputes?status=OPEN'),
         fetch('/api/admin/users'),
@@ -175,11 +154,6 @@ export default function AdminPage() {
       
       if (marketsRes.ok) {
         setMarkets(await marketsRes.json())
-      }
-      if (suggestionsRes.ok) {
-        const data = await suggestionsRes.json()
-        setSuggestions(data.suggestions || [])
-        setIsAdmin(data.isAdmin || false)
       }
       if (statsRes.ok) {
         setStats(await statsRes.json())
@@ -210,52 +184,6 @@ export default function AdminPage() {
       console.error('Failed to load data:', err)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const openEditModal = (suggestion: Suggestion) => {
-    setEditFields({
-      title: suggestion.title,
-      question: suggestion.question,
-      description: suggestion.description || '',
-      category: suggestion.category,
-      resolveTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
-    })
-    setShowEditModal(suggestion)
-  }
-
-  const handleEditApprove = async () => {
-    if (!showEditModal) return
-    setProcessing(showEditModal.id)
-    setMessage(null)
-
-    try {
-      const res = await fetch('/api/suggestions', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          suggestionId: showEditModal.id,
-          action: 'APPROVED',
-          edits: {
-            title: editFields.title,
-            question: editFields.question,
-            description: editFields.description,
-            category: editFields.category,
-            resolveTime: editFields.resolveTime || undefined,
-          }
-        })
-      })
-
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to approve')
-
-      setMessage({ type: 'success', text: 'Suggestion approved with edits and market created!' })
-      setShowEditModal(null)
-      await loadData()
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message })
-    } finally {
-      setProcessing(null)
     }
   }
 
@@ -467,40 +395,6 @@ export default function AdminPage() {
     }
   }
 
-  const handleSuggestion = async (suggestionId: string, action: 'APPROVED' | 'REJECTED') => {
-    setProcessing(suggestionId)
-    setMessage(null)
-
-    try {
-      const res = await fetch('/api/suggestions', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          suggestionId,
-          action,
-          rejectionReason: action === 'REJECTED' ? rejectionReason : undefined
-        })
-      })
-
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to process suggestion')
-
-      setMessage({
-        type: 'success',
-        text: action === 'APPROVED' 
-          ? 'Suggestion approved and market created!'
-          : 'Suggestion rejected.'
-      })
-
-      setShowRejectModal(null)
-      setRejectionReason('')
-      await loadData()
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message })
-    } finally {
-      setProcessing(null)
-    }
-  }
 
   if (status === 'loading' || loading) {
     return (
@@ -520,7 +414,6 @@ export default function AdminPage() {
   const needsResolution = activeMarkets.filter((m: any) => m.status === 'ACTIVE' && new Date(m.resolveTime) <= new Date())
   const resolvedMarkets = markets.filter((m: any) => m.status === 'RESOLVED' && matchSearch(m.title))
   const finalizedMarkets = markets.filter((m: any) => m.status === 'FINALIZED' && matchSearch(m.title))
-  const filteredSuggestions = suggestions.filter(s => matchSearch(s.title) || matchSearch(s.question) || matchSearch(s.suggester?.username))
   const filteredDisputes = disputes.filter(d => matchSearch(d.market?.title) || matchSearch(d.reason) || matchSearch(d.disputer?.username))
   const filteredUsers = adminUsers.filter(u => matchSearch(u.fullName) || matchSearch(u.username) || matchSearch(u.email))
   const filteredPayments = payments.filter(p => matchSearch(p.user?.fullName) || matchSearch(p.user?.username) || matchSearch(p.type) || matchSearch(p.status) || matchSearch(p.provider))
@@ -528,7 +421,6 @@ export default function AdminPage() {
 
   const sidebarItems: { id: TabType; label: string; icon: any; badge?: number }[] = [
     { id: 'stats', label: 'Overview', icon: BarChart3 },
-    { id: 'suggestions', label: 'Suggestions', icon: MessageSquare, badge: suggestions.length },
     { id: 'markets', label: 'Markets', icon: Trophy, badge: needsResolution.length + resolvedMarkets.length },
     { id: 'disputes', label: 'Disputes', icon: Gavel, badge: disputes.length },
     { id: 'users', label: 'Users', icon: Users },
@@ -601,7 +493,7 @@ export default function AdminPage() {
             </h2>
             <div className="flex-1" />
             {/* Search — shown for searchable tabs */}
-            {['suggestions', 'markets', 'disputes', 'users', 'payments', 'audit'].includes(activeTab) && (
+            {['markets', 'disputes', 'users', 'payments', 'audit'].includes(activeTab) && (
               <div className={`flex items-center ${isDarkMode ? 'bg-[#1e2130] border-gray-700' : 'bg-gray-100 border-gray-200'} border rounded-lg px-3 py-1.5 w-64`}>
                 <Search className={`w-4 h-4 ${textMuted} flex-shrink-0`} />
                 <input
@@ -633,7 +525,7 @@ export default function AdminPage() {
                 { label: 'Active Markets', value: stats.activeMarkets, color: 'text-green-400' },
                 { label: 'Volume', value: formatZambianCurrency(stats.totalVolume), color: 'text-cyan-400' },
                 { label: 'Revenue', value: formatZambianCurrency(stats.totalRevenue), color: 'text-yellow-400' },
-                { label: 'Pending', value: stats.pendingSuggestions + stats.openDisputes, color: 'text-orange-400' },
+                { label: 'Disputes', value: stats.openDisputes, color: 'text-orange-400' },
                 { label: 'New (7d)', value: stats.newUsersLast7Days, color: 'text-purple-400' },
               ].map(s => (
                 <div key={s.label} className={`${surfaceColor} border ${borderColor} rounded-lg px-3 py-2`}>
@@ -654,89 +546,6 @@ export default function AdminPage() {
               {message.text}
             </div>
           )}
-
-        {/* Suggestions Tab */}
-        {activeTab === 'suggestions' && (
-          <div>
-            <h2 className={`text-sm font-semibold ${textMuted} mb-3 uppercase tracking-wide`}>
-              Pending Suggestions ({filteredSuggestions.length})
-            </h2>
-            {!isAdmin ? (
-              <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
-                <p className={`${textMuted} text-sm`}>Admin access required to review suggestions.</p>
-              </div>
-            ) : filteredSuggestions.length === 0 ? (
-              <div className={`${surfaceColor} border ${borderColor} rounded-xl p-8 text-center`}>
-                <MessageSquare className={`w-12 h-12 mx-auto mb-3 ${textMuted} opacity-50`} />
-                <p className={`${textMuted} text-sm`}>{searchQuery ? 'No suggestions match your search.' : 'No pending suggestions to review.'}</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredSuggestions.map((suggestion) => (
-                  <div key={suggestion.id} className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`px-2 py-0.5 text-[10px] font-medium rounded ${isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
-                            {suggestion.category}
-                          </span>
-                          <span className={`text-xs ${textMuted}`}>
-                            by {suggestion.suggester.username || suggestion.suggester.fullName}
-                          </span>
-                        </div>
-                        <p className={`text-sm font-medium ${textColor}`}>{suggestion.title}</p>
-                        <p className={`text-xs ${textMuted} mt-0.5`}>{suggestion.question}</p>
-                        {suggestion.description && (
-                          <p className={`text-xs ${textMuted} mt-1 line-clamp-2`}>{suggestion.description}</p>
-                        )}
-                        {suggestion.resolutionSource && (
-                          <p className={`text-xs ${textMuted} mt-1`}>
-                            <span className="font-medium">Resolution:</span> {suggestion.resolutionSource}
-                          </p>
-                        )}
-                        <p className={`text-[10px] ${textMuted} mt-2`}>
-                          Submitted: {formatDateDMY(suggestion.createdAt)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className={`flex gap-2 mt-3 pt-3 border-t ${borderColor}`}>
-                      <button
-                        onClick={() => handleSuggestion(suggestion.id, 'APPROVED')}
-                        disabled={processing === suggestion.id}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-green-500/10 border border-green-500/30 text-green-400 rounded-lg hover:bg-green-500/20 disabled:opacity-50 transition-colors"
-                      >
-                        {processing === suggestion.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <CheckCircle className="w-4 h-4" />
-                        )}
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => openEditModal(suggestion)}
-                        disabled={processing === suggestion.id}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-lg hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
-                      >
-                        <Settings className="w-4 h-4" />
-                        Edit & Approve
-                      </button>
-                      <button
-                        onClick={() => setShowRejectModal(suggestion.id)}
-                        disabled={processing === suggestion.id}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/20 disabled:opacity-50 transition-colors"
-                      >
-                        <XCircle className="w-4 h-4" />
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Markets Tab */}
         {activeTab === 'markets' && (
@@ -1305,8 +1114,8 @@ export default function AdminPage() {
                     <MessageSquare className="w-4 h-4 text-orange-400" />
                     <span className={`text-xs ${textMuted}`}>Pending Actions</span>
                   </div>
-                  <p className={`text-2xl font-bold ${textColor}`}>{stats.pendingSuggestions + stats.openDisputes}</p>
-                  <p className={`text-xs ${textMuted}`}>{stats.pendingSuggestions} suggestions, {stats.openDisputes} disputes</p>
+                  <p className={`text-2xl font-bold ${textColor}`}>{stats.openDisputes}</p>
+                  <p className={`text-xs ${textMuted}`}>{stats.openDisputes} open disputes</p>
                 </div>
                 <div className={`${surfaceColor} border ${borderColor} rounded-xl p-4`}>
                   <div className="flex items-center gap-2 mb-2">
@@ -1440,38 +1249,6 @@ export default function AdminPage() {
         </main>
       </div>
 
-      {/* Rejection Modal */}
-      {showRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setShowRejectModal(null)} />
-          <div className={`relative ${surfaceColor} rounded-xl shadow-2xl w-full max-w-md p-6`}>
-            <h3 className={`text-lg font-semibold ${textColor} mb-4`}>Reject Suggestion</h3>
-            <textarea
-              value={rejectionReason}
-              onChange={(e) => setRejectionReason(e.target.value)}
-              placeholder="Reason for rejection (optional)..."
-              rows={3}
-              className={`w-full px-4 py-2.5 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm resize-none`}
-            />
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => setShowRejectModal(null)}
-                className={`flex-1 py-2 text-sm font-medium border ${borderColor} rounded-lg ${textMuted} hover:${textColor}`}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleSuggestion(showRejectModal, 'REJECTED')}
-                disabled={processing === showRejectModal}
-                className="flex-1 py-2 text-sm font-medium bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50"
-              >
-                {processing === showRejectModal ? 'Rejecting...' : 'Confirm Reject'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Dispute Resolution Modal */}
       {showDisputeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1525,86 +1302,6 @@ export default function AdminPage() {
                 }`}
               >
                 {processing === showDisputeModal.id ? 'Processing...' : showDisputeModal.action === 'UPHOLD' ? 'Confirm Uphold' : 'Confirm Reject'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit & Approve Suggestion Modal */}
-      {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 py-8 overflow-y-auto">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setShowEditModal(null)} />
-          <div className={`relative ${surfaceColor} rounded-xl shadow-2xl w-full max-w-lg p-6 my-auto`}>
-            <h3 className={`text-lg font-semibold ${textColor} mb-1`}>Edit & Approve Suggestion</h3>
-            <p className={`text-xs ${textMuted} mb-4`}>
-              Submitted by {showEditModal.suggester.username || showEditModal.suggester.fullName}
-            </p>
-
-            <div className="space-y-3">
-              <div>
-                <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Title</label>
-                <input
-                  value={editFields.title}
-                  onChange={(e) => setEditFields({ ...editFields, title: e.target.value })}
-                  className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`}
-                />
-              </div>
-              <div>
-                <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Question</label>
-                <input
-                  value={editFields.question}
-                  onChange={(e) => setEditFields({ ...editFields, question: e.target.value })}
-                  className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`}
-                />
-              </div>
-              <div>
-                <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Description</label>
-                <textarea
-                  value={editFields.description}
-                  onChange={(e) => setEditFields({ ...editFields, description: e.target.value })}
-                  rows={3}
-                  className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm resize-none`}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Category</label>
-                  <input
-                    value={editFields.category}
-                    onChange={(e) => setEditFields({ ...editFields, category: e.target.value })}
-                    className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`}
-                  />
-                </div>
-                <div>
-                  <label className={`text-xs font-medium ${textMuted} mb-1 block`}>Resolution Date</label>
-                  <input
-                    type="datetime-local"
-                    value={editFields.resolveTime}
-                    onChange={(e) => setEditFields({ ...editFields, resolveTime: e.target.value })}
-                    className={`w-full px-3 py-2 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border ${borderColor} rounded-lg ${textColor} text-sm`}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2 mt-5">
-              <button
-                onClick={() => setShowEditModal(null)}
-                className={`flex-1 py-2.5 text-sm font-medium border ${borderColor} rounded-lg ${textMuted}`}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleEditApprove}
-                disabled={!editFields.title.trim() || !editFields.question.trim() || processing === showEditModal.id}
-                className="flex-1 py-2.5 text-sm font-medium bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-1.5"
-              >
-                {processing === showEditModal.id ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Approving...</>
-                ) : (
-                  <><CheckCircle className="w-4 h-4" /> Approve with Edits</>
-                )}
               </button>
             </div>
           </div>

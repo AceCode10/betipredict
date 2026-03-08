@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
       marketId,
       previousLiquidity: market.liquidity,
       newLiquidity,
-      maxBetNow: Math.round(newLiquidity * 0.10 * 100) / 100,
+      maxTradeNow: Math.round(newLiquidity * 0.10 * 100) / 100,
       updatedPrices: isTri
         ? { homePrice: updatedMarket.yesPrice, drawPrice: updatedMarket.drawPrice, awayPrice: updatedMarket.noPrice }
         : { yesPrice: updatedMarket.yesPrice, noPrice: updatedMarket.noPrice },

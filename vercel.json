@@ -1,1 +1,28 @@
-{}
+{
+  "functions": {
+    "src/app/api/trade/route.ts": {
+      "maxDuration": 30
+    },
+    "src/app/api/cron/*/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/markets/resolve/route.ts": {
+      "maxDuration": 30
+    },
+    "src/app/api/markets/[id]/resolve/route.ts": {
+      "maxDuration": 30
+    },
+    "src/app/api/admin/sync-games/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/admin/migrate-*/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/deposit/route.ts": {
+      "maxDuration": 30
+    },
+    "src/app/api/payments/*/route.ts": {
+      "maxDuration": 30
+    }
+  }
+}

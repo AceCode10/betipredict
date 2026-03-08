@@ -1,3 +1,5 @@
+export const maxDuration = 30
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -8,7 +10,7 @@ import { initializePool, calculateSharesForAmount, calculateSellProceeds, getPri
 // New CLOB engine
 import { OrderBook, CLOBOrder, Fill } from '@/lib/clob'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
-import { calculateTradeFee, FEES, getCPMMMaxBet, roundToNgwee } from '@/lib/fees'
+import { calculateTradeFee, FEES, getCPMMMaxTrade, roundToNgwee } from '@/lib/fees'
 import { sendTradeConfirmation } from '@/lib/email'
 
 // ─── Helpers ────────────────────────────────────────────
@@ -584,12 +586,12 @@ async function handleCPMMTrade(
   const { outcome, side, type, amount, isTri } = params
   const marketId = market.id
 
-  // ── Max bet cap: prevent single trades from exceeding 10% of pool depth ──
+  // ── Max trade cap: prevent single trades from exceeding 10% of pool depth ──
   const poolLiquidity = market.liquidity || (isTri ? FEES.CPMM_TRI_LIQUIDITY : FEES.CPMM_BINARY_LIQUIDITY)
-  const maxBet = getCPMMMaxBet(poolLiquidity)
-  if (side === 'BUY' && amount > maxBet) {
+  const maxTrade = getCPMMMaxTrade(poolLiquidity)
+  if (side === 'BUY' && amount > maxTrade) {
     return NextResponse.json(
-      { error: `Maximum bet for this market is K${maxBet.toFixed(2)}. Your bet of K${amount.toFixed(2)} exceeds the limit.` },
+      { error: `Maximum trade for this market is K${maxTrade.toFixed(2)}. Your trade of K${amount.toFixed(2)} exceeds the limit.` },
       { status: 400 }
     )
   }

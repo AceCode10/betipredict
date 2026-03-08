@@ -6,14 +6,15 @@ import { useWallet, WalletConnectButton } from '@/components/WalletConnect'
 import { useContractService } from '@/lib/contracts'
 import { useOnChainTrade } from '@/hooks/useOnChainTrade'
 import { PriceChart } from '@/components/PriceChart'
-// BetSlip removed — replaced by trading panel in market detail overlay
+// TradeSlip removed — replaced by trading panel in market detail overlay
 import { Header } from '@/components/Header'
 import { Logo } from '@/components/Logo'
 import { CreateMarketModal } from '@/components/CreateMarketModal'
 import { GroupMarketCard } from '@/components/GroupMarketCard'
 import { HowItWorksModal } from '@/components/HowItWorksModal'
 import { WithdrawModal } from '@/components/WithdrawModal'
-import { LiveBetToast, type LiveTradeToast } from '@/components/LiveBetToast'
+import { LiveTradeToast as LiveTradeToastComponent, type LiveTradeToast } from '@/components/LiveBetToast'
+// Note: file is still named LiveBetToast.tsx but exports LiveTradeToast
 import { LiveMatchBanner } from '@/components/LiveMatchBanner'
 import { MarketChat } from '@/components/MarketChat'
 import { useMarketStream, type LiveTrade, type MarketPriceUpdate } from '@/lib/useMarketStream'
@@ -40,8 +41,8 @@ import {
   formatDateTimeDMY 
 } from '@/utils/currency'
 
-// Bet item interface
-interface BetItem {
+// Trade item interface
+interface TradeItem {
   id: string
   marketId: string
   marketTitle: string
@@ -98,7 +99,7 @@ export default function PolymarketStyleHomePage() {
   const [showMarketCreation, setShowMarketCreation] = useState(false)
   const [showWithdraw, setShowWithdraw] = useState(false)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
-  const [placingBets, setPlacingBets] = useState(false)
+  const [placingTrades, setPlacingTrades] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [liveTrades, setLiveTrades] = useState<LiveTradeToast[]>([])
   const [tradeSide, setTradeSide] = useState<'BUY' | 'SELL'>('BUY')
@@ -310,7 +311,7 @@ export default function PolymarketStyleHomePage() {
 
     // If the question is "Will X win?" and title has "vs", it could be either.
     // But if it's specifically "Will [TeamA] win?" where TeamA is in the title, treat as yes/no
-    // because the user is betting Yes/No on that team winning.
+    // because the user is trading Yes/No on that team winning.
     if (yesNoPatterns.some(p => p.test(q))) return 'yes-no'
     if (questionIsAboutWinning) return 'yes-no'
 
@@ -458,7 +459,7 @@ export default function PolymarketStyleHomePage() {
     if (!isLoggedIn && !isOnChain) { signIn(); return }
     if (!shares || shares <= 0) return
 
-    setPlacingBets(true)
+    setPlacingTrades(true)
     setError(null)
 
     try {
@@ -519,7 +520,7 @@ export default function PolymarketStyleHomePage() {
     } catch (err: any) {
       setError(err.message || 'Failed to sell')
     } finally {
-      setPlacingBets(false)
+      setPlacingTrades(false)
     }
   }
 
@@ -527,7 +528,7 @@ export default function PolymarketStyleHomePage() {
     if (!isLoggedIn && !isOnChain) { signIn(); return }
     if (!amount || amount <= 0) return
 
-    setPlacingBets(true)
+    setPlacingTrades(true)
     setError(null)
 
     try {
@@ -589,7 +590,7 @@ export default function PolymarketStyleHomePage() {
     } catch (err: any) {
       setError(err.message || 'Failed to place trade')
     } finally {
-      setPlacingBets(false)
+      setPlacingTrades(false)
     }
   }
 
@@ -630,7 +631,7 @@ export default function PolymarketStyleHomePage() {
   // Polymarket-style homepage
   return (
     <div className={`min-h-screen ${bgColor}`}>
-      {/* Header with search, create, bet slip integrated */}
+      {/* Header with search, create, trade slip integrated */}
       <Header
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -1510,14 +1511,14 @@ export default function PolymarketStyleHomePage() {
                           handleSellFromDetail(market, showChart.outcome, amt)
                         }
                       }}
-                      disabled={placingBets || onChainLoading || amt <= 0 || (tradeSide === 'BUY' && !isOnChain && amt > userBalance) || (tradeSide === 'BUY' && isOnChain && amt > tokenBalance)}
+                      disabled={placingTrades || onChainLoading || amt <= 0 || (tradeSide === 'BUY' && !isOnChain && amt > userBalance) || (tradeSide === 'BUY' && isOnChain && amt > tokenBalance)}
                       className={`w-full py-3.5 text-base font-bold rounded-xl transition-colors disabled:opacity-50 ${
                         tradeSide === 'SELL'
                           ? 'bg-red-500 hover:bg-red-600 text-white'
                           : 'bg-green-500 hover:bg-green-600 text-white'
                       }`}
                     >
-                      {placingBets || onChainLoading ? 'Processing...' : !isLoggedIn && !isOnChain ? 'Sign In to Trade' : `${tradeSide === 'BUY' ? 'Place Bet' : 'Sell Shares'}`}
+                      {placingTrades || onChainLoading ? 'Processing...' : !isLoggedIn && !isOnChain ? 'Sign In to Trade' : `${tradeSide === 'BUY' ? 'Place Trade' : 'Sell Shares'}`}
                     </button>
 
                     {/* To Win / Proceeds */}
@@ -1610,8 +1611,8 @@ export default function PolymarketStyleHomePage() {
         onClose={() => setShowHowItWorks(false)}
       />
 
-      {/* Live Bet Toasts — pop-up notifications for incoming bets */}
-      <LiveBetToast trades={liveTrades} maxVisible={3} />
+      {/* Live Trade Toasts — pop-up notifications for incoming trades */}
+      <LiveTradeToastComponent trades={liveTrades} maxVisible={3} />
 
       {/* Live Connection Indicator */}
       <div className="fixed bottom-4 right-4 z-30">

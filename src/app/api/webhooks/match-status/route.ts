@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
           data: { status: 'CANCELLED' }
         })
 
-        // For cancelled matches, you might want to refund all bets
+        // For cancelled matches, you might want to refund all trades
         // This would require custom logic in MarketResolver
         console.log(`[webhook] Match ${payload.matchId} cancelled`)
         
