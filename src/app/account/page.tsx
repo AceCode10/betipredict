@@ -134,9 +134,60 @@ export default function AccountPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-[#0d1117] flex">
-      {/* Sidebar */}
-      <aside className="w-56 flex-shrink-0 bg-[#161b22] border-r border-gray-800/60 flex flex-col fixed h-full z-30">
+    <div className="min-h-screen bg-[#0d1117] md:flex">
+      {/* Mobile Header + Tab Bar */}
+      <div className="md:hidden sticky top-0 z-30 bg-[#161b22] border-b border-gray-800/60">
+        <div className="flex items-center gap-3 px-4 h-14">
+          <button onClick={() => router.push('/')} className="text-gray-400 hover:text-white transition-colors">
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-white truncate">{profile?.fullName || session?.user?.name}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-green-400">{displayAmount(balance)}</span>
+            <button onClick={() => setHideBalance(!hideBalance)} className="text-gray-600 hover:text-gray-400">
+              {hideBalance ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 px-3 pb-2 overflow-x-auto no-scrollbar">
+          {sidebarItems.map(item => {
+            const Icon = item.icon
+            const isActive = tab === item.key
+            return (
+              <button
+                key={item.key}
+                onClick={() => setTab(item.key)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors ${
+                  isActive
+                    ? 'bg-green-500/15 text-green-400 ring-1 ring-green-500/30'
+                    : 'text-gray-400 hover:text-white hover:bg-[#1c2030]'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {item.label}
+                {item.badge && (
+                  <span className={`px-1 py-0.5 text-[9px] font-bold rounded-full ${isActive ? 'bg-green-500/20' : 'bg-gray-700'}`}>
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex gap-2 px-4 pb-3">
+          <button onClick={() => setShowDeposit(true)} className="flex-1 py-2 text-xs font-medium bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">
+            Deposit
+          </button>
+          <button onClick={() => setShowWithdraw(true)} className="flex-1 py-2 text-xs font-medium bg-[#1c2030] border border-gray-700 text-gray-300 rounded-lg hover:bg-[#252840] transition-colors">
+            Withdraw
+          </button>
+        </div>
+      </div>
+
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex w-56 flex-shrink-0 bg-[#161b22] border-r border-gray-800/60 flex-col fixed h-full z-30">
         {/* Sidebar Header */}
         <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-800/60">
           <button onClick={() => router.push('/')} className="text-gray-400 hover:text-white transition-colors">
@@ -204,9 +255,9 @@ export default function AccountPage() {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 ml-56">
-        {/* Top Bar */}
-        <header className="sticky top-0 z-20 bg-[#0d1117] border-b border-gray-800/60">
+      <div className="flex-1 md:ml-56">
+        {/* Top Bar (desktop only) */}
+        <header className="hidden md:block sticky top-0 z-20 bg-[#0d1117] border-b border-gray-800/60">
           <div className="flex items-center h-14 px-6 gap-4">
             <h2 className="text-lg font-bold text-white capitalize">{tab === 'overview' ? 'Portfolio Overview' : tab}</h2>
             <div className="flex-1" />
@@ -216,7 +267,7 @@ export default function AccountPage() {
           </div>
         </header>
 
-        <main className="px-6 py-6 space-y-6 max-w-[1100px]">
+        <main className="px-4 md:px-6 py-4 md:py-6 space-y-6 max-w-[1100px]">
 
         {/* ═══════════════ OVERVIEW TAB ═══════════════ */}
         {tab === 'overview' && (

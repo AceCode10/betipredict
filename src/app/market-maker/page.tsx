@@ -524,9 +524,47 @@ export default function MarketMakerPage() {
   ]
 
   return (
-    <div className={`min-h-screen ${bgColor} flex`}>
-      {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-56' : 'w-16'} flex-shrink-0 ${isDarkMode ? 'bg-[#171924]' : 'bg-white'} border-r ${borderColor} flex flex-col transition-all duration-200 fixed h-full z-30`}>
+    <div className={`min-h-screen ${bgColor} md:flex`}>
+      {/* Mobile Header + Tab Bar */}
+      <div className={`md:hidden sticky top-0 z-30 ${isDarkMode ? 'bg-[#171924]' : 'bg-white'} border-b ${borderColor}`}>
+        <div className="flex items-center gap-3 px-4 h-14">
+          <button onClick={() => router.push('/')} className={`${textMuted} hover:text-white`}>
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <h1 className={`text-sm font-bold ${textColor}`}>Market Maker</h1>
+          <div className="flex-1" />
+          <button onClick={loadData} className={`p-2 ${textMuted} hover:text-white`}>
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        <div className="flex items-center gap-1 px-3 pb-2 overflow-x-auto no-scrollbar">
+          {tabs.map(tab => {
+            const isActive = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors ${
+                  isActive
+                    ? isDarkMode ? 'bg-green-500/15 text-green-400 ring-1 ring-green-500/30' : 'bg-green-50 text-green-700 ring-1 ring-green-200'
+                    : `${textMuted} ${isDarkMode ? 'hover:bg-[#1e2130]' : 'hover:bg-gray-100'}`
+                }`}
+              >
+                <tab.icon className="w-3.5 h-3.5" />
+                {tab.label}
+                {tab.badge !== undefined && tab.badge > 0 && (
+                  <span className={`px-1 py-0.5 text-[9px] font-bold rounded-full ${isActive ? 'bg-green-500/20' : isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Desktop Sidebar */}
+      <aside className={`hidden md:flex ${sidebarOpen ? 'w-56' : 'w-16'} flex-shrink-0 ${isDarkMode ? 'bg-[#171924]' : 'bg-white'} border-r ${borderColor} flex-col transition-all duration-200 fixed h-full z-30`}>
         <div className={`flex items-center ${sidebarOpen ? 'justify-between px-4' : 'justify-center'} h-14 border-b ${borderColor}`}>
           {sidebarOpen && (
             <div className="flex items-center gap-2">
@@ -596,9 +634,9 @@ export default function MarketMakerPage() {
       </aside>
 
       {/* Main Content */}
-      <main className={`flex-1 ${sidebarOpen ? 'ml-56' : 'ml-16'} transition-all duration-200 min-h-screen`}>
-        {/* Top bar */}
-        <div className={`sticky top-0 z-20 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border-b ${borderColor} px-6 py-3 flex items-center gap-4`}>
+      <main className={`flex-1 ${sidebarOpen ? 'md:ml-56' : 'md:ml-16'} transition-all duration-200 min-h-screen`}>
+        {/* Top bar (desktop only) */}
+        <div className={`hidden md:flex sticky top-0 z-20 ${isDarkMode ? 'bg-[#131722]' : 'bg-gray-50'} border-b ${borderColor} px-6 py-3 items-center gap-4`}>
           <h2 className={`text-lg font-bold ${textColor}`}>
             {tabs.find(t => t.id === activeTab)?.label}
           </h2>
@@ -618,7 +656,7 @@ export default function MarketMakerPage() {
           </button>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 md:p-6">
           {/* Message banner */}
           {message && (
             <div className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium ${

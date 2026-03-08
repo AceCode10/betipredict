@@ -431,9 +431,48 @@ export default function AdminPage() {
   ]
 
   return (
-    <div className={`min-h-screen ${bgColor} flex`}>
-      {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-56' : 'w-16'} flex-shrink-0 ${isDarkMode ? 'bg-[#171924]' : 'bg-white'} border-r ${borderColor} flex flex-col transition-all duration-200 fixed h-full z-30`}>
+    <div className={`min-h-screen ${bgColor} md:flex`}>
+      {/* Mobile Header + Tab Bar */}
+      <div className={`md:hidden sticky top-0 z-30 ${isDarkMode ? 'bg-[#171924]' : 'bg-white'} border-b ${borderColor}`}>
+        <div className={`flex items-center gap-3 px-4 h-14`}>
+          <button onClick={() => router.push('/')} className={`${textMuted} hover:text-white`}>
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <h1 className={`text-sm font-bold ${textColor}`}>Admin Dashboard</h1>
+          <div className="flex-1" />
+          <button onClick={() => loadData()} className={`p-2 ${textMuted} hover:text-white`}>
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex items-center gap-1 px-3 pb-2 overflow-x-auto no-scrollbar">
+          {sidebarItems.map(item => {
+            const Icon = item.icon
+            const isActive = activeTab === item.id
+            return (
+              <button
+                key={item.id}
+                onClick={() => { setActiveTab(item.id); setSearchQuery('') }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors ${
+                  isActive
+                    ? isDarkMode ? 'bg-green-500/15 text-green-400 ring-1 ring-green-500/30' : 'bg-green-50 text-green-700 ring-1 ring-green-200'
+                    : `${textMuted} ${isDarkMode ? 'hover:bg-[#1e2130]' : 'hover:bg-gray-100'}`
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {item.label}
+                {item.badge != null && item.badge > 0 && (
+                  <span className={`px-1 py-0.5 text-[9px] font-bold rounded-full ${isActive ? 'bg-green-500/20' : isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Desktop Sidebar */}
+      <aside className={`hidden md:flex ${sidebarOpen ? 'w-56' : 'w-16'} flex-shrink-0 ${isDarkMode ? 'bg-[#171924]' : 'bg-white'} border-r ${borderColor} flex-col transition-all duration-200 fixed h-full z-30`}>
         {/* Sidebar Header */}
         <div className={`flex items-center ${sidebarOpen ? 'justify-between px-4' : 'justify-center'} h-14 border-b ${borderColor}`}>
           {sidebarOpen && (
@@ -484,9 +523,9 @@ export default function AdminPage() {
       </aside>
 
       {/* Main Content */}
-      <div className={`flex-1 ${sidebarOpen ? 'ml-56' : 'ml-16'} transition-all duration-200`}>
-        {/* Top Bar with Search */}
-        <header className={`sticky top-0 z-20 ${isDarkMode ? 'bg-[#171924]' : 'bg-white'} border-b ${borderColor}`}>
+      <div className={`flex-1 ${sidebarOpen ? 'md:ml-56' : 'md:ml-16'} transition-all duration-200`}>
+        {/* Top Bar with Search (desktop only) */}
+        <header className={`hidden md:block sticky top-0 z-20 ${isDarkMode ? 'bg-[#171924]' : 'bg-white'} border-b ${borderColor}`}>
           <div className="flex items-center h-14 px-6 gap-4">
             <h2 className={`text-lg font-bold ${textColor} capitalize`}>
               {activeTab === 'admin-wallet' ? 'My Wallet' : activeTab.replace('-', ' ')}
@@ -516,7 +555,7 @@ export default function AdminPage() {
           </div>
         </header>
 
-        <main className="px-6 py-6 space-y-6 max-w-[1100px]">
+        <main className="px-4 md:px-6 py-4 md:py-6 space-y-6 max-w-[1100px]">
           {/* Quick Stats Bar */}
           {stats && activeTab === 'stats' && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
